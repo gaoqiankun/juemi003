@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 import inspect
+import os
 from pathlib import Path
 from typing import Any
 
@@ -210,16 +211,13 @@ class Trellis2Provider:
         if not model_path:
             raise ModelProviderConfigurationError("MODEL_PATH is required for real provider mode")
 
-        model_dir = Path(model_path)
-        if not model_dir.exists():
-            raise ModelProviderConfigurationError(
-                f"TRELLIS2 model path does not exist: {model_path}"
-            )
+        model_source, model_reference = cls._resolve_model_reference(model_path)
 
         report: dict[str, Any] = {
             "provider": "trellis2",
-            "model_path": str(model_dir),
-            "model_path_exists": True,
+            "model_path": model_reference,
+            "model_source": model_source,
+            "model_path_exists": model_source == "local",
             "load_pipeline": load_pipeline,
         }
 
@@ -259,18 +257,37 @@ class Trellis2Provider:
         pipeline = None
         if load_pipeline:
             try:
-                pipeline = pipeline_cls.from_pretrained(str(model_dir))
+                pipeline = pipeline_cls.from_pretrained(model_reference)
                 if hasattr(pipeline, "cuda"):
                     pipeline.cuda()
             except Exception as exc:  # pragma: no cover - depends on external runtime
                 raise ModelProviderConfigurationError(
-                    f"failed to load TRELLIS2 pipeline from {model_path}: {exc}"
+                    f"failed to load TRELLIS2 pipeline from {model_reference}: {exc}"
                 ) from exc
             report["pipeline_loaded"] = True
         else:
             report["pipeline_loaded"] = False
 
         return report, pipeline
+
+    @staticmethod
+    def _resolve_model_reference(model_path: str) -> tuple[str, str]:
+        raw_value = model_path.strip()
+        expanded_path = Path(raw_value).expanduser()
+        has_local_path_hint = (
+            raw_value.startswith(("/", ".", "~"))
+            or raw_value.startswith("..")
+        )
+
+        if expanded_path.exists():
+            return "local", str(expanded_path.resolve())
+
+        if has_local_path_hint:
+            raise ModelProviderConfigurationError(
+                f"TRELLIS2 model path does not exist: {model_path}"
+            )
+
+        return "huggingface", raw_value
 
 
 async def _emit_progress(progress_cb, stage_name: str) -> None:

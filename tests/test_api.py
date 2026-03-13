@@ -18,6 +18,7 @@ from gen3d.api import server as server_module
 from gen3d.api.server import create_app, run_real_mode_preflight
 from gen3d.config import ServingConfig
 from gen3d.model.base import ModelProviderConfigurationError
+from gen3d.model.trellis2.provider import Trellis2Provider
 from gen3d.storage.artifact_store import ArtifactStoreConfigurationError
 
 WebhookSender = Callable[[str, dict], Awaitable[None]]
@@ -413,6 +414,15 @@ def test_real_mode_fails_fast_when_model_path_is_missing(tmp_path: Path) -> None
 
     with pytest.raises(ModelProviderConfigurationError, match="model path does not exist"):
         create_app(config)
+
+
+def test_trellis2_provider_accepts_huggingface_repo_id_model_path() -> None:
+    source_type, model_reference = Trellis2Provider._resolve_model_reference(
+        "microsoft/TRELLIS.2-4B"
+    )
+
+    assert source_type == "huggingface"
+    assert model_reference == "microsoft/TRELLIS.2-4B"
 
 
 def test_real_mode_preflight_requires_provider_mode_real(tmp_path: Path) -> None:
