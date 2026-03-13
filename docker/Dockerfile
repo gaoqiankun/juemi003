@@ -103,6 +103,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PIP_NO_CACHE_DIR=1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
     ca-certificates \
     ffmpeg \
     libjpeg-dev \
@@ -115,11 +116,17 @@ COPY --from=builder /opt/TRELLIS.2 /opt/TRELLIS.2
 
 WORKDIR /app
 
-COPY . .
+# Keep the checkout under /app/gen3d so `python serve.py` sees the same
+# package layout as a normal repo checkout (`<parent>/gen3d/...`).
+COPY . /app/gen3d
 
-RUN chmod +x /app/scripts/download_models.sh
+RUN chmod +x /app/gen3d/scripts/download_models.sh
+
+WORKDIR /app/gen3d
 
 ENV PYTHONPATH=/opt/TRELLIS.2 \
+    CC=/usr/bin/gcc \
+    CXX=/usr/bin/g++ \
     PROVIDER_MODE=real \
     MODEL_PROVIDER=trellis2 \
     MODEL_PATH=/models/trellis2 \

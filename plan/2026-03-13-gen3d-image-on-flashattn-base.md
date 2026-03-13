@@ -26,6 +26,7 @@ Date / Status: 2026-03-13 / done
   - 将部署镜像构建改为 builder/final 两阶段
   - builder 阶段继续安装 TRELLIS.2 runtime 及其原生扩展
   - final 阶段复制 builder 的 `/opt/conda` 与 `/opt/TRELLIS.2`
+  - final 阶段补齐 `build-essential` 和 `CC` / `CXX`，避免 Triton/FlexGEMM 首次运行时编译 helper 失败
 - 删除 `docker/Dockerfile.gen3d`
 - 新增根目录 `docker-compose.yml`
   - 主服务命名改为 `hey3d-gen3d`
