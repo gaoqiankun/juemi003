@@ -1,0 +1,42 @@
+version: "2.4"
+
+services:
+  flashattn-devel:
+    image: ${IMAGE_REPOSITORY:-hey3d/flashattn-devel}:${IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        BASE_IMAGE: ${BASE_IMAGE:-pytorch/pytorch:2.6.0-cuda12.4-cudnn9-devel}
+        FLASH_ATTN_INSTALL_TARGET: ${FLASH_ATTN_INSTALL_TARGET:-flash-attn}
+        FLASH_ATTN_INSTALL_ARGS: ${FLASH_ATTN_INSTALL_ARGS:---no-build-isolation}
+        TORCH_CUDA_ARCH_LIST: ${TORCH_CUDA_ARCH_LIST:-}
+        MAX_JOBS: ${MAX_JOBS:-8}
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-}
+        PIP_EXTRA_INDEX_URL: ${PIP_EXTRA_INDEX_URL:-}
+        PIP_TRUSTED_HOST: ${PIP_TRUSTED_HOST:-}
+        PIP_DEFAULT_TIMEOUT: ${PIP_DEFAULT_TIMEOUT:-120}
+    runtime: ${DOCKER_RUNTIME:-nvidia}
+    ipc: host
+    stdin_open: true
+    tty: true
+    environment:
+      TORCH_CUDA_ARCH_LIST: ${TORCH_CUDA_ARCH_LIST:-}
+      NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-all}
+      NVIDIA_DRIVER_CAPABILITIES: ${NVIDIA_DRIVER_CAPABILITIES:-compute,utility}
+
+  flashattn-runtime:
+    image: ${RUNTIME_IMAGE_REPOSITORY:-hey3d/flashattn-runtime}:${RUNTIME_IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: Dockerfile.runtime
+      args:
+        DEVEL_IMAGE: ${DEVEL_IMAGE:-hey3d/flashattn-devel:latest}
+        RUNTIME_BASE_IMAGE: ${RUNTIME_BASE_IMAGE:-pytorch/pytorch:2.6.0-cuda12.4-cudnn9-runtime}
+    runtime: ${DOCKER_RUNTIME:-nvidia}
+    ipc: host
+    stdin_open: true
+    tty: true
+    environment:
+      NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-all}
+      NVIDIA_DRIVER_CAPABILITIES: ${NVIDIA_DRIVER_CAPABILITIES:-compute,utility}

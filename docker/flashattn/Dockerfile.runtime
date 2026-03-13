@@ -1,0 +1,13 @@
+ARG DEVEL_IMAGE=hey3d/flashattn-devel:latest
+ARG RUNTIME_BASE_IMAGE=pytorch/pytorch:2.6.0-cuda12.4-cudnn9-runtime
+FROM ${DEVEL_IMAGE} AS builder
+
+FROM ${RUNTIME_BASE_IMAGE}
+
+COPY --from=builder /opt/conda /opt/conda
+
+RUN python -m pip show flash-attn
+
+WORKDIR /workspace
+
+CMD ["bash"]
