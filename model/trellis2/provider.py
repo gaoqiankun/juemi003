@@ -1,0 +1,316 @@
+from __future__ import annotations
+
+import asyncio
+import importlib
+import inspect
+from pathlib import Path
+from typing import Any
+
+from gen3d.model.base import (
+    GenerationResult,
+    ModelProviderConfigurationError,
+    ModelProviderExecutionError,
+    StageProgress,
+)
+
+
+class MockTrellis2Provider:
+    def __init__(self, stage_delay_ms: int = 60) -> None:
+        self._stage_delay_seconds = max(stage_delay_ms, 0) / 1000
+
+    @classmethod
+    def from_pretrained(cls, model_path: str) -> "MockTrellis2Provider":
+        _ = model_path
+        return cls()
+
+    def estimate_vram_mb(self, batch_size: int, options: dict) -> int:
+        _ = options
+        return batch_size * 20_000
+
+    @property
+    def stages(self) -> list[dict[str, float | str]]:
+        return [
+            {"name": "ss", "weight": 0.20},
+            {"name": "shape", "weight": 0.45},
+            {"name": "material", "weight": 0.35},
+        ]
+
+    async def run_batch(self, images, options, progress_cb=None, cancel_flags=None):
+        _ = cancel_flags
+        failure_stage = self._normalize_failure_stage(options.get("mock_failure_stage"))
+        for stage_name in ("ss", "shape", "material"):
+            if self._stage_delay_seconds:
+                await asyncio.sleep(self._stage_delay_seconds)
+            if failure_stage == stage_name:
+                raise ModelProviderExecutionError(
+                    stage_name=f"gpu_{stage_name}",
+                    message=f"mock failure injected at gpu_{stage_name}",
+                )
+            await _emit_progress(progress_cb, stage_name)
+        return [
+            GenerationResult(
+                mesh={"mock_mesh": True, "input": image},
+                metadata={"mock": True, "resolution": options.get("resolution", 1024)},
+            )
+            for image in images
+        ]
+
+    def export_glb(
+        self,
+        result: GenerationResult,
+        output_path: str | Path,
+        options: dict,
+    ) -> None:
+        _ = result
+        _ = options
+        Path(output_path).write_bytes(b"MOCK_GLB")
+
+    @staticmethod
+    def _normalize_failure_stage(value: Any) -> str | None:
+        if value is None:
+            return None
+        stage = str(value).strip().lower()
+        if stage.startswith("gpu_"):
+            return stage.removeprefix("gpu_")
+        return stage
+
+
+class Trellis2Provider:
+    def __init__(
+        self,
+        *,
+        pipeline: Any,
+        model_path: str,
+    ) -> None:
+        self._pipeline = pipeline
+        self._model_path = model_path
+
+    @classmethod
+    def from_pretrained(cls, model_path: str) -> "Trellis2Provider":
+        report, pipeline = cls._inspect_runtime(model_path, load_pipeline=True)
+        if pipeline is None:  # pragma: no cover - defensive fallback
+            raise ModelProviderConfigurationError(
+                f"failed to load TRELLIS2 pipeline from {model_path}: unknown error"
+            )
+        return cls(pipeline=pipeline, model_path=str(report["model_path"]))
+
+    @classmethod
+    def inspect_runtime(
+        cls,
+        model_path: str,
+        *,
+        load_pipeline: bool = True,
+    ) -> dict[str, Any]:
+        report, _ = cls._inspect_runtime(model_path, load_pipeline=load_pipeline)
+        return report
+
+    def estimate_vram_mb(self, batch_size: int, options: dict[str, Any]) -> int:
+        resolution = int(options.get("resolution", 1024))
+        base = {
+            512: 16_000,
+            1024: 24_000,
+            1536: 32_000,
+        }.get(resolution, 24_000)
+        return int(base * 1.2 * max(batch_size, 1))
+
+    @property
+    def stages(self) -> list[dict[str, float | str]]:
+        return [
+            {"name": "ss", "weight": 0.20},
+            {"name": "shape", "weight": 0.45},
+            {"name": "material", "weight": 0.35},
+        ]
+
+    async def run_batch(self, images, options, progress_cb=None, cancel_flags=None):
+        _ = cancel_flags
+        results: list[GenerationResult] = []
+        for prepared_input in images:
+            image = _extract_pil_image(prepared_input)
+            try:
+                mesh = await asyncio.to_thread(self._run_single, image, options)
+            except Exception as exc:  # pragma: no cover - depends on external runtime
+                raise ModelProviderExecutionError(
+                    stage_name="gpu_run",
+                    message=f"TRELLIS2 inference failed: {exc}",
+                ) from exc
+
+            # Official TRELLIS2 progress hooks are not wired in Phase B round 1.
+            # We still emit the GPU stage sequence so API/event semantics remain stable.
+            for stage_name in ("ss", "shape", "material"):
+                await _emit_progress(progress_cb, stage_name)
+
+            results.append(
+                GenerationResult(
+                    mesh=mesh,
+                    metadata={
+                        "mock": False,
+                        "provider": "trellis2",
+                        "model_path": self._model_path,
+                        "resolution": options.get("resolution", 1024),
+                    },
+                )
+            )
+        return results
+
+    def export_glb(
+        self,
+        result: GenerationResult,
+        output_path: str | Path,
+        options: dict[str, Any],
+    ) -> None:
+        export_target = _resolve_export_target(result)
+        postprocess = getattr(export_target, "postprocess", None)
+        to_glb = getattr(postprocess, "to_glb", None)
+        if to_glb is None:
+            raise ModelProviderExecutionError(
+                stage_name="exporting",
+                message="TRELLIS2 result does not expose o_voxel.postprocess.to_glb()",
+            )
+
+        kwargs = {
+            "output_path": str(output_path),
+            "decimation_target": options.get("decimation_target", 1_000_000),
+            "texture_size": options.get("texture_size", 4096),
+        }
+        try:
+            to_glb(result.mesh, **kwargs)
+        except TypeError:
+            to_glb(**kwargs)
+        except Exception as exc:  # pragma: no cover - depends on external runtime
+            raise ModelProviderExecutionError(
+                stage_name="exporting",
+                message=f"TRELLIS2 GLB export failed: {exc}",
+            ) from exc
+
+    def _run_single(self, image: Any, options: dict[str, Any]) -> Any:
+        return self._pipeline.run(
+            image,
+            resolution=options.get("resolution", 1024),
+            sparse_structure_sampler_params={
+                "steps": options.get("ss_steps", 12),
+                "guidance_scale": options.get("ss_guidance_scale", 7.5),
+            },
+            shape_sampler_params={
+                "steps": options.get("shape_steps", 20),
+                "guidance_scale": options.get("shape_guidance_scale", 7.5),
+            },
+            material_sampler_params={
+                "steps": options.get("material_steps", 12),
+                "guidance_scale": options.get("material_guidance_scale", 3.0),
+            },
+        )[0]
+
+    @classmethod
+    def _inspect_runtime(
+        cls,
+        model_path: str,
+        *,
+        load_pipeline: bool,
+    ) -> tuple[dict[str, Any], Any | None]:
+        if not model_path:
+            raise ModelProviderConfigurationError("MODEL_PATH is required for real provider mode")
+
+        model_dir = Path(model_path)
+        if not model_dir.exists():
+            raise ModelProviderConfigurationError(
+                f"TRELLIS2 model path does not exist: {model_path}"
+            )
+
+        report: dict[str, Any] = {
+            "provider": "trellis2",
+            "model_path": str(model_dir),
+            "model_path_exists": True,
+            "load_pipeline": load_pipeline,
+        }
+
+        try:
+            torch = importlib.import_module("torch")
+        except ModuleNotFoundError as exc:
+            raise ModelProviderConfigurationError(
+                "real provider mode requires the 'torch' package"
+            ) from exc
+
+        report["torch_version"] = getattr(torch, "__version__", None)
+        report["cuda_available"] = bool(torch.cuda.is_available())
+        report["cuda_device_count"] = (
+            int(torch.cuda.device_count()) if report["cuda_available"] else 0
+        )
+        if not report["cuda_available"]:
+            raise ModelProviderConfigurationError(
+                "real provider mode requires a CUDA-enabled torch runtime and visible GPU"
+            )
+
+        try:
+            pipelines_module = importlib.import_module("trellis2.pipelines")
+        except ModuleNotFoundError as exc:
+            raise ModelProviderConfigurationError(
+                "real provider mode requires the 'trellis2' package"
+            ) from exc
+
+        pipeline_cls = getattr(pipelines_module, "Trellis2ImageTo3DPipeline", None)
+        if pipeline_cls is None:
+            raise ModelProviderConfigurationError(
+                "trellis2.pipelines.Trellis2ImageTo3DPipeline is not available"
+            )
+        report["pipeline_class"] = (
+            f"{pipelines_module.__name__}.{pipeline_cls.__name__}"
+        )
+
+        pipeline = None
+        if load_pipeline:
+            try:
+                pipeline = pipeline_cls.from_pretrained(str(model_dir))
+                if hasattr(pipeline, "cuda"):
+                    pipeline.cuda()
+            except Exception as exc:  # pragma: no cover - depends on external runtime
+                raise ModelProviderConfigurationError(
+                    f"failed to load TRELLIS2 pipeline from {model_path}: {exc}"
+                ) from exc
+            report["pipeline_loaded"] = True
+        else:
+            report["pipeline_loaded"] = False
+
+        return report, pipeline
+
+
+async def _emit_progress(progress_cb, stage_name: str) -> None:
+    if progress_cb is None:
+        return
+    callback_result = progress_cb(
+        StageProgress(
+            stage_name=stage_name,
+            step=1,
+            total_steps=1,
+        )
+    )
+    if inspect.isawaitable(callback_result):
+        await callback_result
+
+
+def _extract_pil_image(prepared_input: Any) -> Any:
+    if isinstance(prepared_input, dict) and "image" in prepared_input:
+        return prepared_input["image"]
+    return prepared_input
+
+
+def _resolve_export_target(result: GenerationResult) -> Any:
+    metadata = result.metadata
+    for candidate in (
+        getattr(result.mesh, "o_voxel", None),
+        metadata.get("o_voxel"),
+        result.mesh,
+    ):
+        if candidate is not None and getattr(getattr(candidate, "postprocess", None), "to_glb", None):
+            return candidate
+
+    if isinstance(result.mesh, dict):
+        for key in ("o_voxel", "mesh", "result"):
+            candidate = result.mesh.get(key)
+            if candidate is not None and getattr(
+                getattr(candidate, "postprocess", None),
+                "to_glb",
+                None,
+            ):
+                return candidate
+
+    return result.mesh

@@ -13,7 +13,7 @@ gen3d/plan/            ← 历次规划日志，了解决策背景
 ```
 
 **不要**根据自己的推断改变架构设计，一切以 `PLAN.md` 为准。有疑问先问，不要自己发明。
-完成任务后在对应 plan 文件填入 Commits，或新建 plan 文件，与代码一起提交。
+完成任务后更新对应 plan 文件，或新建 plan 文件，与代码一起提交。
 
 ---
 
@@ -48,7 +48,7 @@ hey3d/
 | 指标 | prometheus-client |
 | 3D 推理 | TRELLIS2（`Trellis2ImageTo3DPipeline`），详见 PLAN.md §TRELLIS2 事实 |
 | GLB 导出 | `o_voxel.postprocess.to_glb()` |
-| Python 版本 | 3.11 |
+| Python 版本 | 3.12.7（本地通过 pyenv virtualenv `hey3d_gen3d` 管理） |
 
 ---
 
@@ -418,17 +418,16 @@ Phase A 至少覆盖：
 ## 9. 本地启动（Phase A）
 
 ```bash
-# 1. 启动依赖（MinIO）
+# 1. 进入仓库
 cd gen3d
-docker compose -f deploy/docker-compose.yml up -d minio
 
-# 2. 安装依赖
-python3.11 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+# 2. 准备 pyenv 环境（首次一次性）
+pyenv virtualenv 3.12.7 hey3d_gen3d
+pyenv local hey3d_gen3d
+python -m pip install -r requirements.txt
 
-# 3. 以 mock 模式启动（不需要 GPU / 不需要模型权重）
-MOCK_PROVIDER=true INTERNAL_API_KEY=dev python -m gen3d.serve
+# 3. 启动 mock 服务（当前 Phase A 不需要 GPU / 不需要模型权重 / 不需要 MinIO）
+INTERNAL_API_KEY=dev python serve.py
 
 # 4. 验证
 curl -H "Authorization: Bearer dev" \
@@ -437,7 +436,7 @@ curl -H "Authorization: Bearer dev" \
      http://localhost:18001/v1/tasks
 
 # 5. 跑测试
-pytest tests/ -v
+python -m pytest tests/ -v
 ```
 
 ---

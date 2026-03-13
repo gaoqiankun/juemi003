@@ -1,5 +1,5 @@
 # gen3d 部署镜像切到 flash-attn 基础镜像
-Date / Status: 2026-03-13 / done / Commits: pending
+Date / Status: 2026-03-13 / done
 
 ## Goal
 
@@ -45,4 +45,3 @@ Date / Status: 2026-03-13 / done / Commits: pending
 
 - 本轮只完成 `gen3d` 部署镜像与 `flashattn` 基础镜像的对接，不涉及再次调整 `flashattn` 基础镜像自身逻辑
 - 当前 macOS 开发机未实际执行 GPU 部署镜像构建；本轮只做 Dockerfile / compose / 文档级收口
-- `Commits` 保持 `pending`

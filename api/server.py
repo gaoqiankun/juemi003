@@ -1,0 +1,351 @@
+from __future__ import annotations
+
+import asyncio
+import json
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
+from typing import Any
+
+from fastapi import Depends, FastAPI, HTTPException, Response, status
+from fastapi.responses import PlainTextResponse, StreamingResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+
+from gen3d.api.schemas import (
+    HealthResponse,
+    TaskArtifactsResponse,
+    TaskCreateRequest,
+    TaskCreateResponse,
+    TaskResponse,
+    task_type_from_request,
+)
+from gen3d.config import ServingConfig
+from gen3d.engine.async_engine import AsyncGen3DEngine
+from gen3d.engine.pipeline import PipelineCoordinator
+from gen3d.engine.sequence import TaskStatus
+from gen3d.model.base import ModelProviderConfigurationError
+from gen3d.model.trellis2.provider import MockTrellis2Provider, Trellis2Provider
+from gen3d.observability.metrics import render_metrics
+from gen3d.stages.export.stage import ExportStage
+from gen3d.stages.gpu.stage import GPUStage
+from gen3d.stages.gpu.worker import GPUWorker
+from gen3d.stages.preprocess.stage import PreprocessStage
+from gen3d.storage.artifact_store import (
+    ArtifactStore,
+    ArtifactStoreConfigurationError,
+    build_boto3_object_storage_client,
+)
+from gen3d.storage.task_store import TaskStore
+
+
+@dataclass(slots=True)
+class AppContainer:
+    config: ServingConfig
+    task_store: TaskStore
+    pipeline: PipelineCoordinator
+    engine: AsyncGen3DEngine
+
+
+def build_provider(config: ServingConfig):
+    provider_name = config.model_provider.strip().lower()
+    provider_mode = config.provider_mode.strip().lower()
+
+    if provider_name != "trellis2":
+        raise ModelProviderConfigurationError(
+            f"unsupported MODEL_PROVIDER: {config.model_provider}"
+        )
+
+    if provider_mode == "mock":
+        return MockTrellis2Provider(stage_delay_ms=config.mock_gpu_stage_delay_ms)
+    if provider_mode == "real":
+        return Trellis2Provider.from_pretrained(config.model_path)
+
+    raise ModelProviderConfigurationError(
+        f"unsupported PROVIDER_MODE: {config.provider_mode}"
+    )
+
+
+def build_artifact_store(config: ServingConfig) -> ArtifactStore:
+    store_mode = config.artifact_store_mode.strip().lower()
+    if store_mode == "local":
+        return ArtifactStore(config.artifacts_dir, mode="local")
+    if store_mode != "minio":
+        raise ArtifactStoreConfigurationError(
+            f"unsupported ARTIFACT_STORE_MODE: {config.artifact_store_mode}"
+        )
+
+    required_fields = {
+        "OBJECT_STORE_ENDPOINT": config.object_store_endpoint,
+        "OBJECT_STORE_BUCKET": config.object_store_bucket,
+        "OBJECT_STORE_ACCESS_KEY": config.object_store_access_key,
+        "OBJECT_STORE_SECRET_KEY": config.object_store_secret_key,
+    }
+    missing = [name for name, value in required_fields.items() if not value]
+    if missing:
+        raise ArtifactStoreConfigurationError(
+            "minio artifact store requires: " + ", ".join(missing)
+        )
+
+    object_store_client = build_boto3_object_storage_client(
+        endpoint_url=str(config.object_store_endpoint),
+        external_endpoint_url=config.object_store_external_endpoint,
+        access_key=str(config.object_store_access_key),
+        secret_key=str(config.object_store_secret_key),
+        region=config.object_store_region,
+    )
+    return ArtifactStore(
+        config.artifacts_dir,
+        mode="minio",
+        object_store_client=object_store_client,
+        object_store_bucket=str(config.object_store_bucket),
+        object_store_prefix=config.object_store_prefix,
+        object_store_presign_ttl_seconds=config.object_store_presign_ttl_seconds,
+    )
+
+
+async def run_real_mode_preflight(config: ServingConfig) -> dict[str, Any]:
+    provider_mode = config.provider_mode.strip().lower()
+    if provider_mode != "real":
+        raise ModelProviderConfigurationError(
+            "--check-real-env requires PROVIDER_MODE=real"
+        )
+
+    artifact_store = build_artifact_store(config)
+    await artifact_store.initialize()
+
+    artifact_report: dict[str, Any] = {
+        "mode": artifact_store.mode,
+        "artifacts_dir": str(config.artifacts_dir),
+    }
+    if artifact_store.mode == "minio":
+        artifact_report.update(
+            {
+                "endpoint": config.object_store_endpoint,
+                "external_endpoint": config.object_store_external_endpoint,
+                "bucket": config.object_store_bucket,
+                "prefix": config.object_store_prefix,
+                "presign_ttl_seconds": config.object_store_presign_ttl_seconds,
+            }
+        )
+
+    provider_name = config.model_provider.strip().lower()
+    if provider_name != "trellis2":
+        raise ModelProviderConfigurationError(
+            f"unsupported MODEL_PROVIDER: {config.model_provider}"
+        )
+
+    provider_report = await asyncio.to_thread(
+        Trellis2Provider.inspect_runtime,
+        config.model_path,
+        load_pipeline=True,
+    )
+    return {
+        "provider_mode": provider_mode,
+        "provider": provider_report,
+        "artifact_store": artifact_report,
+    }
+
+
+def create_app(config: ServingConfig | None = None, webhook_sender=None) -> FastAPI:
+    config = config or ServingConfig()
+    task_store = TaskStore(config.database_path)
+    artifact_store = build_artifact_store(config)
+    provider = build_provider(config)
+    gpu_worker = GPUWorker(worker_id="mock-gpu-0", provider=provider)
+    pipeline = PipelineCoordinator(
+        task_store=task_store,
+        stages=[
+            PreprocessStage(
+                delay_ms=config.preprocess_delay_ms,
+                download_timeout_seconds=config.preprocess_download_timeout_seconds,
+                max_image_bytes=config.preprocess_max_image_bytes,
+            ),
+            GPUStage(delay_ms=config.queue_delay_ms, worker=gpu_worker, task_store=task_store),
+            ExportStage(
+                provider=provider,
+                artifact_store=artifact_store,
+                delay_ms=config.mock_export_delay_ms,
+            ),
+        ],
+    )
+    engine = AsyncGen3DEngine(
+        task_store=task_store,
+        pipeline=pipeline,
+        artifact_store=artifact_store,
+        webhook_sender=webhook_sender,
+        webhook_timeout_seconds=config.webhook_timeout_seconds,
+    )
+    container = AppContainer(
+        config=config,
+        task_store=task_store,
+        pipeline=pipeline,
+        engine=engine,
+    )
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        app.state.container = container
+        await container.task_store.initialize()
+        await artifact_store.initialize()
+        await container.engine.start()
+        yield
+        await container.engine.stop()
+        await container.task_store.close()
+
+    app = FastAPI(title=config.service_name, lifespan=lifespan)
+    auth_scheme = HTTPBearer(auto_error=False)
+
+    def get_container() -> AppContainer:
+        return container
+
+    def verify_bearer_token(
+        credentials: HTTPAuthorizationCredentials | None = Depends(auth_scheme),
+        app_container: AppContainer = Depends(get_container),
+    ) -> None:
+        if (
+            credentials is None
+            or credentials.scheme.lower() != "bearer"
+            or credentials.credentials != app_container.config.internal_api_key
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="invalid bearer token",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+    @app.get("/health", response_model=HealthResponse)
+    async def health(app_container: AppContainer = Depends(get_container)) -> HealthResponse:
+        return HealthResponse(status="ok", service=app_container.config.service_name)
+
+    @app.get("/ready", response_model=HealthResponse)
+    async def ready(app_container: AppContainer = Depends(get_container)) -> HealthResponse:
+        readiness = "ready" if app_container.engine.ready else "ok"
+        return HealthResponse(status=readiness, service=app_container.config.service_name)
+
+    @app.get("/metrics", response_class=PlainTextResponse)
+    async def metrics(app_container: AppContainer = Depends(get_container)) -> str:
+        return render_metrics(ready=app_container.engine.ready)
+
+    @app.post(
+        "/v1/tasks",
+        response_model=TaskCreateResponse,
+        status_code=status.HTTP_201_CREATED,
+        dependencies=[Depends(verify_bearer_token)],
+    )
+    async def create_task(
+        payload: TaskCreateRequest,
+        app_container: AppContainer = Depends(get_container),
+    ) -> TaskCreateResponse:
+        sequence, _ = await app_container.engine.submit_task(
+            task_type=task_type_from_request(payload.type),
+            image_url=payload.image_url,
+            options=payload.options.model_dump(exclude_none=True),
+            callback_url=payload.callback_url,
+            idempotency_key=payload.idempotency_key,
+        )
+        return TaskCreateResponse.from_sequence(sequence)
+
+    @app.get(
+        "/v1/tasks/{task_id}",
+        response_model=TaskResponse,
+        dependencies=[Depends(verify_bearer_token)],
+    )
+    async def get_task(
+        task_id: str,
+        app_container: AppContainer = Depends(get_container),
+    ) -> TaskResponse:
+        sequence = await app_container.engine.get_task(task_id)
+        if sequence is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="task not found",
+            )
+        return TaskResponse.from_sequence(sequence)
+
+    @app.get(
+        "/v1/tasks/{task_id}/events",
+        dependencies=[Depends(verify_bearer_token)],
+    )
+    async def task_events(
+        task_id: str,
+        app_container: AppContainer = Depends(get_container),
+    ) -> StreamingResponse:
+        sequence = await app_container.engine.get_task(task_id)
+        if sequence is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="task not found",
+            )
+
+        async def event_stream():
+            async for event in app_container.engine.stream_events(task_id):
+                yield (
+                    f"event: {event['event']}\n"
+                    f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                )
+
+        return StreamingResponse(
+            event_stream(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+            },
+        )
+
+    @app.post(
+        "/v1/tasks/{task_id}/cancel",
+        response_model=TaskResponse,
+        dependencies=[Depends(verify_bearer_token)],
+    )
+    async def cancel_task(
+        task_id: str,
+        app_container: AppContainer = Depends(get_container),
+    ) -> TaskResponse:
+        result = await app_container.engine.cancel_task(task_id)
+        if result.sequence is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="task not found",
+            )
+        if result.outcome == "already_terminal":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"task already in terminal status: {result.sequence.status.value}",
+            )
+        if result.outcome == "not_cancellable":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"task cannot be cancelled in status: {result.sequence.status.value}",
+            )
+        return TaskResponse.from_sequence(result.sequence)
+
+    @app.get(
+        "/v1/tasks/{task_id}/artifacts",
+        response_model=TaskArtifactsResponse,
+        dependencies=[Depends(verify_bearer_token)],
+    )
+    async def get_artifacts(
+        task_id: str,
+        app_container: AppContainer = Depends(get_container),
+    ) -> TaskArtifactsResponse:
+        sequence = await app_container.engine.get_task(task_id)
+        if sequence is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="task not found",
+            )
+        if sequence.status != TaskStatus.SUCCEEDED:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="artifacts are only available for succeeded tasks",
+            )
+        artifacts = await app_container.engine.get_artifacts(task_id)
+        return TaskArtifactsResponse(
+            artifacts=artifacts or [],
+        )
+
+    @app.get("/", include_in_schema=False)
+    async def root() -> Response:
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    return app

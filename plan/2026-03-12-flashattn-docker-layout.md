@@ -1,5 +1,5 @@
 # flash-attn Docker 目录落位
-Date / Status: 2026-03-12 / done / Commits: pending
+Date / Status: 2026-03-12 / done
 
 ## Goal
 
@@ -36,4 +36,3 @@ Date / Status: 2026-03-12 / done / Commits: pending
 - `docker compose config` 可在新目录下正常展开；新版本 CLI 会提示 `version` 字段过时，但保留该字段是为了兼容服务器上的老版 `docker-compose`
 - `build.sh` 现已改为 fail-fast：若未显式指定 `FLASH_ATTN_INSTALL_TARGET` 且无法在指定 release 中匹配官方 wheel，则直接退出，不再回退安装裸 `flash-attn`
 - 本轮未实际在当前机器重新构建 `flashattn` 镜像，只做了目录迁移和脚本/compose 级校验
-- `Commits` 保持 `pending`
