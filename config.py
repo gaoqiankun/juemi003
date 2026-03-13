@@ -11,7 +11,10 @@ class ServingConfig(BaseSettings):
     log_level: str = "info"
     provider_mode: str = Field(default="mock", alias="PROVIDER_MODE")
     model_provider: str = Field(default="trellis2", alias="MODEL_PROVIDER")
-    model_path: str = Field(default="/models/trellis2", alias="MODEL_PATH")
+    model_path: str = Field(
+        default="microsoft/TRELLIS.2-4B",
+        alias="MODEL_PATH",
+    )
     internal_api_key: str = Field(
         default="dev-internal-token",
         alias="INTERNAL_API_KEY",

@@ -21,7 +21,8 @@ services:
       INTERNAL_API_KEY: ${INTERNAL_API_KEY:-dev-internal-token}
       PROVIDER_MODE: ${PROVIDER_MODE:-real}
       MODEL_PROVIDER: trellis2
-      MODEL_PATH: /models/trellis2
+      MODEL_PATH: ${MODEL_PATH:-microsoft/TRELLIS.2-4B}
+      HF_HOME: /data/huggingface
       ARTIFACT_STORE_MODE: ${ARTIFACT_STORE_MODE:-local}
       DATABASE_PATH: /data/gen3d.sqlite3
       ARTIFACTS_DIR: /data/artifacts
