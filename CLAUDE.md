@@ -2,59 +2,69 @@
 
 > 子仓库：`/Users/gqk/work/hey3d/gen3d/`（独立 git 仓库）
 
----
-
 ## 规划日志
 
-历次规划和执行记录在 `plan/`（当前有 Phase A 架构规划），完成后随代码一起提交。
-
----
+- 历史规划和执行记录在 `plan/`
+- 当前 `plan/` 下所有文件均为 `done`，没有 `planning` 状态
 
 ## 当前状态
 
-**代码未实现，处于规划阶段。**
+- `gen3d` 已是可运行的 Python/FastAPI 3D 生成服务，不再处于纯规划阶段
+- 当前测试基线：`python -m pytest tests -q` 为 `23 passed`
+- Provider：
+  - `mock`：`MockTrellis2Provider`
+  - `real`：`Trellis2Provider`
+  - `hunyuan3d`：占位，未实现
+- Artifact backend：
+  - `local`
+  - `minio`
+- 对外功能已具备：任务提交、任务查询、SSE 事件流、取消、终态 webhook、artifacts 查询
+- 部署材料已齐：`docker/Dockerfile`、根目录 `docker-compose.yml`、`deploy.sh`
+- 真实 TRELLIS2 链路已在 GPU 服务器跑通
 
-仓库内容：
-- `docs/PLAN.md`：完整架构规划（必读，是设计基准）
-- `docs/PLAN.bak.md`：旧版规划备份
-- `AGENTS.md`：Phase A 构建指南（给 AI Coder 的执行说明）
+## 关键路径
 
----
+- `docs/PLAN.md`：架构基线，设计讨论先看这里
+- `AGENTS.md`：给执行代码的 AI Coder 的速查说明
+- 根目录关键文件：
+  - `config.py`
+  - `serve.py`
+  - `requirements.txt`
+  - `requirements-worker.txt`
+  - `docker-compose.yml`
+  - `deploy.sh`
+- 核心目录：
+  - `api/`
+  - `engine/`
+  - `model/`
+  - `stages/`
+  - `storage/`
+  - `observability/`
+  - `tests/`
+  - `scripts/`
+  - `docker/`
+  - `docs/`
+  - `plan/`
 
-## 定位
+## 阶段状态
 
-gen3d 是 3D 生成推理服务，接收图片 → 生成 3D 模型（GLB）。
+- Phase A：完成。Mock 链路、状态流、SSE、取消、webhook、artifacts 已落地
+- Phase B：完成。真实 preprocess、真实 Trellis2 provider、artifact backend、Docker/deploy 材料、GPU 服务器 smoke 已落地
+- Phase C：未开始。Observability 仍只有最小 readiness 指标
+- Phase D：未开始。多机 worker、阶段解耦未做
 
-```
-iOS/server ──POST /v1/tasks──→ gen3d
-gen3d ──生成完成──→ 回调 callback_url（webhook）
-```
+## 已知待办 / 技术债
 
----
+- `model/hunyuan3d/provider.py` 仍是 `NotImplementedError` 占位
+- GPU scheduler 目前只是简单 FIFO 队列，`max_batch + deadline` 调度未实现
+- GPU worker 当前是进程内 wrapper，不是独立多进程 worker
+- Real mode 的 `gpu_ss` / `gpu_shape` / `gpu_material` 进度仍是语义占位，未接上官方细粒度 hook
+- 取消只支持 `gpu_queued` 状态，运行中阶段不可中断
+- `observability/metrics.py` 目前只有 readiness gauge，Prometheus/Grafana 未完成
+- artifact 仍由 root 写宿主机 bind mount，权限收口待处理
 
-## 技术选型（规划）
+## 使用提醒
 
-| 层 | 技术 |
-|---|---|
-| API | FastAPI + uvicorn |
-| 推理 | TRELLIS2（`Trellis2ImageTo3DPipeline`） |
-| GPU 调度 | multiprocessing（每 GPU 一个 Worker 子进程） |
-| 批次形成 | FlowMatchingScheduler（max_batch + deadline 策略） |
-| 存储 | SQLite（任务状态）+ MinIO（产物） |
-
----
-
-## 实现阶段规划
-
-| 阶段 | 目标 |
-|------|------|
-| Phase A | Mock 推理，整个链路端到端跑通 |
-| Phase B | 接入真实 TRELLIS2 权重，真实 GLB 导出 |
-| Phase C | Prometheus 指标 + Grafana 看板 |
-| Phase D | 阶段解耦、多机 Worker |
-
----
-
-## 下一步
-
-启动 Phase A 实现前，先让 AI Coder 读 `docs/PLAN.md` 和 `AGENTS.md`。
+- 不要再把 `gen3d` 当作刚初始化的新项目
+- 设计调整前先读 `docs/PLAN.md` 和相关 `plan/*.md`
+- 若任务涉及 scheduler、worker、多机、observability、权限等边界，先确认是在补技术债还是做新阶段能力
