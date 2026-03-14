@@ -6,6 +6,7 @@
 
 - 设计以 `docs/PLAN.md` 为基准，不要自行发明架构
 - 根目录 `hey3d/` 不是 git 仓库，只在 `gen3d/` 内提交
+- 不执行任何修改 git 树的操作（`git add`、`git commit`、`git push`、`git rebase` 等），完成任务后只汇报结果；只读操作（`git status`、`git log`、`git diff` 等）不受此限。
 - 不要修改 `ios/` 和 `server/` 的文件
 - 完成任务后更新对应 `plan/` 文件，或新建 plan 文件，并与代码一起提交
 
