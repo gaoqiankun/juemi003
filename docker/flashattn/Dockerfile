@@ -17,7 +17,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PIP_TRUSTED_HOST=${PIP_TRUSTED_HOST} \
     PIP_DEFAULT_TIMEOUT=${PIP_DEFAULT_TIMEOUT} \
     CUDA_HOME=/usr/local/cuda \
-    MAX_JOBS=${MAX_JOBS}
+    MAX_JOBS=${MAX_JOBS} \
+    FLASH_ATTENTION_FORCE_BUILD=TRUE
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
@@ -49,7 +50,8 @@ PY
 
 ENV FLASH_ATTN_INSTALL_TARGET=${FLASH_ATTN_INSTALL_TARGET} \
     FLASH_ATTN_INSTALL_ARGS=${FLASH_ATTN_INSTALL_ARGS} \
-    TORCH_CUDA_ARCH_LIST=${TORCH_CUDA_ARCH_LIST}
+    TORCH_CUDA_ARCH_LIST=${TORCH_CUDA_ARCH_LIST} \
+    FLASH_ATTENTION_FORCE_BUILD=TRUE
 
 RUN set -eu; \
     if [ -n "${TORCH_CUDA_ARCH_LIST}" ]; then \
@@ -60,6 +62,23 @@ RUN set -eu; \
     fi
 
 RUN python -m pip show flash-attn
+
+RUN python - <<'PY'
+import importlib.metadata
+import torch
+
+print(
+    {
+        "torch_version": torch.__version__,
+        "torch_cuda": torch.version.cuda,
+        "flash_attn_version": importlib.metadata.version("flash-attn"),
+    }
+)
+
+import flash_attn
+
+print("flash_attn import ok")
+PY
 
 WORKDIR /workspace
 

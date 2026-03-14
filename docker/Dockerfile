@@ -62,7 +62,7 @@ RUN python -m pip install \
       easydict \
       opencv-python-headless \
       trimesh \
-      transformers \
+      "transformers<5" \
       tensorboard \
       pandas \
       lpips \

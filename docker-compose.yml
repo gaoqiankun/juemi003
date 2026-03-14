@@ -5,6 +5,7 @@ services:
     image: ${HEY3D_IMAGE:-hey3d-gen3d:local}
     container_name: hey3d-gen3d
     restart: unless-stopped
+    user: "${HOST_UID:-0}:${HOST_GID:-0}"
     build:
       context: .
       dockerfile: docker/Dockerfile
@@ -22,7 +23,10 @@ services:
       PROVIDER_MODE: ${PROVIDER_MODE:-real}
       MODEL_PROVIDER: trellis2
       MODEL_PATH: ${MODEL_PATH:-microsoft/TRELLIS.2-4B}
+      HOME: /data/home
       HF_HOME: /data/huggingface
+      XDG_CACHE_HOME: /data/.cache
+      TRITON_CACHE_DIR: /data/.triton
       ARTIFACT_STORE_MODE: ${ARTIFACT_STORE_MODE:-local}
       DATABASE_PATH: /data/gen3d.sqlite3
       ARTIFACTS_DIR: /data/artifacts

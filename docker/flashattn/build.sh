@@ -7,7 +7,6 @@ cd "$script_dir"
 target_repository="${TARGET_REPOSITORY:-hey3d/flashattn}"
 force_rebuild=0
 compose_build_args=()
-base_image="${BASE_IMAGE:-pytorch/pytorch:2.6.0-cuda12.4-cudnn9-devel}"
 
 pick_pip_cmd() {
   if command -v python3 >/dev/null 2>&1; then
@@ -74,141 +73,20 @@ resolve_pip_build_env() {
   fi
 }
 
-github_api_headers() {
-  printf '%s\n' "Accept: application/vnd.github+json"
-  if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-    printf '%s\n' "Authorization: Bearer ${GITHUB_TOKEN}"
-  fi
-}
-
-fetch_release_json() {
-  local version="${1:-}"
-  local url=""
-
-  if [[ -n "$version" && "$version" != "latest" ]]; then
-    if [[ "$version" == v* ]]; then
-      url="https://api.github.com/repos/Dao-AILab/flash-attention/releases/tags/${version}"
-    else
-      url="https://api.github.com/repos/Dao-AILab/flash-attention/releases/tags/v${version}"
-    fi
-  else
-    url="https://api.github.com/repos/Dao-AILab/flash-attention/releases/latest"
+configure_flash_attn_install_target() {
+  if [[ -z "${FLASH_ATTN_INSTALL_TARGET:-}" ]]; then
+    FLASH_ATTN_INSTALL_TARGET="flash-attn"
+    export FLASH_ATTN_INSTALL_TARGET
   fi
 
-  local curl_args=(-fsSL)
-  while IFS= read -r header; do
-    curl_args+=(-H "$header")
-  done < <(github_api_headers)
-
-  curl "${curl_args[@]}" "$url"
-}
-
-inspect_base_image_for_flash_attn_wheel() {
-  docker run --rm --entrypoint python "$base_image" -c '
-import json
-import platform
-import sys
-import torch
-
-def torch_minor(version: str) -> str:
-    base = version.split("+", 1)[0]
-    parts = base.split(".")
-    return ".".join(parts[:2])
-
-def cuda_major(version: str | None) -> str:
-    if not version:
-        return "unknown"
-    return version.split(".", 1)[0]
-
-payload = {
-    "torch": torch_minor(torch.__version__),
-    "cuda": cuda_major(torch.version.cuda),
-    "cxx11abi": "TRUE" if torch.compiled_with_cxx11_abi() else "FALSE",
-    "python_tag": f"cp{sys.version_info.major}{sys.version_info.minor}",
-    "platform_tag": "linux_x86_64" if platform.machine() == "x86_64" else f"linux_{platform.machine()}",
-}
-print(json.dumps(payload))
-'
-}
-
-resolve_flash_attn_install_target() {
-  if [[ -n "${FLASH_ATTN_INSTALL_TARGET:-}" && "${FLASH_ATTN_INSTALL_TARGET}" != "flash-attn" ]]; then
-    return 0
-  fi
-
-  if [[ -z "$host_python_cmd" ]]; then
-    printf 'failed to resolve flash-attn install target: no host python found\n' >&2
-    exit 2
-  fi
-
-  local wheel_context release_json
-  if ! wheel_context="$(inspect_base_image_for_flash_attn_wheel)"; then
-    printf 'failed to resolve flash-attn install target: failed to inspect base image %s\n' "$base_image" >&2
-    exit 2
-  fi
-
-  local release_selector="${FLASH_ATTN_VERSION:-2.8.3}"
-  if ! release_json="$(fetch_release_json "$release_selector")"; then
-    printf 'failed to resolve flash-attn install target: failed to fetch release metadata for %s\n' "$release_selector" >&2
-    exit 2
-  fi
-
-  local resolved
-  if ! resolved="$("$host_python_cmd" - "$wheel_context" "$release_json" <<'PY'
-import json
-import sys
-
-context = json.loads(sys.argv[1])
-release = json.loads(sys.argv[2])
-
-release_tag = release["tag_name"]
-release_version = release_tag[1:] if release_tag.startswith("v") else release_tag
-
-if context["cuda"] == "unknown":
-    raise SystemExit(2)
-
-candidate_name = (
-    f"flash_attn-{release_version}"
-    f"+cu{context['cuda']}"
-    f"torch{context['torch']}"
-    f"cxx11abi{context['cxx11abi']}"
-    f"-{context['python_tag']}"
-    f"-{context['python_tag']}"
-    f"-{context['platform_tag']}.whl"
-)
-
-for asset in release.get("assets", []):
-    if asset.get("name") == candidate_name:
-        print(json.dumps(
-            {
-                "version": release_version,
-                "url": asset["browser_download_url"],
-                "name": candidate_name,
-            }
-        ))
-        break
-else:
-    raise SystemExit(1)
-PY
-)"; then
-    printf 'failed to resolve flash-attn install target: no matching official wheel for base image %s in release %s\n' "$base_image" "$release_selector" >&2
-    printf 'set FLASH_ATTN_INSTALL_TARGET explicitly, or choose a different FLASH_ATTN_VERSION\n' >&2
-    exit 2
-  fi
-
-  FLASH_ATTN_INSTALL_TARGET="$("$host_python_cmd" - "$resolved" <<'PY'
-import json
-import sys
-
-payload = json.loads(sys.argv[1])
-print(payload["url"])
-PY
-)"
-  FLASH_ATTN_INSTALL_ARGS=""
-  export FLASH_ATTN_INSTALL_TARGET
-  export FLASH_ATTN_INSTALL_ARGS
-
-  printf 'resolved official flash-attn wheel: %s\n' "$FLASH_ATTN_INSTALL_TARGET"
+  case "$FLASH_ATTN_INSTALL_TARGET" in
+    http://*|https://*|*.whl)
+      printf 'using explicit flash-attn wheel target: %s\n' "$FLASH_ATTN_INSTALL_TARGET"
+      ;;
+    *)
+      printf 'using default flash-attn package target: %s\n' "$FLASH_ATTN_INSTALL_TARGET"
+      ;;
+  esac
 }
 
 usage() {
@@ -248,7 +126,7 @@ else
 fi
 
 resolve_pip_build_env
-resolve_flash_attn_install_target
+configure_flash_attn_install_target
 
 image_name_for() {
   case "$1" in

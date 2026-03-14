@@ -235,6 +235,15 @@ python -m gen3d.serve
 - `hey3d/flashattn-runtime:latest`
 
 因此，先决条件是你已经在目标服务器上把这两层基础镜像 build 好或 load 进本地 Docker。
+为避免容器把宿主机挂载目录写成 `root:root`，部署 `.env` 建议显式保留：
+
+```dotenv
+HOST_UID=<部署用户 uid>
+HOST_GID=<部署用户 gid>
+```
+
+`docker-compose.yml` 会用这两个值让 `hey3d-gen3d` 进程以同一宿主机 uid/gid 运行。
+同时 compose 会把 `HOME`、`HF_HOME`、`XDG_CACHE_HOME`、`TRITON_CACHE_DIR` 固定到 `/data` 下，避免非 root 运行时把缓存写到 `/.triton` 这类不可写路径。
 
 ### Docker build
 
