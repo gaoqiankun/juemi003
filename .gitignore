@@ -19,3 +19,4 @@ models/
 *.db
 
 tmp/
+/model.glb
