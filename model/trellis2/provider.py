@@ -77,6 +77,8 @@ class MockTrellis2Provider:
 
 
 class Trellis2Provider:
+    _PIPELINE_TYPES = {"512", "1024", "1024_cascade", "1536_cascade"}
+
     def __init__(
         self,
         *,
@@ -159,24 +161,53 @@ class Trellis2Provider:
         output_path: str | Path,
         options: dict[str, Any],
     ) -> None:
-        export_target = _resolve_export_target(result)
-        postprocess = getattr(export_target, "postprocess", None)
-        to_glb = getattr(postprocess, "to_glb", None)
-        if to_glb is None:
+        try:
+            o_voxel = importlib.import_module("o_voxel")
+        except ModuleNotFoundError as exc:
             raise ModelProviderExecutionError(
                 stage_name="exporting",
-                message="TRELLIS2 result does not expose o_voxel.postprocess.to_glb()",
+                message="TRELLIS2 GLB export requires the 'o_voxel' package",
+            ) from exc
+
+        mesh = result.mesh
+        required_fields = (
+            "vertices",
+            "faces",
+            "attrs",
+            "coords",
+            "layout",
+            "voxel_size",
+        )
+        missing = [field for field in required_fields if not hasattr(mesh, field)]
+        if missing:
+            raise ModelProviderExecutionError(
+                stage_name="exporting",
+                message=(
+                    "TRELLIS2 result mesh is missing fields required for GLB export: "
+                    + ", ".join(missing)
+                ),
             )
 
-        kwargs = {
-            "output_path": str(output_path),
-            "decimation_target": options.get("decimation_target", 1_000_000),
-            "texture_size": options.get("texture_size", 4096),
-        }
         try:
-            to_glb(result.mesh, **kwargs)
-        except TypeError:
-            to_glb(**kwargs)
+            glb = o_voxel.postprocess.to_glb(
+                vertices=mesh.vertices,
+                faces=mesh.faces,
+                attr_volume=mesh.attrs,
+                coords=mesh.coords,
+                attr_layout=mesh.layout,
+                voxel_size=mesh.voxel_size,
+                aabb=options.get(
+                    "aabb",
+                    [[-0.5, -0.5, -0.5], [0.5, 0.5, 0.5]],
+                ),
+                decimation_target=options.get("decimation_target", 1_000_000),
+                texture_size=options.get("texture_size", 4096),
+                remesh=options.get("remesh", True),
+                remesh_band=options.get("remesh_band", 1),
+                remesh_project=options.get("remesh_project", 0),
+                verbose=options.get("export_verbose", False),
+            )
+            glb.export(str(output_path), extension_webp=True)
         except Exception as exc:  # pragma: no cover - depends on external runtime
             raise ModelProviderExecutionError(
                 stage_name="exporting",
@@ -184,22 +215,55 @@ class Trellis2Provider:
             ) from exc
 
     def _run_single(self, image: Any, options: dict[str, Any]) -> Any:
+        pipeline_type = self._resolve_pipeline_type(options)
         return self._pipeline.run(
             image,
-            resolution=options.get("resolution", 1024),
+            pipeline_type=pipeline_type,
             sparse_structure_sampler_params={
                 "steps": options.get("ss_steps", 12),
-                "guidance_scale": options.get("ss_guidance_scale", 7.5),
+                "guidance_strength": options.get(
+                    "ss_guidance_strength",
+                    options.get("ss_guidance_scale", 7.5),
+                ),
             },
-            shape_sampler_params={
+            shape_slat_sampler_params={
                 "steps": options.get("shape_steps", 20),
-                "guidance_scale": options.get("shape_guidance_scale", 7.5),
+                "guidance_strength": options.get(
+                    "shape_guidance_strength",
+                    options.get("shape_guidance_scale", 7.5),
+                ),
             },
-            material_sampler_params={
+            tex_slat_sampler_params={
                 "steps": options.get("material_steps", 12),
-                "guidance_scale": options.get("material_guidance_scale", 3.0),
+                "guidance_strength": options.get(
+                    "material_guidance_strength",
+                    options.get("material_guidance_scale", 3.0),
+                ),
             },
+            max_num_tokens=options.get("max_num_tokens", 49_152),
         )[0]
+
+    @classmethod
+    def _resolve_pipeline_type(cls, options: dict[str, Any]) -> str:
+        explicit = options.get("pipeline_type")
+        if explicit is not None:
+            pipeline_type = str(explicit).strip()
+            if pipeline_type not in cls._PIPELINE_TYPES:
+                raise ModelProviderExecutionError(
+                    stage_name="gpu_run",
+                    message=(
+                        "unsupported TRELLIS2 pipeline_type: "
+                        f"{pipeline_type}. expected one of {sorted(cls._PIPELINE_TYPES)}"
+                    ),
+                )
+            return pipeline_type
+
+        resolution = int(options.get("resolution", 1024))
+        return {
+            512: "512",
+            1024: "1024_cascade",
+            1536: "1536_cascade",
+        }.get(resolution, "1024_cascade")
 
     @classmethod
     def _inspect_runtime(
@@ -308,26 +372,3 @@ def _extract_pil_image(prepared_input: Any) -> Any:
     if isinstance(prepared_input, dict) and "image" in prepared_input:
         return prepared_input["image"]
     return prepared_input
-
-
-def _resolve_export_target(result: GenerationResult) -> Any:
-    metadata = result.metadata
-    for candidate in (
-        getattr(result.mesh, "o_voxel", None),
-        metadata.get("o_voxel"),
-        result.mesh,
-    ):
-        if candidate is not None and getattr(getattr(candidate, "postprocess", None), "to_glb", None):
-            return candidate
-
-    if isinstance(result.mesh, dict):
-        for key in ("o_voxel", "mesh", "result"):
-            candidate = result.mesh.get(key)
-            if candidate is not None and getattr(
-                getattr(candidate, "postprocess", None),
-                "to_glb",
-                None,
-            ):
-                return candidate
-
-    return result.mesh

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
 import json
 import sys
 import time
@@ -17,7 +18,7 @@ if str(WORKSPACE_ROOT) not in sys.path:
 from gen3d.api import server as server_module
 from gen3d.api.server import create_app, run_real_mode_preflight
 from gen3d.config import ServingConfig
-from gen3d.model.base import ModelProviderConfigurationError
+from gen3d.model.base import GenerationResult, ModelProviderConfigurationError
 from gen3d.model.trellis2.provider import Trellis2Provider
 from gen3d.storage.artifact_store import ArtifactStoreConfigurationError
 
@@ -423,6 +424,123 @@ def test_trellis2_provider_accepts_huggingface_repo_id_model_path() -> None:
 
     assert source_type == "huggingface"
     assert model_reference == "microsoft/TRELLIS.2-4B"
+
+
+def test_trellis2_provider_run_single_uses_official_pipeline_kwargs() -> None:
+    observed: dict[str, object] = {}
+
+    class FakePipeline:
+        def run(self, image, **kwargs):
+            observed["image"] = image
+            observed["kwargs"] = kwargs
+            return ["mesh"]
+
+    provider = Trellis2Provider(
+        pipeline=FakePipeline(),
+        model_path="microsoft/TRELLIS.2-4B",
+    )
+
+    result = provider._run_single(
+        image="image-object",
+        options={
+            "resolution": 512,
+            "ss_steps": 4,
+            "shape_steps": 8,
+            "material_steps": 4,
+            "ss_guidance_scale": 6.5,
+            "shape_guidance_scale": 7.5,
+            "material_guidance_scale": 3.0,
+        },
+    )
+
+    assert result == "mesh"
+    assert observed["image"] == "image-object"
+    assert observed["kwargs"] == {
+        "pipeline_type": "512",
+        "sparse_structure_sampler_params": {
+            "steps": 4,
+            "guidance_strength": 6.5,
+        },
+        "shape_slat_sampler_params": {
+            "steps": 8,
+            "guidance_strength": 7.5,
+        },
+        "tex_slat_sampler_params": {
+            "steps": 4,
+            "guidance_strength": 3.0,
+        },
+        "max_num_tokens": 49_152,
+    }
+
+
+def test_trellis2_provider_export_glb_uses_mesh_with_voxel_fields(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    observed: dict[str, object] = {}
+
+    class FakeGlb:
+        def export(self, output_path: str, extension_webp: bool = False) -> None:
+            observed["export_path"] = output_path
+            observed["extension_webp"] = extension_webp
+
+    class FakePostprocess:
+        @staticmethod
+        def to_glb(**kwargs):
+            observed["to_glb_kwargs"] = kwargs
+            return FakeGlb()
+
+    class FakeOVoxel:
+        postprocess = FakePostprocess()
+
+    original_import_module = importlib.import_module
+
+    def fake_import_module(name: str, package: str | None = None):
+        if name == "o_voxel":
+            return FakeOVoxel()
+        return original_import_module(name, package)
+
+    monkeypatch.setattr(importlib, "import_module", fake_import_module)
+
+    class FakeMesh:
+        vertices = "vertices"
+        faces = "faces"
+        attrs = "attrs"
+        coords = "coords"
+        layout = "layout"
+        voxel_size = 0.01
+
+    provider = Trellis2Provider(
+        pipeline=object(),
+        model_path="microsoft/TRELLIS.2-4B",
+    )
+
+    provider.export_glb(
+        GenerationResult(mesh=FakeMesh()),
+        tmp_path / "model.glb",
+        {
+            "decimation_target": 200_000,
+            "texture_size": 1024,
+        },
+    )
+
+    assert observed["to_glb_kwargs"] == {
+        "vertices": "vertices",
+        "faces": "faces",
+        "attr_volume": "attrs",
+        "coords": "coords",
+        "attr_layout": "layout",
+        "voxel_size": 0.01,
+        "aabb": [[-0.5, -0.5, -0.5], [0.5, 0.5, 0.5]],
+        "decimation_target": 200_000,
+        "texture_size": 1024,
+        "remesh": True,
+        "remesh_band": 1,
+        "remesh_project": 0,
+        "verbose": False,
+    }
+    assert observed["export_path"] == str(tmp_path / "model.glb")
+    assert observed["extension_webp"] is True
 
 
 def test_real_mode_preflight_requires_provider_mode_real(tmp_path: Path) -> None:
