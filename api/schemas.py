@@ -3,21 +3,46 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 from gen3d.engine.sequence import RequestSequence, TaskStatus, TaskType
 
 
 class TaskOptions(BaseModel):
     resolution: Literal[512, 1024, 1536] = 1024
-    ss_steps: int = 12
-    shape_steps: int = 20
-    material_steps: int = 12
-    ss_guidance_scale: float = 7.5
-    shape_guidance_scale: float = 7.5
-    material_guidance_scale: float = 3.0
-    decimation_target: int = 1_000_000
-    texture_size: int = 4096
+    ss_steps: int = Field(default=12, ge=1, le=64)
+    shape_steps: int = Field(default=20, ge=1, le=64)
+    material_steps: int = Field(default=12, ge=1, le=64)
+    ss_guidance_scale: float = Field(
+        default=7.5,
+        ge=0.0,
+        le=20.0,
+        validation_alias=AliasChoices("ss_guidance_scale", "ss_guidance_strength"),
+    )
+    shape_guidance_scale: float = Field(
+        default=7.5,
+        ge=0.0,
+        le=20.0,
+        validation_alias=AliasChoices("shape_guidance_scale", "shape_guidance_strength"),
+    )
+    material_guidance_scale: float = Field(
+        default=3.0,
+        ge=0.0,
+        le=20.0,
+        validation_alias=AliasChoices(
+            "material_guidance_scale",
+            "material_guidance_strength",
+        ),
+    )
+    decimation_target: int = Field(default=1_000_000, ge=1, le=2_000_000)
+    texture_size: int = Field(default=4096, ge=512, le=8192)
+    max_num_tokens: int = Field(default=49_152, ge=1_024, le=98_304)
+    pipeline_type: Literal["512", "1024", "1024_cascade", "1536_cascade"] | None = None
+    aabb: tuple[tuple[float, float, float], tuple[float, float, float]] | None = None
+    remesh: bool = True
+    remesh_band: int = Field(default=1, ge=0, le=8)
+    remesh_project: int = Field(default=0, ge=0, le=8)
+    export_verbose: bool = False
     mock_failure_stage: Literal[
         "preprocessing",
         "gpu_ss",
@@ -27,7 +52,7 @@ class TaskOptions(BaseModel):
         "uploading",
     ] | None = None
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
 
 
 class TaskCreateRequest(BaseModel):

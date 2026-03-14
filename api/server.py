@@ -6,8 +6,8 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any
 
-from fastapi import Depends, FastAPI, HTTPException, Response, status
-from fastapi.responses import PlainTextResponse, StreamingResponse
+from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
+from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from gen3d.api.schemas import (
@@ -18,13 +18,19 @@ from gen3d.api.schemas import (
     TaskResponse,
     task_type_from_request,
 )
-from gen3d.config import ServingConfig
+from gen3d.config import ServingConfig, ServingConfigurationError
 from gen3d.engine.async_engine import AsyncGen3DEngine
 from gen3d.engine.pipeline import PipelineCoordinator
 from gen3d.engine.sequence import TaskStatus
 from gen3d.model.base import ModelProviderConfigurationError
 from gen3d.model.trellis2.provider import MockTrellis2Provider, Trellis2Provider
 from gen3d.observability.metrics import render_metrics
+from gen3d.security import (
+    RateLimitExceededError,
+    TaskSubmissionValidationError,
+    TokenRateLimiter,
+    is_loopback_host,
+)
 from gen3d.stages.export.stage import ExportStage
 from gen3d.stages.gpu.stage import GPUStage
 from gen3d.stages.gpu.worker import GPUWorker
@@ -41,6 +47,7 @@ from gen3d.storage.task_store import TaskStore
 class AppContainer:
     config: ServingConfig
     task_store: TaskStore
+    artifact_store: ArtifactStore
     pipeline: PipelineCoordinator
     engine: AsyncGen3DEngine
 
@@ -145,11 +152,25 @@ async def run_real_mode_preflight(config: ServingConfig) -> dict[str, Any]:
     }
 
 
+def validate_runtime_security_config(config: ServingConfig) -> None:
+    if config.is_mock_provider:
+        return
+    if not config.api_token:
+        raise ServingConfigurationError(
+            "API_TOKEN is required when PROVIDER_MODE != mock"
+        )
+
+
 def create_app(config: ServingConfig | None = None, webhook_sender=None) -> FastAPI:
     config = config or ServingConfig()
+    validate_runtime_security_config(config)
     task_store = TaskStore(config.database_path)
     artifact_store = build_artifact_store(config)
     provider = build_provider(config)
+    rate_limiter = TokenRateLimiter(
+        max_concurrent=config.rate_limit_concurrent,
+        max_requests_per_hour=config.rate_limit_per_hour,
+    )
     gpu_worker = GPUWorker(worker_id="mock-gpu-0", provider=provider)
     pipeline = PipelineCoordinator(
         task_store=task_store,
@@ -158,6 +179,7 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
                 delay_ms=config.preprocess_delay_ms,
                 download_timeout_seconds=config.preprocess_download_timeout_seconds,
                 max_image_bytes=config.preprocess_max_image_bytes,
+                allow_local_inputs=config.is_mock_provider,
             ),
             GPUStage(delay_ms=config.queue_delay_ms, worker=gpu_worker, task_store=task_store),
             ExportStage(
@@ -173,10 +195,14 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
         artifact_store=artifact_store,
         webhook_sender=webhook_sender,
         webhook_timeout_seconds=config.webhook_timeout_seconds,
+        provider_mode=config.provider_mode,
+        allowed_callback_domains=config.allowed_callback_domains,
+        rate_limiter=rate_limiter,
     )
     container = AppContainer(
         config=config,
         task_store=task_store,
+        artifact_store=artifact_store,
         pipeline=pipeline,
         engine=engine,
     )
@@ -197,20 +223,50 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
     def get_container() -> AppContainer:
         return container
 
-    def verify_bearer_token(
+    def require_bearer_token(
         credentials: HTTPAuthorizationCredentials | None = Depends(auth_scheme),
         app_container: AppContainer = Depends(get_container),
-    ) -> None:
+    ) -> str | None:
+        configured_token = app_container.config.api_token
+        if configured_token is None and app_container.config.is_mock_provider:
+            return None
         if (
             credentials is None
             or credentials.scheme.lower() != "bearer"
-            or credentials.credentials != app_container.config.internal_api_key
+            or credentials.credentials != configured_token
         ):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="invalid bearer token",
                 headers={"WWW-Authenticate": "Bearer"},
             )
+        return credentials.credentials
+
+    def require_metrics_access(
+        request: Request,
+        credentials: HTTPAuthorizationCredentials | None = Depends(auth_scheme),
+        app_container: AppContainer = Depends(get_container),
+    ) -> None:
+        if is_loopback_host(request.client.host if request.client else None):
+            return
+        configured_token = app_container.config.api_token
+        if (
+            configured_token
+            and credentials is not None
+            and credentials.scheme.lower() == "bearer"
+            and credentials.credentials == configured_token
+        ):
+            return
+        if configured_token:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="invalid bearer token",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="metrics are only available from loopback without API_TOKEN",
+        )
 
     @app.get("/health", response_model=HealthResponse)
     async def health(app_container: AppContainer = Depends(get_container)) -> HealthResponse:
@@ -221,7 +277,11 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
         readiness = "ready" if app_container.engine.ready else "ok"
         return HealthResponse(status=readiness, service=app_container.config.service_name)
 
-    @app.get("/metrics", response_class=PlainTextResponse)
+    @app.get(
+        "/metrics",
+        response_class=PlainTextResponse,
+        dependencies=[Depends(require_metrics_access)],
+    )
     async def metrics(app_container: AppContainer = Depends(get_container)) -> str:
         return render_metrics(ready=app_container.engine.ready)
 
@@ -229,25 +289,37 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
         "/v1/tasks",
         response_model=TaskCreateResponse,
         status_code=status.HTTP_201_CREATED,
-        dependencies=[Depends(verify_bearer_token)],
     )
     async def create_task(
         payload: TaskCreateRequest,
+        api_token: str | None = Depends(require_bearer_token),
         app_container: AppContainer = Depends(get_container),
     ) -> TaskCreateResponse:
-        sequence, _ = await app_container.engine.submit_task(
-            task_type=task_type_from_request(payload.type),
-            image_url=payload.image_url,
-            options=payload.options.model_dump(exclude_none=True),
-            callback_url=payload.callback_url,
-            idempotency_key=payload.idempotency_key,
-        )
+        try:
+            sequence, _ = await app_container.engine.submit_task(
+                task_type=task_type_from_request(payload.type),
+                image_url=payload.image_url,
+                options=payload.options.model_dump(exclude_none=True),
+                callback_url=payload.callback_url,
+                idempotency_key=payload.idempotency_key,
+                api_token=api_token,
+            )
+        except TaskSubmissionValidationError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail=str(exc),
+            ) from exc
+        except RateLimitExceededError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=str(exc),
+            ) from exc
         return TaskCreateResponse.from_sequence(sequence)
 
     @app.get(
         "/v1/tasks/{task_id}",
         response_model=TaskResponse,
-        dependencies=[Depends(verify_bearer_token)],
+        dependencies=[Depends(require_bearer_token)],
     )
     async def get_task(
         task_id: str,
@@ -263,7 +335,7 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
 
     @app.get(
         "/v1/tasks/{task_id}/events",
-        dependencies=[Depends(verify_bearer_token)],
+        dependencies=[Depends(require_bearer_token)],
     )
     async def task_events(
         task_id: str,
@@ -295,7 +367,7 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
     @app.post(
         "/v1/tasks/{task_id}/cancel",
         response_model=TaskResponse,
-        dependencies=[Depends(verify_bearer_token)],
+        dependencies=[Depends(require_bearer_token)],
     )
     async def cancel_task(
         task_id: str,
@@ -322,7 +394,7 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
     @app.get(
         "/v1/tasks/{task_id}/artifacts",
         response_model=TaskArtifactsResponse,
-        dependencies=[Depends(verify_bearer_token)],
+        dependencies=[Depends(require_bearer_token)],
     )
     async def get_artifacts(
         task_id: str,
@@ -343,6 +415,37 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
         return TaskArtifactsResponse(
             artifacts=artifacts or [],
         )
+
+    @app.get(
+        "/v1/tasks/{task_id}/artifacts/{filename}",
+        dependencies=[Depends(require_bearer_token)],
+    )
+    async def download_artifact(
+        task_id: str,
+        filename: str,
+        app_container: AppContainer = Depends(get_container),
+    ) -> FileResponse:
+        sequence = await app_container.engine.get_task(task_id)
+        if sequence is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="task not found",
+            )
+        if sequence.status != TaskStatus.SUCCEEDED:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="artifacts are only available for succeeded tasks",
+            )
+        artifact_path = await app_container.artifact_store.get_local_artifact_path(
+            task_id,
+            filename,
+        )
+        if artifact_path is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="artifact not found",
+            )
+        return FileResponse(path=artifact_path, filename=artifact_path.name)
 
     @app.get("/", include_in_schema=False)
     async def root() -> Response:

@@ -9,7 +9,17 @@ from typing import Any, Awaitable, Callable
 import httpx
 
 from gen3d.engine.pipeline import CancelRequestResult, PipelineCoordinator
-from gen3d.engine.sequence import RequestSequence, TaskStatus, TaskType
+from gen3d.engine.sequence import (
+    RequestSequence,
+    TERMINAL_STATUSES,
+    TaskStatus,
+    TaskType,
+)
+from gen3d.security import (
+    TokenRateLimiter,
+    validate_callback_url,
+    validate_image_url,
+)
 from gen3d.storage.artifact_store import ArtifactStore
 from gen3d.storage.task_store import TaskStore
 
@@ -31,6 +41,9 @@ class AsyncGen3DEngine:
         artifact_store: ArtifactStore | None = None,
         webhook_sender: WebhookSender | None = None,
         webhook_timeout_seconds: float = 2.0,
+        provider_mode: str = "mock",
+        allowed_callback_domains: tuple[str, ...] = (),
+        rate_limiter: TokenRateLimiter | None = None,
     ) -> None:
         self._task_store = task_store
         self._pipeline = pipeline
@@ -39,6 +52,9 @@ class AsyncGen3DEngine:
         self._event_queues: dict[str, set[asyncio.Queue[dict[str, Any]]]] = defaultdict(set)
         self._webhook_sender = webhook_sender or self._default_webhook_sender
         self._webhook_timeout_seconds = webhook_timeout_seconds
+        self._allow_local_inputs = provider_mode.strip().lower() == "mock"
+        self._allowed_callback_domains = allowed_callback_domains
+        self._rate_limiter = rate_limiter
         self._pipeline.add_listener(self._publish_update)
 
     async def start(self) -> None:
@@ -61,11 +77,25 @@ class AsyncGen3DEngine:
         options: dict,
         callback_url: str | None = None,
         idempotency_key: str | None = None,
+        api_token: str | None = None,
     ) -> tuple[RequestSequence, bool]:
+        image_url = validate_image_url(
+            image_url,
+            allow_local_inputs=self._allow_local_inputs,
+        )
+        callback_url = validate_callback_url(
+            callback_url,
+            allowed_domains=self._allowed_callback_domains,
+        )
+        rate_limit_key = api_token or "anonymous"
+        if self._rate_limiter is not None:
+            await self._rate_limiter.record_request(rate_limit_key)
         if idempotency_key:
             existing = await self._task_store.get_task_by_idempotency_key(idempotency_key)
             if existing is not None:
                 return existing, False
+        if self._rate_limiter is not None:
+            await self._rate_limiter.check_concurrent_tasks(rate_limit_key)
 
         sequence = RequestSequence.new_task(
             input_url=image_url,
@@ -76,6 +106,8 @@ class AsyncGen3DEngine:
         )
         await self._task_store.create_task(sequence)
         await self._pipeline.enqueue(sequence.task_id)
+        if self._rate_limiter is not None:
+            await self._rate_limiter.register_task(rate_limit_key, sequence.task_id)
         return sequence, True
 
     async def get_task(self, task_id: str) -> RequestSequence | None:
@@ -145,6 +177,8 @@ class AsyncGen3DEngine:
         payload = self._build_event_payload(sequence, event, metadata)
         for queue in list(self._event_queues.get(sequence.task_id, ())):
             queue.put_nowait(payload)
+        if self._rate_limiter is not None and sequence.status in TERMINAL_STATUSES:
+            await self._rate_limiter.release_task(sequence.task_id)
         if (
             event in {"succeeded", "failed"}
             and sequence.callback_url

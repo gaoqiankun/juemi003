@@ -430,11 +430,11 @@ estimatedWaitSeconds =
 
 ```
 POST   /v1/tasks
-  Auth: Bearer <INTERNAL_API_KEY>
+  Auth: Bearer <API_TOKEN>
   Body: {
     type: "image_to_3d",
-    image_url: str,
-    callback_url: str (optional),
+    image_url: str,                         # real mode must be http(s)
+    callback_url: str (optional),          # http(s), optional host allowlist
     idempotency_key: str (optional),
     options: {
       resolution: int (default 1024),        # 512 / 1024 / 1536
@@ -463,7 +463,10 @@ GET    /v1/tasks/{id}/events              # SSE
 POST   /v1/tasks/{id}/cancel
 
 GET    /v1/tasks/{id}/artifacts
-  Returns: { artifacts: [{ type: "glb", url: "<presigned>", expires_at }] }
+  Returns: { artifacts: [{ type: "glb", url: "<proxy-or-presigned>", expires_at }] }
+
+GET    /v1/tasks/{id}/artifacts/{filename}
+  Returns: local backend artifact bytes via API proxy
 
 GET    /health   GET /ready   GET /metrics
 ```

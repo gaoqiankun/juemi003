@@ -119,6 +119,9 @@ def test_pipeline_persists_full_success_history(tmp_path: Path) -> None:
             assert current is not None
             assert current.status == TaskStatus.SUCCEEDED
             assert current.artifacts
+            assert current.artifacts[0]["url"].startswith(
+                f"/v1/tasks/{sequence.task_id}/artifacts/"
+            )
 
             events = await task_store.list_task_events(sequence.task_id)
             event_statuses = [event["metadata"].get("status") for event in events]

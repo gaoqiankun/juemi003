@@ -17,9 +17,9 @@ if str(WORKSPACE_ROOT) not in sys.path:
 
 from gen3d.api import server as server_module
 from gen3d.api.server import create_app, run_real_mode_preflight
-from gen3d.config import ServingConfig
+from gen3d.config import ServingConfig, ServingConfigurationError
 from gen3d.model.base import GenerationResult, ModelProviderConfigurationError
-from gen3d.model.trellis2.provider import Trellis2Provider
+from gen3d.model.trellis2.provider import MockTrellis2Provider, Trellis2Provider
 from gen3d.storage.artifact_store import ArtifactStoreConfigurationError
 
 WebhookSender = Callable[[str, dict], Awaitable[None]]
@@ -34,17 +34,47 @@ def make_client(
     *,
     queue_delay_ms: int = 200,
     webhook_sender: WebhookSender | None = None,
+    api_token: str | None = "test-token",
+    rate_limit_concurrent: int = 5,
+    rate_limit_per_hour: int = 100,
 ) -> TestClient:
     config = ServingConfig(
-        internal_api_key="test-token",
+        api_token=api_token,
         database_path=tmp_path / "gen3d.sqlite3",
         artifacts_dir=tmp_path / "artifacts",
         preprocess_delay_ms=40,
         queue_delay_ms=queue_delay_ms,
         mock_gpu_stage_delay_ms=60,
         mock_export_delay_ms=40,
+        rate_limit_concurrent=rate_limit_concurrent,
+        rate_limit_per_hour=rate_limit_per_hour,
     )
     return TestClient(create_app(config, webhook_sender=webhook_sender))
+
+
+def make_real_mode_client(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    allowed_callback_domains: tuple[str, ...] = (),
+) -> TestClient:
+    monkeypatch.setattr(
+        server_module,
+        "build_provider",
+        lambda config: MockTrellis2Provider(stage_delay_ms=0),
+    )
+    config = ServingConfig(
+        provider_mode="real",
+        api_token="test-token",
+        database_path=tmp_path / "gen3d-real.sqlite3",
+        artifacts_dir=tmp_path / "artifacts-real",
+        preprocess_delay_ms=0,
+        queue_delay_ms=20,
+        mock_gpu_stage_delay_ms=0,
+        mock_export_delay_ms=0,
+        allowed_callback_domains=allowed_callback_domains,
+    )
+    return TestClient(create_app(config))
 
 
 def auth_headers() -> dict[str, str]:
@@ -114,10 +144,21 @@ def test_health_and_ready_endpoints(tmp_path: Path) -> None:
         health_response = client.get("/health")
         ready_response = client.get("/ready")
 
+    with make_client(tmp_path / "mock-open", api_token=None) as open_client:
+        open_create_response = open_client.post(
+            "/v1/tasks",
+            json={
+                "type": "image_to_3d",
+                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "options": {"resolution": 1024},
+            },
+        )
+
     assert health_response.status_code == 200
     assert health_response.json() == {"status": "ok", "service": "gen3d"}
     assert ready_response.status_code == 200
     assert ready_response.json() == {"status": "ready", "service": "gen3d"}
+    assert open_create_response.status_code == 201
 
 
 def test_bearer_auth_is_required_for_task_routes(tmp_path: Path) -> None:
@@ -127,9 +168,13 @@ def test_bearer_auth_is_required_for_task_routes(tmp_path: Path) -> None:
             json={"type": "image_to_3d", "image_url": "https://example.com/a.png"},
         )
         get_response = client.get("/v1/tasks/some-task-id")
+        metrics_response = client.get("/metrics")
+        metrics_authorized_response = client.get("/metrics", headers=auth_headers())
 
     assert create_response.status_code == 401
     assert get_response.status_code == 401
+    assert metrics_response.status_code == 401
+    assert metrics_authorized_response.status_code == 200
 
 
 def test_sse_stream_replays_full_task_lifecycle(tmp_path: Path) -> None:
@@ -187,6 +232,10 @@ def test_create_task_runs_full_mock_pipeline_and_exposes_artifact_metadata(tmp_p
             f"/v1/tasks/{payload['taskId']}/artifacts",
             headers=auth_headers(),
         )
+        download_response = client.get(
+            f"/v1/tasks/{payload['taskId']}/artifacts/model.glb",
+            headers=auth_headers(),
+        )
 
     statuses = [snapshot["status"] for snapshot in snapshots]
     assert "preprocessing" in statuses
@@ -200,7 +249,7 @@ def test_create_task_runs_full_mock_pipeline_and_exposes_artifact_metadata(tmp_p
     assert final_payload["currentStage"] == "succeeded"
     assert final_payload["artifacts"]
     assert final_payload["artifacts"][0]["type"] == "glb"
-    assert final_payload["artifacts"][0]["url"].startswith("file://")
+    assert final_payload["artifacts"][0]["url"] == f"/v1/tasks/{payload['taskId']}/artifacts/model.glb"
     assert final_payload["artifacts"][0]["backend"] == "local"
     assert final_payload["artifacts"][0]["content_type"] == "model/gltf-binary"
     assert final_payload["artifacts"][0]["created_at"] is not None
@@ -208,10 +257,17 @@ def test_create_task_runs_full_mock_pipeline_and_exposes_artifact_metadata(tmp_p
     assert artifacts_response.status_code == 200
     assert artifacts_response.json()["artifacts"][0]["type"] == "glb"
     assert artifacts_response.json()["artifacts"][0] == final_payload["artifacts"][0]
+    assert download_response.status_code == 200
+    assert download_response.content == b"MOCK_GLB"
 
 
 def test_gpu_queued_task_can_be_cancelled_and_repeat_cancel_is_rejected(tmp_path: Path) -> None:
-    with make_client(tmp_path, queue_delay_ms=300) as client:
+    with make_client(
+        tmp_path,
+        queue_delay_ms=300,
+        rate_limit_concurrent=1,
+        rate_limit_per_hour=3,
+    ) as client:
         create_response = client.post(
             "/v1/tasks",
             headers=auth_headers(),
@@ -227,6 +283,15 @@ def test_gpu_queued_task_can_be_cancelled_and_repeat_cancel_is_rejected(tmp_path
         queued_payload = wait_for_status(client, task_id, "gpu_queued")
         assert queued_payload["status"] == "gpu_queued"
 
+        concurrent_limit_response = client.post(
+            "/v1/tasks",
+            headers=auth_headers(),
+            json={
+                "type": "image_to_3d",
+                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "options": {"resolution": 1024},
+            },
+        )
         cancel_response = client.post(f"/v1/tasks/{task_id}/cancel", headers=auth_headers())
         assert cancel_response.status_code == 200
         assert cancel_response.json()["status"] == "cancelled"
@@ -240,12 +305,36 @@ def test_gpu_queued_task_can_be_cancelled_and_repeat_cancel_is_rejected(tmp_path
             f"/v1/tasks/{task_id}/artifacts",
             headers=auth_headers(),
         )
+        after_cancel_create_response = client.post(
+            "/v1/tasks",
+            headers=auth_headers(),
+            json={
+                "type": "image_to_3d",
+                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "options": {"resolution": 1024},
+            },
+        )
+        assert after_cancel_create_response.status_code == 201
+        wait_for_status(client, after_cancel_create_response.json()["taskId"], "succeeded")
+        hourly_limit_response = client.post(
+            "/v1/tasks",
+            headers=auth_headers(),
+            json={
+                "type": "image_to_3d",
+                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "options": {"resolution": 1024},
+            },
+        )
 
+    assert concurrent_limit_response.status_code == 429
+    assert "concurrent tasks" in concurrent_limit_response.json()["detail"]
     assert second_cancel_response.status_code == 409
     assert "terminal status" in second_cancel_response.json()["detail"]
     assert final_task_response.status_code == 200
     assert final_task_response.json()["status"] == "cancelled"
     assert artifacts_response.status_code == 409
+    assert hourly_limit_response.status_code == 429
+    assert "per hour" in hourly_limit_response.json()["detail"]
 
 
 def test_failed_task_returns_error_details_and_failed_stage(tmp_path: Path) -> None:
@@ -370,6 +459,9 @@ def test_success_and_failure_terminal_states_trigger_webhooks(tmp_path: Path) ->
     assert payload_by_url["https://callback.test/success"]["status"] == "succeeded"
     assert payload_by_url["https://callback.test/success"]["artifacts"][0]["type"] == "glb"
     assert payload_by_url["https://callback.test/success"]["artifacts"][0]["backend"] == "local"
+    assert payload_by_url["https://callback.test/success"]["artifacts"][0]["url"].startswith(
+        "/v1/tasks/"
+    )
     assert payload_by_url["https://callback.test/success"]["error"] is None
 
     assert payload_by_url["https://callback.test/failure"]["status"] == "failed"
@@ -379,7 +471,10 @@ def test_success_and_failure_terminal_states_trigger_webhooks(tmp_path: Path) ->
     }
 
 
-def test_invalid_image_input_fails_during_preprocessing(tmp_path: Path) -> None:
+def test_invalid_image_input_fails_during_preprocessing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     with make_client(tmp_path) as client:
         create_response = client.post(
             "/v1/tasks",
@@ -403,10 +498,78 @@ def test_invalid_image_input_fails_during_preprocessing(tmp_path: Path) -> None:
     assert final_payload["currentStage"] == "preprocessing"
     assert "decode input image" in final_payload["error"]["message"]
 
+    with make_real_mode_client(
+        tmp_path,
+        monkeypatch,
+        allowed_callback_domains=("callback.test",),
+    ) as real_client:
+        file_url_response = real_client.post(
+            "/v1/tasks",
+            headers=auth_headers(),
+            json={
+                "type": "image_to_3d",
+                "image_url": "file:///tmp/input.png",
+                "options": {"resolution": 1024},
+            },
+        )
+        invalid_callback_response = real_client.post(
+            "/v1/tasks",
+            headers=auth_headers(),
+            json={
+                "type": "image_to_3d",
+                "image_url": "http://127.0.0.1:9/input.png",
+                "callback_url": "ftp://callback.test/task",
+                "options": {"resolution": 1024},
+            },
+        )
+        disallowed_callback_response = real_client.post(
+            "/v1/tasks",
+            headers=auth_headers(),
+            json={
+                "type": "image_to_3d",
+                "image_url": "http://127.0.0.1:9/input.png",
+                "callback_url": "https://evil.test/task",
+                "options": {"resolution": 1024},
+            },
+        )
+        allowed_callback_response = real_client.post(
+            "/v1/tasks",
+            headers=auth_headers(),
+            json={
+                "type": "image_to_3d",
+                "image_url": "http://127.0.0.1:9/input.png",
+                "callback_url": "https://callback.test/task",
+                "options": {"resolution": 1024},
+            },
+        )
+
+    assert file_url_response.status_code == 422
+    assert "image_url must use http:// or https://" in file_url_response.json()["detail"]
+    assert invalid_callback_response.status_code == 422
+    assert "callback_url must use http:// or https://" in invalid_callback_response.json()["detail"]
+    assert disallowed_callback_response.status_code == 422
+    assert "ALLOWED_CALLBACK_DOMAINS" in disallowed_callback_response.json()["detail"]
+    assert allowed_callback_response.status_code == 201
+
 
 def test_real_mode_fails_fast_when_model_path_is_missing(tmp_path: Path) -> None:
+    missing_token_config = ServingConfig(
+        provider_mode="real",
+        model_provider="trellis2",
+        model_path=str(tmp_path / "missing-model"),
+        database_path=tmp_path / "gen3d-no-token.sqlite3",
+        artifacts_dir=tmp_path / "artifacts-no-token",
+    )
+
+    with pytest.raises(
+        ServingConfigurationError,
+        match="API_TOKEN is required when PROVIDER_MODE != mock",
+    ):
+        create_app(missing_token_config)
+
     config = ServingConfig(
         provider_mode="real",
+        api_token="test-token",
         model_provider="trellis2",
         model_path=str(tmp_path / "missing-model"),
         database_path=tmp_path / "gen3d.sqlite3",
@@ -592,6 +755,7 @@ def test_real_mode_preflight_reports_runtime_and_artifact_backend(
 
     config = ServingConfig(
         provider_mode="real",
+        api_token=None,
         model_provider="trellis2",
         model_path=str(model_dir),
         artifact_store_mode="local",

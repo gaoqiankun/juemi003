@@ -10,6 +10,7 @@ from urllib.parse import unquote_to_bytes, urlparse
 import httpx
 
 from gen3d.engine.sequence import RequestSequence, TaskStatus
+from gen3d.security import TaskSubmissionValidationError, validate_image_url
 from gen3d.stages.base import BaseStage, StageExecutionError, StageUpdateHandler
 
 
@@ -22,10 +23,12 @@ class PreprocessStage(BaseStage):
         *,
         download_timeout_seconds: float = 15.0,
         max_image_bytes: int = 10 * 1024 * 1024,
+        allow_local_inputs: bool = True,
     ) -> None:
         self._delay_seconds = max(delay_ms, 0) / 1000
         self._download_timeout_seconds = max(download_timeout_seconds, 1.0)
         self._max_image_bytes = max(max_image_bytes, 1)
+        self._allow_local_inputs = allow_local_inputs
 
     async def run(
         self,
@@ -61,6 +64,18 @@ class PreprocessStage(BaseStage):
         return sequence
 
     async def _read_input_bytes(self, input_url: str) -> bytes:
+        try:
+            normalized_input_url = validate_image_url(
+                input_url,
+                allow_local_inputs=self._allow_local_inputs,
+            )
+        except TaskSubmissionValidationError as exc:
+            raise StageExecutionError(
+                stage_name=TaskStatus.PREPROCESSING.value,
+                message=str(exc),
+            ) from exc
+
+        input_url = normalized_input_url
         parsed = urlparse(input_url)
         if parsed.scheme in {"http", "https"}:
             return await self._download_http_image(input_url)

@@ -43,7 +43,7 @@
 ```json
 {
   "type": "glb",
-  "url": "file:///... 或 presigned-url",
+  "url": "/v1/tasks/<task-id>/artifacts/model.glb 或 presigned-url",
   "created_at": "2026-03-11T08:00:00+00:00",
   "size_bytes": 123456,
   "backend": "local 或 minio",
@@ -140,19 +140,22 @@ HF_TOKEN=...
 #### local backend
 
 ```bash
-export INTERNAL_API_KEY=dev-internal-token
+export API_TOKEN=dev-api-token
 export PROVIDER_MODE=real
 export MODEL_PROVIDER=trellis2
 export MODEL_PATH=/models/trellis2
 export ARTIFACT_STORE_MODE=local
 export DATABASE_PATH=/srv/gen3d/data/gen3d.sqlite3
 export ARTIFACTS_DIR=/srv/gen3d/data/artifacts
+export ALLOWED_CALLBACK_DOMAINS=
+export RATE_LIMIT_CONCURRENT=5
+export RATE_LIMIT_PER_HOUR=100
 ```
 
 #### minio backend
 
 ```bash
-export INTERNAL_API_KEY=dev-internal-token
+export API_TOKEN=dev-api-token
 export PROVIDER_MODE=real
 export MODEL_PROVIDER=trellis2
 export MODEL_PATH=/models/trellis2
@@ -167,6 +170,9 @@ export OBJECT_STORE_SECRET_KEY=minioadmin
 export OBJECT_STORE_REGION=us-east-1
 export OBJECT_STORE_PREFIX=artifacts
 export OBJECT_STORE_PRESIGN_TTL_SECONDS=3600
+export ALLOWED_CALLBACK_DOMAINS=callback.example.com
+export RATE_LIMIT_CONCURRENT=5
+export RATE_LIMIT_PER_HOUR=100
 ```
 
 ### 7. 先跑自检
@@ -285,7 +291,7 @@ docker build -f docker/Dockerfile -t hey3d-gen3d:local .
 ### Compose 启动 local backend
 
 ```bash
-export INTERNAL_API_KEY=dev-internal-token
+export API_TOKEN=dev-api-token
 export PROVIDER_MODE=real
 export ARTIFACT_STORE_MODE=local
 export GEN3D_MODEL_DIR=/absolute/path/to/models/trellis2
@@ -298,7 +304,7 @@ docker compose up --build hey3d-gen3d
 ### Compose 启动 minio backend
 
 ```bash
-export INTERNAL_API_KEY=dev-internal-token
+export API_TOKEN=dev-api-token
 export PROVIDER_MODE=real
 export ARTIFACT_STORE_MODE=minio
 export GEN3D_MODEL_DIR=/absolute/path/to/models/trellis2
@@ -317,7 +323,7 @@ docker compose --profile minio up --build minio minio-init hey3d-gen3d
 
 ### Smoke 输入建议
 
-优先用一张本地文件路径图片，避免把外网下载问题混进首次验收。建议：
+real mode 只接受 `http(s)` 图片 URL。首轮验收建议先准备一张稳定可访问的 `http(s)` 图片，避免把鉴权和下载问题混在一起。建议：
 
 - 单主体
 - 背景尽量干净
@@ -325,19 +331,17 @@ docker compose --profile minio up --build minio minio-init hey3d-gen3d
 - PNG / JPG
 - 第一轮先用 `resolution=512` 或 `1024`
 
-假设服务器上已有：
-
-`/srv/gen3d/smoke/input.png`
+如果你只有服务器本地图片，请先通过 Nginx / 对象存储 / 临时静态服务把它暴露成 `http(s)` 地址。
 
 ### 提交任务
 
 ```bash
 curl -X POST http://127.0.0.1:18001/v1/tasks \
-  -H 'Authorization: Bearer dev-internal-token' \
+  -H 'Authorization: Bearer dev-api-token' \
   -H 'Content-Type: application/json' \
   -d '{
     "type": "image_to_3d",
-    "image_url": "file:///srv/gen3d/smoke/input.png",
+    "image_url": "https://example.com/input.png",
     "options": {
       "resolution": 512
     }
@@ -348,7 +352,7 @@ curl -X POST http://127.0.0.1:18001/v1/tasks \
 
 ```bash
 curl -N http://127.0.0.1:18001/v1/tasks/<task-id>/events \
-  -H 'Authorization: Bearer dev-internal-token'
+  -H 'Authorization: Bearer dev-api-token'
 ```
 
 第一轮验收时至少应看到：
@@ -366,14 +370,14 @@ curl -N http://127.0.0.1:18001/v1/tasks/<task-id>/events \
 
 ```bash
 curl http://127.0.0.1:18001/v1/tasks/<task-id> \
-  -H 'Authorization: Bearer dev-internal-token'
+  -H 'Authorization: Bearer dev-api-token'
 ```
 
 ### 查看 artifact
 
 ```bash
 curl http://127.0.0.1:18001/v1/tasks/<task-id>/artifacts \
-  -H 'Authorization: Bearer dev-internal-token'
+  -H 'Authorization: Bearer dev-api-token'
 ```
 
 ## local backend smoke
@@ -381,8 +385,9 @@ curl http://127.0.0.1:18001/v1/tasks/<task-id>/artifacts \
 验收要点：
 
 - `backend` 为 `local`
-- `url` 为 `file://...`
+- `url` 为 `/v1/tasks/<task-id>/artifacts/model.glb`
 - `expires_at` 为 `null`
+- `GET /v1/tasks/<task-id>/artifacts/model.glb` 可直接下载 GLB
 - 服务器本地应能看到：
 
 `$ARTIFACTS_DIR/<task-id>/model.glb`
@@ -410,12 +415,12 @@ curl http://127.0.0.1:18001/v1/tasks/<task-id>/artifacts \
 
 1. 跑 `python serve.py --check-real-env`
 2. 先用 `ARTIFACT_STORE_MODE=local` 启动服务
-3. 提交本地 `file://` smoke 图，避免网络输入因素
+3. 提交 `http(s)` smoke 图，确认 real mode 输入校验通过
 4. 观察事件流是否完整经过 `gpu_ss -> gpu_shape -> gpu_material -> exporting -> uploading -> succeeded`
 5. 用 `GET /v1/tasks/{id}` 确认：
    - `status=succeeded`
    - `artifacts[0].backend=local`
-   - `artifacts[0].url` 为 `file://`
+   - `artifacts[0].url` 为 `/v1/tasks/{id}/artifacts/model.glb`
 6. 在服务器磁盘确认 `model.glb` 实际存在
 7. 如果配置了 webhook，确认 webhook 收到：
    - `taskId`

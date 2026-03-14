@@ -1,7 +1,12 @@
 from pathlib import Path
+from typing import Any
 
-from pydantic import Field
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class ServingConfigurationError(RuntimeError):
+    pass
 
 
 class ServingConfig(BaseSettings):
@@ -15,9 +20,11 @@ class ServingConfig(BaseSettings):
         default="microsoft/TRELLIS.2-4B",
         alias="MODEL_PATH",
     )
-    internal_api_key: str = Field(
-        default="dev-internal-token",
-        alias="INTERNAL_API_KEY",
+    # Shared Bearer token used by protected task and metrics endpoints.
+    # Deliberately has no default; non-mock startup must fail fast when it is missing.
+    api_token: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("API_TOKEN", "INTERNAL_API_KEY"),
     )
     database_path: Path = Field(
         default=Path("./data/gen3d.sqlite3"),
@@ -82,6 +89,24 @@ class ServingConfig(BaseSettings):
         default=2.0,
         alias="WEBHOOK_TIMEOUT_SECONDS",
     )
+    # Optional comma-separated callback host allowlist.
+    # Empty means "allow any callback host".
+    allowed_callback_domains: tuple[str, ...] = Field(
+        default_factory=tuple,
+        alias="ALLOWED_CALLBACK_DOMAINS",
+    )
+    # Maximum number of in-flight tasks accepted per token at the API layer.
+    rate_limit_concurrent: int = Field(
+        default=5,
+        alias="RATE_LIMIT_CONCURRENT",
+        ge=1,
+    )
+    # Maximum number of POST /v1/tasks requests accepted per token in a rolling hour.
+    rate_limit_per_hour: int = Field(
+        default=100,
+        alias="RATE_LIMIT_PER_HOUR",
+        ge=1,
+    )
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -89,3 +114,32 @@ class ServingConfig(BaseSettings):
         extra="ignore",
         populate_by_name=True,
     )
+
+    @property
+    def provider_mode_normalized(self) -> str:
+        return self.provider_mode.strip().lower()
+
+    @property
+    def is_mock_provider(self) -> bool:
+        return self.provider_mode_normalized == "mock"
+
+    @field_validator("api_token", mode="before")
+    @classmethod
+    def _normalize_api_token(cls, value: Any) -> str | None:
+        if value is None:
+            return None
+        normalized = str(value).strip()
+        return normalized or None
+
+    @field_validator("allowed_callback_domains", mode="before")
+    @classmethod
+    def _parse_allowed_callback_domains(cls, value: Any) -> tuple[str, ...]:
+        if value is None:
+            return ()
+        if isinstance(value, str):
+            parts = [part.strip().lower().strip(".") for part in value.split(",")]
+        elif isinstance(value, (list, tuple, set)):
+            parts = [str(part).strip().lower().strip(".") for part in value]
+        else:
+            raise TypeError("ALLOWED_CALLBACK_DOMAINS must be a string or a list")
+        return tuple(dict.fromkeys(part for part in parts if part))
