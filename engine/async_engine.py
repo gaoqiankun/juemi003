@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 
 import httpx
+import structlog
+from structlog.contextvars import bound_contextvars
 
 from gen3d.engine.pipeline import CancelRequestResult, PipelineCoordinator
 from gen3d.engine.sequence import (
@@ -15,6 +17,7 @@ from gen3d.engine.sequence import (
     TaskStatus,
     TaskType,
 )
+from gen3d.observability.metrics import increment_webhook_total
 from gen3d.security import (
     TokenRateLimiter,
     validate_callback_url,
@@ -55,6 +58,7 @@ class AsyncGen3DEngine:
         self._allow_local_inputs = provider_mode.strip().lower() == "mock"
         self._allowed_callback_domains = allowed_callback_domains
         self._rate_limiter = rate_limiter
+        self._logger = structlog.get_logger(__name__)
         self._pipeline.add_listener(self._publish_update)
 
     async def start(self) -> None:
@@ -93,6 +97,12 @@ class AsyncGen3DEngine:
         if idempotency_key:
             existing = await self._task_store.get_task_by_idempotency_key(idempotency_key)
             if existing is not None:
+                with bound_contextvars(task_id=existing.task_id):
+                    self._logger.info(
+                        "task.reused",
+                        idempotency_key=idempotency_key,
+                        status=existing.status.value,
+                    )
                 return existing, False
         if self._rate_limiter is not None:
             await self._rate_limiter.check_concurrent_tasks(rate_limit_key)
@@ -108,6 +118,13 @@ class AsyncGen3DEngine:
         await self._pipeline.enqueue(sequence.task_id)
         if self._rate_limiter is not None:
             await self._rate_limiter.register_task(rate_limit_key, sequence.task_id)
+        with bound_contextvars(task_id=sequence.task_id):
+            self._logger.info(
+                "task.submitted",
+                task_type=task_type.value,
+                callback_enabled=bool(callback_url),
+                idempotency_key=idempotency_key,
+            )
         return sequence, True
 
     async def get_task(self, task_id: str) -> RequestSequence | None:
@@ -174,16 +191,17 @@ class AsyncGen3DEngine:
         event: str,
         metadata: dict[str, Any],
     ) -> None:
-        payload = self._build_event_payload(sequence, event, metadata)
-        for queue in list(self._event_queues.get(sequence.task_id, ())):
-            queue.put_nowait(payload)
-        if self._rate_limiter is not None and sequence.status in TERMINAL_STATUSES:
-            await self._rate_limiter.release_task(sequence.task_id)
-        if (
-            event in {"succeeded", "failed"}
-            and sequence.callback_url
-        ):
-            await self._send_webhook(sequence)
+        with bound_contextvars(task_id=sequence.task_id):
+            payload = self._build_event_payload(sequence, event, metadata)
+            for queue in list(self._event_queues.get(sequence.task_id, ())):
+                queue.put_nowait(payload)
+            if self._rate_limiter is not None and sequence.status in TERMINAL_STATUSES:
+                await self._rate_limiter.release_task(sequence.task_id)
+            if (
+                event in {"succeeded", "failed"}
+                and sequence.callback_url
+            ):
+                await self._send_webhook(sequence)
 
     def _build_event_payload(
         self,
@@ -229,10 +247,23 @@ class AsyncGen3DEngine:
                 else None
             ),
         }
-        try:
-            await self._webhook_sender(sequence.callback_url, payload)
-        except Exception:
-            return
+        with bound_contextvars(task_id=sequence.task_id):
+            try:
+                await self._webhook_sender(sequence.callback_url, payload)
+            except Exception as exc:
+                increment_webhook_total(result="failure")
+                self._logger.warning(
+                    "webhook.delivery_failed",
+                    callback_url=sequence.callback_url,
+                    error=str(exc),
+                )
+                return
+            increment_webhook_total(result="success")
+            self._logger.info(
+                "webhook.delivered",
+                callback_url=sequence.callback_url,
+                status=sequence.status.value,
+            )
 
     async def _default_webhook_sender(
         self,

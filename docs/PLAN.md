@@ -528,14 +528,12 @@ artifacts/{taskId}/preview.png
 ## 10. 可观测性
 
 ```
-gen3d_queue_depth                    # GPU Stage 等待队列深度
-gen3d_gpu_task_duration_seconds      # GPU 推理耗时 histogram（label: resolution）
-gen3d_stage_duration_seconds{stage}  # 各阶段（SS/Shape/Material/Export）耗时
-gen3d_task_e2e_duration_seconds      # 端到端耗时 histogram
-gen3d_gpu_memory_used_bytes{worker}  # 每 Worker 显存
-gen3d_tasks_total{status}            # 任务计数
-gen3d_batch_size                     # 实际批大小 histogram
-gen3d_worker_busy_ratio{worker}      # Worker 忙碌率
+gen3d_queue_depth                    # 当前等待队列深度
+gen3d_task_duration_seconds{status}  # 端到端任务耗时 histogram
+gen3d_stage_duration_seconds{stage}  # preprocess / gpu / export 阶段耗时
+gen3d_task_total{status}             # 终态任务计数
+gen3d_webhook_total{result}          # webhook 发送成败计数
+gen3d_ready                          # readiness gauge
 ```
 
 ---

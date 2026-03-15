@@ -10,6 +10,7 @@ from typing import Awaitable, Callable
 
 import pytest
 from fastapi.testclient import TestClient
+from prometheus_client.parser import text_string_to_metric_families
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
 if str(WORKSPACE_ROOT) not in sys.path:
@@ -139,6 +140,45 @@ def collect_sse_events(client: TestClient, task_id: str) -> list[dict]:
     return events
 
 
+def fetch_metrics_payload(client: TestClient) -> str:
+    response = client.get("/metrics", headers=auth_headers())
+    assert response.status_code == 200
+    return response.text
+
+
+def metric_sample_value(
+    metrics_payload: str,
+    sample_name: str,
+    labels: dict[str, str] | None = None,
+) -> float:
+    expected_labels = labels or {}
+    for family in text_string_to_metric_families(metrics_payload):
+        for sample in family.samples:
+            if sample.name == sample_name and sample.labels == expected_labels:
+                return float(sample.value)
+    raise AssertionError(f"metric sample {sample_name}{expected_labels} not found")
+
+
+def wait_for_metric_sample(
+    client: TestClient,
+    sample_name: str,
+    *,
+    labels: dict[str, str],
+    minimum_value: float,
+    timeout_seconds: float = 2.0,
+) -> float:
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        metrics_payload = fetch_metrics_payload(client)
+        value = metric_sample_value(metrics_payload, sample_name, labels)
+        if value >= minimum_value:
+            return value
+        time.sleep(0.01)
+    raise AssertionError(
+        f"metric sample {sample_name}{labels} did not reach {minimum_value} in time"
+    )
+
+
 def test_health_and_ready_endpoints(tmp_path: Path) -> None:
     with make_client(tmp_path) as client:
         health_response = client.get("/health")
@@ -236,6 +276,7 @@ def test_create_task_runs_full_mock_pipeline_and_exposes_artifact_metadata(tmp_p
             f"/v1/tasks/{payload['taskId']}/artifacts/model.glb",
             headers=auth_headers(),
         )
+        metrics_response = client.get("/metrics", headers=auth_headers())
 
     statuses = [snapshot["status"] for snapshot in snapshots]
     assert "preprocessing" in statuses
@@ -259,6 +300,178 @@ def test_create_task_runs_full_mock_pipeline_and_exposes_artifact_metadata(tmp_p
     assert artifacts_response.json()["artifacts"][0] == final_payload["artifacts"][0]
     assert download_response.status_code == 200
     assert download_response.content == b"MOCK_GLB"
+    assert metrics_response.status_code == 200
+    metrics_payload = metrics_response.text
+    assert "gen3d_queue_depth" in metrics_payload
+    assert "gen3d_task_duration_seconds" in metrics_payload
+    assert "gen3d_stage_duration_seconds" in metrics_payload
+    assert "gen3d_task_total" in metrics_payload
+    assert "gen3d_webhook_total" in metrics_payload
+    assert 'gen3d_task_total{status="succeeded"}' in metrics_payload
+    assert 'gen3d_task_duration_seconds_count{status="succeeded"}' in metrics_payload
+
+
+def test_metrics_track_successful_task(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        initial_metrics_payload = fetch_metrics_payload(client)
+        succeeded_total_before = metric_sample_value(
+            initial_metrics_payload,
+            "gen3d_task_total",
+            {"status": "succeeded"},
+        )
+        succeeded_duration_count_before = metric_sample_value(
+            initial_metrics_payload,
+            "gen3d_task_duration_seconds_count",
+            {"status": "succeeded"},
+        )
+        preprocess_count_before = metric_sample_value(
+            initial_metrics_payload,
+            "gen3d_stage_duration_seconds_count",
+            {"stage": "preprocess"},
+        )
+        gpu_count_before = metric_sample_value(
+            initial_metrics_payload,
+            "gen3d_stage_duration_seconds_count",
+            {"stage": "gpu"},
+        )
+        export_count_before = metric_sample_value(
+            initial_metrics_payload,
+            "gen3d_stage_duration_seconds_count",
+            {"stage": "export"},
+        )
+
+        create_response = client.post(
+            "/v1/tasks",
+            headers=auth_headers(),
+            json={
+                "type": "image_to_3d",
+                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "options": {"resolution": 1024},
+            },
+        )
+        assert create_response.status_code == 201
+        wait_for_status(client, create_response.json()["taskId"], "succeeded")
+
+        assert (
+            wait_for_metric_sample(
+                client,
+                "gen3d_task_total",
+                labels={"status": "succeeded"},
+                minimum_value=succeeded_total_before + 1,
+            )
+            >= succeeded_total_before + 1
+        )
+        assert (
+            wait_for_metric_sample(
+                client,
+                "gen3d_task_duration_seconds_count",
+                labels={"status": "succeeded"},
+                minimum_value=succeeded_duration_count_before + 1,
+            )
+            >= succeeded_duration_count_before + 1
+        )
+        assert (
+            wait_for_metric_sample(
+                client,
+                "gen3d_stage_duration_seconds_count",
+                labels={"stage": "preprocess"},
+                minimum_value=preprocess_count_before + 1,
+            )
+            >= preprocess_count_before + 1
+        )
+        assert (
+            wait_for_metric_sample(
+                client,
+                "gen3d_stage_duration_seconds_count",
+                labels={"stage": "gpu"},
+                minimum_value=gpu_count_before + 1,
+            )
+            >= gpu_count_before + 1
+        )
+        assert (
+            wait_for_metric_sample(
+                client,
+                "gen3d_stage_duration_seconds_count",
+                labels={"stage": "export"},
+                minimum_value=export_count_before + 1,
+            )
+            >= export_count_before + 1
+        )
+
+
+def test_metrics_track_failed_task(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        initial_metrics_payload = fetch_metrics_payload(client)
+        failed_total_before = metric_sample_value(
+            initial_metrics_payload,
+            "gen3d_task_total",
+            {"status": "failed"},
+        )
+
+        create_response = client.post(
+            "/v1/tasks",
+            headers=auth_headers(),
+            json={
+                "type": "image_to_3d",
+                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "options": {
+                    "resolution": 1024,
+                    "mock_failure_stage": "preprocessing",
+                },
+            },
+        )
+        assert create_response.status_code == 201
+        failed_payload = wait_for_status(client, create_response.json()["taskId"], "failed")
+
+        assert failed_payload["currentStage"] == "preprocessing"
+        assert (
+            wait_for_metric_sample(
+                client,
+                "gen3d_task_total",
+                labels={"status": "failed"},
+                minimum_value=failed_total_before + 1,
+            )
+            >= failed_total_before + 1
+        )
+
+
+def test_metrics_track_webhook(tmp_path: Path) -> None:
+    webhook_calls: list[tuple[str, dict]] = []
+
+    async def webhook_sender(callback_url: str, payload: dict) -> None:
+        webhook_calls.append((callback_url, payload))
+
+    with make_client(tmp_path, webhook_sender=webhook_sender) as client:
+        initial_metrics_payload = fetch_metrics_payload(client)
+        webhook_success_before = metric_sample_value(
+            initial_metrics_payload,
+            "gen3d_webhook_total",
+            {"result": "success"},
+        )
+
+        create_response = client.post(
+            "/v1/tasks",
+            headers=auth_headers(),
+            json={
+                "type": "image_to_3d",
+                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "callback_url": "https://callback.test/metrics",
+                "options": {"resolution": 1024},
+            },
+        )
+        assert create_response.status_code == 201
+        wait_for_status(client, create_response.json()["taskId"], "succeeded")
+
+        assert len(webhook_calls) == 1
+        assert (
+            wait_for_metric_sample(
+                client,
+                "gen3d_webhook_total",
+                labels={"result": "success"},
+                minimum_value=webhook_success_before + 1,
+            )
+            >= webhook_success_before + 1
+        )
 
 
 def test_gpu_queued_task_can_be_cancelled_and_repeat_cancel_is_rejected(tmp_path: Path) -> None:

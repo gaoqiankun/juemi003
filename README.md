@@ -15,6 +15,8 @@
 - `docker/Dockerfile`
 - `docker-compose.yml`
 - `deploy.sh`
+- structlog JSON 结构化日志（`task_id` 贯穿处理链）
+- Prometheus `/metrics` 最小生产指标
 - mock 模式自动化测试
 
 ## 当前未宣称完成的内容
@@ -469,7 +471,7 @@ python -m pytest tests -q
 
 本轮完成后结果为：
 
-- `20 passed`
+- `23 passed`
 
 这些测试覆盖：
 
@@ -478,6 +480,7 @@ python -m pytest tests -q
 - `uploading` 阶段真实进入状态流
 - local / minio backend 失败诊断
 - real mode 无效配置 / 自检 fail-fast
+- `/metrics` 指标可见性与成功任务计数
 
 ## 当前还依赖哪些外部条件
 
@@ -494,6 +497,8 @@ python -m pytest tests -q
 
 - `serve.py`: 服务启动与 `--check-real-env`
 - `api/server.py`: app 装配、artifact backend 校验、real preflight
+- `observability/logging.py`: structlog JSON 日志配置
+- `observability/metrics.py`: Prometheus 指标注册与 exposition
 - `model/trellis2/provider.py`: TRELLIS2 runtime 检查与 real provider
 - `requirements-worker.txt`: GPU 服务器依赖说明
 - `scripts/download_models.sh`: 模型下载脚本

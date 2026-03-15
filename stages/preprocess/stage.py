@@ -4,12 +4,16 @@ import asyncio
 import base64
 import binascii
 import io
+import time
 from pathlib import Path
 from urllib.parse import unquote_to_bytes, urlparse
 
 import httpx
+import structlog
+from structlog.contextvars import bound_contextvars
 
 from gen3d.engine.sequence import RequestSequence, TaskStatus
+from gen3d.observability.metrics import observe_stage_duration
 from gen3d.security import TaskSubmissionValidationError, validate_image_url
 from gen3d.stages.base import BaseStage, StageExecutionError, StageUpdateHandler
 
@@ -29,39 +33,69 @@ class PreprocessStage(BaseStage):
         self._download_timeout_seconds = max(download_timeout_seconds, 1.0)
         self._max_image_bytes = max(max_image_bytes, 1)
         self._allow_local_inputs = allow_local_inputs
+        self._logger = structlog.get_logger(__name__)
 
     async def run(
         self,
         sequence: RequestSequence,
         on_update: StageUpdateHandler | None = None,
     ) -> RequestSequence:
-        sequence.transition_to(
-            TaskStatus.PREPROCESSING,
-            current_stage=TaskStatus.PREPROCESSING.value,
-        )
-        await self._emit_update(sequence, on_update)
+        started_at = time.perf_counter()
+        with bound_contextvars(task_id=sequence.task_id):
+            self._logger.info("stage.started", stage=self.name)
+            try:
+                sequence.transition_to(
+                    TaskStatus.PREPROCESSING,
+                    current_stage=TaskStatus.PREPROCESSING.value,
+                )
+                await self._emit_update(sequence, on_update)
 
-        if self._delay_seconds:
-            await asyncio.sleep(self._delay_seconds)
+                if self._delay_seconds:
+                    await asyncio.sleep(self._delay_seconds)
 
-        if sequence.options.get("mock_failure_stage") == TaskStatus.PREPROCESSING.value:
-            raise StageExecutionError(
-                stage_name=TaskStatus.PREPROCESSING.value,
-                message="mock failure injected at preprocessing",
-            )
+                if sequence.options.get("mock_failure_stage") == TaskStatus.PREPROCESSING.value:
+                    raise StageExecutionError(
+                        stage_name=TaskStatus.PREPROCESSING.value,
+                        message="mock failure injected at preprocessing",
+                    )
 
-        image_bytes = await self._read_input_bytes(sequence.input_url)
-        normalized_image = await asyncio.to_thread(self._decode_and_normalize_image, image_bytes)
-        sequence.prepared_input = {
-            "image": normalized_image,
-            "image_url": sequence.input_url,
-            "normalized": True,
-            "resolution": sequence.options.get("resolution", 1024),
-            "width": normalized_image.width,
-            "height": normalized_image.height,
-            "mode": normalized_image.mode,
-        }
-        return sequence
+                image_bytes = await self._read_input_bytes(sequence.input_url)
+                normalized_image = await asyncio.to_thread(
+                    self._decode_and_normalize_image,
+                    image_bytes,
+                )
+                sequence.prepared_input = {
+                    "image": normalized_image,
+                    "image_url": sequence.input_url,
+                    "normalized": True,
+                    "resolution": sequence.options.get("resolution", 1024),
+                    "width": normalized_image.width,
+                    "height": normalized_image.height,
+                    "mode": normalized_image.mode,
+                }
+                duration_seconds = time.perf_counter() - started_at
+                self._logger.info(
+                    "stage.completed",
+                    stage=self.name,
+                    duration_seconds=round(duration_seconds, 6),
+                    width=normalized_image.width,
+                    height=normalized_image.height,
+                )
+                return sequence
+            except Exception as exc:
+                duration_seconds = time.perf_counter() - started_at
+                self._logger.warning(
+                    "stage.failed",
+                    stage=self.name,
+                    duration_seconds=round(duration_seconds, 6),
+                    error=str(exc),
+                )
+                raise
+            finally:
+                observe_stage_duration(
+                    stage=self.name,
+                    duration_seconds=time.perf_counter() - started_at,
+                )
 
     async def _read_input_bytes(self, input_url: str) -> bytes:
         try:

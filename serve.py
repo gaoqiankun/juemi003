@@ -6,6 +6,7 @@ import json
 import sys
 from pathlib import Path
 
+import structlog
 import uvicorn
 
 # Allow `python serve.py` from the repo root as well as `python -m gen3d.serve`
@@ -14,6 +15,7 @@ if __package__ in {None, ""}:
 
 from gen3d.api.server import create_app, run_real_mode_preflight
 from gen3d.config import ServingConfig
+from gen3d.observability.logging import configure_logging
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -29,10 +31,18 @@ def build_arg_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> None:
     args = build_arg_parser().parse_args(argv)
     config = ServingConfig()
+    configure_logging(config.log_level)
+    logger = structlog.get_logger(__name__)
     if args.check_real_env:
         try:
+            logger.info(
+                "service.real_env_check.started",
+                provider_mode=config.provider_mode,
+                artifact_store_mode=config.artifact_store_mode,
+            )
             report = asyncio.run(run_real_mode_preflight(config))
         except Exception as exc:
+            logger.exception("service.real_env_check.failed", error=str(exc))
             print(
                 json.dumps(
                     {
@@ -48,9 +58,17 @@ def main(argv: list[str] | None = None) -> None:
             )
             raise SystemExit(1) from exc
 
+        logger.info("service.real_env_check.succeeded", provider=config.model_provider)
         print(json.dumps({"ok": True, **report}, ensure_ascii=False, indent=2))
         return
 
+    logger.info(
+        "service.starting",
+        host=config.host,
+        port=config.port,
+        provider_mode=config.provider_mode,
+        artifact_store_mode=config.artifact_store_mode,
+    )
     uvicorn.run(
         create_app(config),
         host=config.host,

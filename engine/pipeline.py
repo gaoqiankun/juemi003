@@ -5,7 +5,15 @@ import inspect
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 
+import structlog
+from structlog.contextvars import bound_contextvars
+
 from gen3d.engine.sequence import RequestSequence, TaskStatus
+from gen3d.observability.metrics import (
+    increment_task_total,
+    observe_task_duration,
+    set_queue_depth,
+)
 from gen3d.stages.base import BaseStage, StageExecutionError
 from gen3d.storage.task_store import TaskStore
 
@@ -28,6 +36,7 @@ class PipelineCoordinator:
         self._queue: asyncio.Queue[str | None] = asyncio.Queue()
         self._worker_task: asyncio.Task[None] | None = None
         self._listeners: list[PipelineListener] = []
+        self._logger = structlog.get_logger(__name__)
 
     def add_listener(self, listener: PipelineListener) -> None:
         self._listeners.append(listener)
@@ -48,6 +57,7 @@ class PipelineCoordinator:
 
     async def enqueue(self, task_id: str) -> None:
         await self._queue.put(task_id)
+        set_queue_depth(self.queue_size())
 
     def queue_size(self) -> int:
         return self._queue.qsize()
@@ -69,6 +79,11 @@ class PipelineCoordinator:
             TaskStatus.CANCELLED,
             current_stage=TaskStatus.CANCELLED.value,
         )
+        with bound_contextvars(task_id=sequence.task_id):
+            self._logger.info(
+                "task.cancelled",
+                requested_from_status=TaskStatus.GPU_QUEUED.value,
+            )
         await self._publish_update(
             sequence,
             "cancelled",
@@ -82,6 +97,7 @@ class PipelineCoordinator:
     async def _run(self) -> None:
         while True:
             task_id = await self._queue.get()
+            set_queue_depth(self.queue_size())
             if task_id is None:
                 self._queue.task_done()
                 break
@@ -94,49 +110,65 @@ class PipelineCoordinator:
                     TaskStatus.CANCELLED,
                 }:
                     continue
-                for stage in self._stages:
-                    try:
-                        sequence = await stage.run(sequence, on_update=self._publish_update)
-                    except StageExecutionError as exc:
-                        sequence.transition_to(
+                with bound_contextvars(task_id=sequence.task_id):
+                    self._logger.info(
+                        "task.processing_started",
+                        current_stage=sequence.current_stage,
+                        queue_depth=self.queue_size(),
+                    )
+                    for stage in self._stages:
+                        try:
+                            sequence = await stage.run(sequence, on_update=self._publish_update)
+                        except StageExecutionError as exc:
+                            self._logger.warning(
+                                "task.processing_failed",
+                                stage=exc.stage_name,
+                                error=str(exc),
+                            )
+                            sequence.transition_to(
+                                TaskStatus.FAILED,
+                                current_stage=exc.stage_name,
+                                error_message=str(exc),
+                                failed_stage=exc.stage_name,
+                            )
+                            await self._publish_update(
+                                sequence,
+                                "failed",
+                                {
+                                    "status": sequence.status.value,
+                                    "stage": exc.stage_name,
+                                    "message": str(exc),
+                                },
+                            )
+                            break
+                        except Exception as exc:  # pragma: no cover - defensive fallback
+                            self._logger.exception(
+                                "task.processing_failed_unexpected",
+                                stage=stage.name,
+                                error=str(exc),
+                            )
+                            sequence.transition_to(
+                                TaskStatus.FAILED,
+                                current_stage=stage.name,
+                                error_message=str(exc),
+                                failed_stage=stage.name,
+                            )
+                            await self._publish_update(
+                                sequence,
+                                "failed",
+                                {
+                                    "status": sequence.status.value,
+                                    "stage": stage.name,
+                                    "message": str(exc),
+                                },
+                            )
+                            break
+                        if sequence.status in {
+                            TaskStatus.SUCCEEDED,
                             TaskStatus.FAILED,
-                            current_stage=exc.stage_name,
-                            error_message=str(exc),
-                            failed_stage=exc.stage_name,
-                        )
-                        await self._publish_update(
-                            sequence,
-                            "failed",
-                            {
-                                "status": sequence.status.value,
-                                "stage": exc.stage_name,
-                                "message": str(exc),
-                            },
-                        )
-                        break
-                    except Exception as exc:  # pragma: no cover - defensive fallback
-                        sequence.transition_to(
-                            TaskStatus.FAILED,
-                            current_stage=stage.name,
-                            error_message=str(exc),
-                            failed_stage=stage.name,
-                        )
-                        await self._publish_update(
-                            sequence,
-                            "failed",
-                            {
-                                "status": sequence.status.value,
-                                "stage": stage.name,
-                                "message": str(exc),
-                            },
-                        )
-                        break
-                    if sequence.status in {
-                        TaskStatus.SUCCEEDED,
-                        TaskStatus.FAILED,
-                        TaskStatus.CANCELLED,
-                    }:
-                        break
+                            TaskStatus.CANCELLED,
+                        }:
+                            break
             finally:
                 self._queue.task_done()
 
@@ -154,6 +186,26 @@ class PipelineCoordinator:
         if metadata:
             payload.update(metadata)
         await self._task_store.update_task(sequence, event=event, metadata=payload)
+        if event in {"succeeded", "failed", "cancelled"}:
+            duration_seconds = 0.0
+            if sequence.completed_at is not None:
+                duration_seconds = max(
+                    (sequence.completed_at - sequence.created_at).total_seconds(),
+                    0.0,
+                )
+            observe_task_duration(
+                status=sequence.status.value,
+                duration_seconds=duration_seconds,
+            )
+            increment_task_total(status=sequence.status.value)
+            with bound_contextvars(task_id=sequence.task_id):
+                self._logger.info(
+                    "task.processing_finished",
+                    status=sequence.status.value,
+                    duration_seconds=round(duration_seconds, 6),
+                    failed_stage=sequence.failed_stage,
+                    error=sequence.error_message,
+                )
         for listener in self._listeners:
             maybe_awaitable = listener(sequence, event, payload)
             if inspect.isawaitable(maybe_awaitable):
