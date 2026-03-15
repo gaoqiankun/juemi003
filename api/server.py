@@ -4,11 +4,13 @@ import asyncio
 import json
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi.staticfiles import StaticFiles
 
 from gen3d.api.schemas import (
     HealthResponse,
@@ -41,6 +43,8 @@ from gen3d.storage.artifact_store import (
     build_boto3_object_storage_client,
 )
 from gen3d.storage.task_store import TaskStore
+
+STATIC_DIR = Path(__file__).resolve().parents[1] / "static"
 
 
 @dataclass(slots=True)
@@ -233,6 +237,11 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
         await container.task_store.close()
 
     app = FastAPI(title=config.service_name, lifespan=lifespan)
+    app.mount(
+        "/static",
+        StaticFiles(directory=str(STATIC_DIR)),
+        name="static",
+    )
     auth_scheme = HTTPBearer(auto_error=False)
 
     def get_container() -> AppContainer:
