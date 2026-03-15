@@ -236,6 +236,13 @@ class TaskStore:
             )
             await db.commit()
 
+    async def delete_task(self, task_id: str) -> None:
+        db = self._require_db()
+        async with self._lock:
+            await db.execute("DELETE FROM task_events WHERE task_id = ?", (task_id,))
+            await db.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+            await db.commit()
+
     async def get_task(self, task_id: str) -> RequestSequence | None:
         db = self._require_db()
         cursor = await db.execute("SELECT * FROM tasks WHERE id = ?", (task_id,))

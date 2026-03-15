@@ -10,7 +10,11 @@ import httpx
 import structlog
 from structlog.contextvars import bound_contextvars
 
-from gen3d.engine.pipeline import CancelRequestResult, PipelineCoordinator
+from gen3d.engine.pipeline import (
+    CancelRequestResult,
+    PipelineCoordinator,
+    PipelineQueueFullError,
+)
 from gen3d.engine.sequence import (
     RequestSequence,
     TERMINAL_STATUSES,
@@ -130,7 +134,11 @@ class AsyncGen3DEngine:
                     status=existing.status.value,
                 )
             return existing, False
-        await self._pipeline.enqueue(sequence.task_id)
+        try:
+            await self._pipeline.enqueue(sequence.task_id)
+        except PipelineQueueFullError:
+            await self._task_store.delete_task(sequence.task_id)
+            raise
         if self._rate_limiter is not None:
             await self._rate_limiter.register_task(rate_limit_key, sequence.task_id)
         with bound_contextvars(task_id=sequence.task_id):

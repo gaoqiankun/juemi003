@@ -24,7 +24,7 @@ from gen3d.engine.sequence import (
 from gen3d.model.trellis2.provider import MockTrellis2Provider
 from gen3d.stages.export.stage import ExportStage
 from gen3d.stages.gpu.stage import GPUStage
-from gen3d.stages.gpu.worker import GPUWorker
+from gen3d.stages.gpu.worker import build_gpu_workers
 from gen3d.stages.preprocess.stage import PreprocessStage
 from gen3d.storage.artifact_store import ArtifactStore, ArtifactStoreOperationError
 from gen3d.storage.task_store import TaskStore
@@ -81,19 +81,34 @@ def build_engine(
     *,
     queue_delay_ms: int = 10,
     task_timeout_seconds: int = 3600,
+    gpu_device_ids: tuple[str, ...] = ("0",),
+    queue_max_size: int = 20,
+    mock_gpu_stage_delay_ms: int = 20,
 ) -> tuple[TaskStore, ArtifactStore, AsyncGen3DEngine]:
     task_store = TaskStore(tmp_path / "pipeline.sqlite3")
     artifact_store = ArtifactStore(tmp_path / "artifacts")
-    provider = MockTrellis2Provider(stage_delay_ms=20)
-    worker = GPUWorker(worker_id="test-worker", provider=provider)
+    provider = MockTrellis2Provider(stage_delay_ms=mock_gpu_stage_delay_ms)
+    gpu_stage = GPUStage(
+        delay_ms=queue_delay_ms,
+        workers=build_gpu_workers(
+            provider=provider,
+            provider_mode="mock",
+            provider_name="trellis2",
+            model_path="microsoft/TRELLIS.2-4B",
+            device_ids=gpu_device_ids,
+        ),
+        task_store=task_store,
+    )
     pipeline = PipelineCoordinator(
         task_store=task_store,
         stages=[
             PreprocessStage(delay_ms=10),
-            GPUStage(delay_ms=queue_delay_ms, worker=worker, task_store=task_store),
+            gpu_stage,
             ExportStage(provider=provider, artifact_store=artifact_store, delay_ms=10),
         ],
         task_timeout_seconds=task_timeout_seconds,
+        queue_max_size=queue_max_size,
+        worker_count=gpu_stage.slot_count,
     )
     engine = AsyncGen3DEngine(
         task_store=task_store,
@@ -465,6 +480,53 @@ def test_engine_idempotency_conflict_returns_existing_task(
             assert created_flags == [False, True]
             assert sequences[0].task_id == sequences[1].task_id
             assert await engine.get_task(sequences[0].task_id) is not None
+        finally:
+            await engine.stop()
+            await task_store.close()
+
+    asyncio.run(scenario())
+
+
+def test_pipeline_multi_slot_dispatches_tasks_concurrently(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        task_store, artifact_store, engine = build_engine(
+            tmp_path,
+            gpu_device_ids=("0", "1"),
+            mock_gpu_stage_delay_ms=120,
+        )
+        await task_store.initialize()
+        await artifact_store.initialize()
+        await engine.start()
+        started_at = time.perf_counter()
+        try:
+            first_sequence, _ = await engine.submit_task(
+                task_type=TaskType.IMAGE_TO_3D,
+                image_url=SAMPLE_IMAGE_DATA_URL,
+                options={"resolution": 1024},
+            )
+            second_sequence, _ = await engine.submit_task(
+                task_type=TaskType.IMAGE_TO_3D,
+                image_url=SAMPLE_IMAGE_DATA_URL,
+                options={"resolution": 1024},
+            )
+
+            first_result = await wait_for_engine_status(
+                engine,
+                first_sequence.task_id,
+                TaskStatus.SUCCEEDED,
+            )
+            second_result = await wait_for_engine_status(
+                engine,
+                second_sequence.task_id,
+                TaskStatus.SUCCEEDED,
+            )
+            elapsed_seconds = time.perf_counter() - started_at
+
+            assert {first_result.assigned_worker_id, second_result.assigned_worker_id} == {
+                "gpu-worker-0",
+                "gpu-worker-1",
+            }
+            assert elapsed_seconds < 0.65
         finally:
             await engine.stop()
             await task_store.close()

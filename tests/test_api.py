@@ -44,6 +44,8 @@ def make_client(
     task_timeout_seconds: int = 3600,
     database_path: Path | None = None,
     artifacts_dir: Path | None = None,
+    gpu_device_ids: tuple[str, ...] = ("0",),
+    queue_max_size: int = 20,
 ) -> TestClient:
     database_path = database_path or (tmp_path / "gen3d.sqlite3")
     artifacts_dir = artifacts_dir or (tmp_path / "artifacts")
@@ -53,6 +55,8 @@ def make_client(
         artifacts_dir=artifacts_dir,
         preprocess_delay_ms=40,
         queue_delay_ms=queue_delay_ms,
+        gpu_device_ids=gpu_device_ids,
+        queue_max_size=queue_max_size,
         mock_gpu_stage_delay_ms=60,
         mock_export_delay_ms=40,
         rate_limit_concurrent=rate_limit_concurrent,
@@ -621,6 +625,69 @@ def test_webhook_failures_are_retried_and_recorded(
     assert webhook_events[-1]["metadata"]["attempts"] == 3
     assert webhook_events[-1]["metadata"]["error"] == "webhook boom 3"
     assert "webhook boom 3" in webhook_events[-1]["metadata"]["message"]
+
+
+def test_create_task_returns_503_when_queue_is_full(tmp_path: Path) -> None:
+    with make_client(
+        tmp_path,
+        queue_delay_ms=300,
+        queue_max_size=1,
+    ) as client:
+        first_response = client.post(
+            "/v1/tasks",
+            headers=auth_headers(),
+            json={
+                "type": "image_to_3d",
+                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "options": {"resolution": 1024},
+            },
+        )
+        second_response = client.post(
+            "/v1/tasks",
+            headers=auth_headers(),
+            json={
+                "type": "image_to_3d",
+                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "options": {"resolution": 1024},
+            },
+        )
+        third_response = client.post(
+            "/v1/tasks",
+            headers=auth_headers(),
+            json={
+                "type": "image_to_3d",
+                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "options": {"resolution": 1024},
+            },
+        )
+
+        wait_for_status(client, first_response.json()["taskId"], "succeeded")
+        wait_for_status(client, second_response.json()["taskId"], "succeeded")
+
+    assert first_response.status_code == 201
+    assert second_response.status_code == 201
+    assert third_response.status_code == 503
+    assert third_response.json()["detail"]["code"] == "queue_full"
+
+
+def test_single_gpu_default_configuration_exposes_slot_metric(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        create_response = client.post(
+            "/v1/tasks",
+            headers=auth_headers(),
+            json={
+                "type": "image_to_3d",
+                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "options": {"resolution": 1024},
+            },
+        )
+        assert create_response.status_code == 201
+
+        wait_for_status(client, create_response.json()["taskId"], "succeeded")
+        metrics_payload = fetch_metrics_payload(client)
+
+    assert "gen3d_gpu_slot_active" in metrics_payload
+    assert 'gen3d_gpu_slot_active{device="0"}' in metrics_payload
 
 
 def test_gpu_queued_task_can_be_cancelled_and_repeat_cancel_is_rejected(tmp_path: Path) -> None:

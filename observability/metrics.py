@@ -14,6 +14,12 @@ _QUEUE_DEPTH = Gauge(
     "Current number of queued tasks waiting to be processed.",
     registry=REGISTRY,
 )
+_GPU_SLOT_ACTIVE = Gauge(
+    "gen3d_gpu_slot_active",
+    "Whether a GPU slot is actively running a task.",
+    labelnames=("device",),
+    registry=REGISTRY,
+)
 _TASK_DURATION = Histogram(
     "gen3d_task_duration_seconds",
     "End-to-end task duration in seconds.",
@@ -54,12 +60,21 @@ for result in ("success", "failure"):
 _QUEUE_DEPTH.set(0)
 
 
+def initialize_gpu_slots(device_ids: tuple[str, ...]) -> None:
+    for device_id in dict.fromkeys(device_ids):
+        _GPU_SLOT_ACTIVE.labels(device=str(device_id)).set(0)
+
+
 def set_ready(ready: bool) -> None:
     _READY.set(1 if ready else 0)
 
 
 def set_queue_depth(depth: int) -> None:
     _QUEUE_DEPTH.set(max(int(depth), 0))
+
+
+def set_gpu_slot_active(*, device: str, active: bool) -> None:
+    _GPU_SLOT_ACTIVE.labels(device=str(device)).set(1 if active else 0)
 
 
 def observe_task_duration(*, status: str, duration_seconds: float) -> None:

@@ -19,6 +19,8 @@
 - Prometheus `/metrics` 最小生产指标
 - 启动恢复中间态任务 + 超时任务 fail-fast
 - webhook 指数退避重试（1s / 2s / 4s）
+- 单机多卡 mock/real worker 抽象（每卡一个 slot）
+- 队列有界拒绝（`QUEUE_MAX_SIZE` 满时返回 503 `queue_full`）
 - mock 模式自动化测试
 
 ## 当前未宣称完成的内容
@@ -57,6 +59,8 @@
 ```
 
 如果配置了 `callback_url`，webhook 投递失败会按 `WEBHOOK_MAX_RETRIES` 做指数退避重试；每次重试和最终成功/失败都会写入 `task_events`。服务启动时也会扫描未终态任务，对 `submitted/preprocessing` 重入队，对 `gpu_queued` 及之后阶段直接失败，并对超过 `TASK_TIMEOUT_SECONDS` 的任务做超时失败收口。
+
+`GPU_DEVICE_IDS` 控制启用几张卡；mock 模式会起对应数量的 async worker，real 模式会按卡数起独立子进程 worker。`QUEUE_MAX_SIZE` 控制等待队列上限，超出时 `POST /v1/tasks` 返回 `503`，错误码为 `queue_full`。
 
 ## GPU 服务器前置条件
 
@@ -153,6 +157,8 @@ export MODEL_PATH=/models/trellis2
 export ARTIFACT_STORE_MODE=local
 export DATABASE_PATH=/srv/gen3d/data/gen3d.sqlite3
 export ARTIFACTS_DIR=/srv/gen3d/data/artifacts
+export GPU_DEVICE_IDS=0
+export QUEUE_MAX_SIZE=20
 export ALLOWED_CALLBACK_DOMAINS=
 export RATE_LIMIT_CONCURRENT=5
 export RATE_LIMIT_PER_HOUR=100
@@ -170,6 +176,8 @@ export MODEL_PATH=/models/trellis2
 export ARTIFACT_STORE_MODE=minio
 export DATABASE_PATH=/srv/gen3d/data/gen3d.sqlite3
 export ARTIFACTS_DIR=/srv/gen3d/data/artifacts
+export GPU_DEVICE_IDS=0,1
+export QUEUE_MAX_SIZE=20
 export OBJECT_STORE_ENDPOINT=http://minio.internal:9000
 export OBJECT_STORE_EXTERNAL_ENDPOINT=https://minio.example.com
 export OBJECT_STORE_BUCKET=gen3d-artifacts

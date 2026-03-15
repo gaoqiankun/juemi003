@@ -10,8 +10,8 @@ from gen3d.engine.sequence import RequestSequence, TaskStatus
 from gen3d.model.base import ModelProviderExecutionError, StageProgress
 from gen3d.observability.metrics import observe_stage_duration
 from gen3d.stages.base import BaseStage, StageExecutionError, StageUpdateHandler
-from gen3d.stages.gpu.scheduler import FlowMatchingScheduler
-from gen3d.stages.gpu.worker import GPUWorker
+from gen3d.stages.gpu.scheduler import GPUSlotScheduler
+from gen3d.stages.gpu.worker import GPUWorkerHandle
 
 
 class GPUStage(BaseStage):
@@ -21,14 +21,36 @@ class GPUStage(BaseStage):
         self,
         *,
         delay_ms: int = 0,
-        worker: GPUWorker,
+        workers: list[GPUWorkerHandle],
         task_store,
     ) -> None:
         self._delay_seconds = max(delay_ms, 0) / 1000
-        self._scheduler: FlowMatchingScheduler[RequestSequence] = FlowMatchingScheduler()
-        self._worker = worker
+        self._workers = workers
+        self._scheduler = GPUSlotScheduler(workers)
         self._task_store = task_store
         self._logger = structlog.get_logger(__name__)
+
+    async def start(self) -> None:
+        for worker in self._workers:
+            await worker.start()
+        self._logger.info(
+            "gpu.worker_pool_started",
+            worker_count=len(self._workers),
+            device_ids=[worker.device_id for worker in self._workers],
+        )
+
+    async def stop(self) -> None:
+        for worker in self._workers:
+            await worker.stop()
+        self._logger.info(
+            "gpu.worker_pool_stopped",
+            worker_count=len(self._workers),
+            device_ids=[worker.device_id for worker in self._workers],
+        )
+
+    @property
+    def slot_count(self) -> int:
+        return self._scheduler.slot_count()
 
     async def run(
         self,
@@ -39,7 +61,6 @@ class GPUStage(BaseStage):
         with bound_contextvars(task_id=sequence.task_id):
             self._logger.info("stage.started", stage=self.name)
             try:
-                self._scheduler.enqueue(sequence)
                 sequence.transition_to(
                     TaskStatus.GPU_QUEUED,
                     current_stage=TaskStatus.GPU_QUEUED.value,
@@ -62,27 +83,29 @@ class GPUStage(BaseStage):
                     )
                     return latest
 
-                batch = self._scheduler.drain()
-                if not batch:
-                    raise StageExecutionError(
-                        stage_name=TaskStatus.GPU_QUEUED.value,
-                        message="gpu scheduler produced an empty batch",
-                    )
-
-                sequence.assigned_worker_id = self._worker.worker_id
+                slot = await self._scheduler.acquire()
+                sequence.assigned_worker_id = slot.worker.worker_id
                 prepared_inputs = [sequence.prepared_input or {"image_url": sequence.input_url}]
                 try:
-                    results = await self._worker.run_batch(
-                        prepared_inputs=prepared_inputs,
-                        options=sequence.options,
-                        progress_cb=lambda progress: self._handle_progress(
-                            sequence,
-                            progress,
-                            on_update,
-                        ),
+                    self._logger.info(
+                        "gpu.slot_acquired",
+                        device_id=slot.device_id,
+                        worker_id=slot.worker.worker_id,
                     )
-                except ModelProviderExecutionError as exc:
-                    raise StageExecutionError(exc.stage_name, str(exc)) from exc
+                    try:
+                        results = await slot.worker.run_batch(
+                            prepared_inputs=prepared_inputs,
+                            options=sequence.options,
+                            progress_cb=lambda progress: self._handle_progress(
+                                sequence,
+                                progress,
+                                on_update,
+                            ),
+                        )
+                    except ModelProviderExecutionError as exc:
+                        raise StageExecutionError(exc.stage_name, str(exc)) from exc
+                finally:
+                    await self._scheduler.release(slot.device_id)
 
                 sequence.generation_result = results[0]
                 duration_seconds = time.perf_counter() - started_at
@@ -90,7 +113,7 @@ class GPUStage(BaseStage):
                     "stage.completed",
                     stage=self.name,
                     duration_seconds=round(duration_seconds, 6),
-                    worker_id=self._worker.worker_id,
+                    worker_id=sequence.assigned_worker_id,
                     current_stage=sequence.current_stage,
                 )
                 return sequence
@@ -132,6 +155,6 @@ class GPUStage(BaseStage):
                 "stage": progress.stage_name,
                 "step": progress.step,
                 "total_steps": progress.total_steps,
-                "worker_id": self._worker.worker_id,
+                "worker_id": sequence.assigned_worker_id,
             },
         )

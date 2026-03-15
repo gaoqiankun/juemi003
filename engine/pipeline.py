@@ -29,6 +29,10 @@ class CancelRequestResult:
     sequence: RequestSequence | None
 
 
+class PipelineQueueFullError(RuntimeError):
+    pass
+
+
 @dataclass(slots=True)
 class RecoverySummary:
     scanned: int = 0
@@ -44,21 +48,28 @@ class PipelineCoordinator:
         stages: list[BaseStage],
         *,
         task_timeout_seconds: int = 3600,
+        queue_max_size: int = 20,
+        worker_count: int = 1,
     ) -> None:
         self._task_store = task_store
         self._stages = stages
         self._queue: asyncio.Queue[str | None] = asyncio.Queue()
-        self._worker_task: asyncio.Task[None] | None = None
+        self._worker_tasks: list[asyncio.Task[None]] = []
         self._listeners: list[PipelineListener] = []
         self._logger = structlog.get_logger(__name__)
         self._task_timeout_seconds = max(int(task_timeout_seconds), 1)
+        self._worker_count = max(int(worker_count), 1)
+        self._queue_max_size = max(int(queue_max_size), 0)
+        self._queue_capacity = self._worker_count + self._queue_max_size
+        self._active_tasks = 0
 
     def add_listener(self, listener: PipelineListener) -> None:
         self._listeners.append(listener)
 
     async def start(self) -> None:
-        if self._worker_task is not None:
+        if self._worker_tasks:
             return
+        await self._run_stage_lifecycle("start")
         recovery_summary = await self._recover_incomplete_tasks()
         self._logger.info(
             "task.recovery_summary",
@@ -67,22 +78,40 @@ class PipelineCoordinator:
             failed_interrupted=recovery_summary.failed_interrupted,
             failed_timeout=recovery_summary.failed_timeout,
             task_timeout_seconds=self._task_timeout_seconds,
+            worker_count=self._worker_count,
         )
-        self._worker_task = asyncio.create_task(self._run(), name="gen3d-pipeline")
+        self._worker_tasks = [
+            asyncio.create_task(
+                self._run(worker_index),
+                name=f"gen3d-pipeline-{worker_index}",
+            )
+            for worker_index in range(self._worker_count)
+        ]
 
     async def stop(self) -> None:
-        if self._worker_task is None:
+        if not self._worker_tasks:
             return
-        await self._queue.put(None)
-        await self._worker_task
-        self._worker_task = None
+        for _ in range(self._worker_count):
+            await self._queue.put(None)
+        await asyncio.gather(*self._worker_tasks)
+        self._worker_tasks.clear()
+        await self._run_stage_lifecycle("stop")
 
-    async def enqueue(self, task_id: str) -> None:
-        await self._queue.put(task_id)
+    async def enqueue(self, task_id: str, *, enforce_limit: bool = True) -> None:
+        if enforce_limit:
+            if self.queue_size() + self._active_tasks >= self._queue_capacity:
+                raise PipelineQueueFullError("pipeline queue is full")
+            self._queue.put_nowait(task_id)
+        else:
+            await self._queue.put(task_id)
         set_queue_depth(self.queue_size())
 
     def queue_size(self) -> int:
         return self._queue.qsize()
+
+    @property
+    def worker_count(self) -> int:
+        return self._worker_count
 
     async def cancel_task(self, task_id: str) -> CancelRequestResult:
         sequence = await self._task_store.get_task(task_id)
@@ -150,7 +179,7 @@ class PipelineCoordinator:
                         current_stage=sequence.current_stage,
                         task_age_seconds=round(age_seconds, 6),
                     )
-                    await self.enqueue(sequence.task_id)
+                    await self.enqueue(sequence.task_id, enforce_limit=False)
                     continue
 
                 summary.failed_interrupted += 1
@@ -193,7 +222,7 @@ class PipelineCoordinator:
             },
         )
 
-    async def _run(self) -> None:
+    async def _run(self, worker_index: int) -> None:
         while True:
             task_id = await self._queue.get()
             set_queue_depth(self.queue_size())
@@ -201,6 +230,7 @@ class PipelineCoordinator:
                 self._queue.task_done()
                 break
 
+            processing_started = False
             try:
                 sequence = await self._task_store.get_task(task_id)
                 if sequence is None or sequence.status in {
@@ -209,9 +239,12 @@ class PipelineCoordinator:
                     TaskStatus.CANCELLED,
                 }:
                     continue
+                self._active_tasks += 1
+                processing_started = True
                 with bound_contextvars(task_id=sequence.task_id):
                     self._logger.info(
                         "task.processing_started",
+                        pipeline_worker_index=worker_index,
                         current_stage=sequence.current_stage,
                         queue_depth=self.queue_size(),
                     )
@@ -269,7 +302,18 @@ class PipelineCoordinator:
                         }:
                             break
             finally:
+                if processing_started:
+                    self._active_tasks = max(self._active_tasks - 1, 0)
                 self._queue.task_done()
+
+    async def _run_stage_lifecycle(self, method_name: str) -> None:
+        for stage in self._stages:
+            method = getattr(stage, method_name, None)
+            if method is None:
+                continue
+            maybe_awaitable = method()
+            if inspect.isawaitable(maybe_awaitable):
+                await maybe_awaitable
 
     async def _publish_update(
         self,

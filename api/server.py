@@ -20,7 +20,7 @@ from gen3d.api.schemas import (
 )
 from gen3d.config import ServingConfig, ServingConfigurationError
 from gen3d.engine.async_engine import AsyncGen3DEngine
-from gen3d.engine.pipeline import PipelineCoordinator
+from gen3d.engine.pipeline import PipelineCoordinator, PipelineQueueFullError
 from gen3d.engine.sequence import TaskStatus
 from gen3d.model.base import ModelProviderConfigurationError
 from gen3d.model.trellis2.provider import MockTrellis2Provider, Trellis2Provider
@@ -33,7 +33,7 @@ from gen3d.security import (
 )
 from gen3d.stages.export.stage import ExportStage
 from gen3d.stages.gpu.stage import GPUStage
-from gen3d.stages.gpu.worker import GPUWorker
+from gen3d.stages.gpu.worker import build_gpu_workers
 from gen3d.stages.preprocess.stage import PreprocessStage
 from gen3d.storage.artifact_store import (
     ArtifactStore,
@@ -171,7 +171,18 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
         max_concurrent=config.rate_limit_concurrent,
         max_requests_per_hour=config.rate_limit_per_hour,
     )
-    gpu_worker = GPUWorker(worker_id="mock-gpu-0", provider=provider)
+    gpu_workers = build_gpu_workers(
+        provider=provider,
+        provider_mode=config.provider_mode,
+        provider_name=config.model_provider,
+        model_path=config.model_path,
+        device_ids=config.gpu_device_ids,
+    )
+    gpu_stage = GPUStage(
+        delay_ms=config.queue_delay_ms,
+        workers=gpu_workers,
+        task_store=task_store,
+    )
     pipeline = PipelineCoordinator(
         task_store=task_store,
         stages=[
@@ -181,7 +192,7 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
                 max_image_bytes=config.preprocess_max_image_bytes,
                 allow_local_inputs=config.is_mock_provider,
             ),
-            GPUStage(delay_ms=config.queue_delay_ms, worker=gpu_worker, task_store=task_store),
+            gpu_stage,
             ExportStage(
                 provider=provider,
                 artifact_store=artifact_store,
@@ -189,6 +200,8 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
             ),
         ],
         task_timeout_seconds=config.task_timeout_seconds,
+        queue_max_size=config.queue_max_size,
+        worker_count=gpu_stage.slot_count,
     )
     engine = AsyncGen3DEngine(
         task_store=task_store,
@@ -316,6 +329,14 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 detail=str(exc),
+            ) from exc
+        except PipelineQueueFullError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "code": "queue_full",
+                    "message": str(exc),
+                },
             ) from exc
         response.status_code = (
             status.HTTP_201_CREATED if created else status.HTTP_200_OK
