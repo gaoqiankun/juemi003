@@ -738,6 +738,17 @@
       return new URL(String(path).replace(/^\/+/, ""), ensureTrailingSlash(state.config.baseUrl)).toString();
     }
 
+    function resolveArtifactUrl(url) {
+      const raw = String(url || "").trim();
+      if (!raw) {
+        return "";
+      }
+      if (raw.startsWith("/")) {
+        return buildApiUrl(raw);
+      }
+      return raw;
+    }
+
     function authHeaders(json = false) {
       const headers = {};
       if (state.config.token) {
@@ -979,27 +990,34 @@
         return;
       }
 
-      if (task.resolvedArtifactUrl && task.resolvedArtifactUrl === glb.url) {
+      const rawArtifactUrl = String(glb.url || "").trim();
+      const browserArtifactUrl = resolveArtifactUrl(rawArtifactUrl);
+
+      if (task.resolvedArtifactUrl && task.resolvedArtifactUrl === browserArtifactUrl) {
         return;
       }
 
-      if (/^https?:\/\//i.test(glb.url)) {
+      if (/^https?:\/\//i.test(browserArtifactUrl)) {
         ensureTask(task.taskId, {
-          resolvedArtifactUrl: glb.url,
-          note: glb.expires_at ? "artifact 为临时 URL，过期后请重新刷新任务。" : "",
+          resolvedArtifactUrl: browserArtifactUrl,
+          note: rawArtifactUrl.startsWith("/")
+            ? "artifact 使用相对路径返回，页面已按 API Base URL 自动补全。"
+            : glb.expires_at
+              ? "artifact 为临时 URL，过期后请重新刷新任务。"
+              : "",
         });
         return;
       }
 
-      if (!/^file:\/\//i.test(glb.url)) {
+      if (!/^file:\/\//i.test(rawArtifactUrl)) {
         ensureTask(task.taskId, {
-          resolvedArtifactUrl: glb.url,
+          resolvedArtifactUrl: browserArtifactUrl,
           note: "artifact URL 已返回，但不是常见的 http(s) / file 协议，请按实际环境确认。",
         });
         return;
       }
 
-      const candidates = buildLocalArtifactCandidates(task.taskId, glb.url);
+      const candidates = buildLocalArtifactCandidates(task.taskId, rawArtifactUrl);
       for (const candidate of candidates) {
         const ok = await probeUrl(candidate);
         if (ok) {
@@ -1012,7 +1030,7 @@
       }
 
       ensureTask(task.taskId, {
-        resolvedArtifactUrl: glb.url,
+        resolvedArtifactUrl: rawArtifactUrl,
         note:
           "artifact 当前是 file:// 本地路径，浏览器通常无法直接预览。若需在线下载/预览，请使用 MinIO presigned URL 或同源 HTTP 代理。",
       });
