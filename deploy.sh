@@ -128,6 +128,7 @@ GEN3D_DATA_DIR=/opt/hey3d/gen3d/data
 GEN3D_MODEL_DIR=/opt/hey3d/gen3d/models/trellis2
 GEN3D_MINIO_DIR=/opt/hey3d/gen3d/.minio
 API_TOKEN=changeme
+ADMIN_TOKEN=
 HF_TOKEN=
 PROVIDER_MODE=real
 MODEL_PATH=microsoft/TRELLIS.2-4B
