@@ -8,7 +8,7 @@ from typing import Any, Awaitable, Callable
 import structlog
 from structlog.contextvars import bound_contextvars
 
-from gen3d.engine.sequence import RequestSequence, TaskStatus
+from gen3d.engine.sequence import RequestSequence, TaskStatus, utcnow
 from gen3d.observability.metrics import (
     increment_task_total,
     observe_task_duration,
@@ -29,14 +29,29 @@ class CancelRequestResult:
     sequence: RequestSequence | None
 
 
+@dataclass(slots=True)
+class RecoverySummary:
+    scanned: int = 0
+    requeued: int = 0
+    failed_interrupted: int = 0
+    failed_timeout: int = 0
+
+
 class PipelineCoordinator:
-    def __init__(self, task_store: TaskStore, stages: list[BaseStage]) -> None:
+    def __init__(
+        self,
+        task_store: TaskStore,
+        stages: list[BaseStage],
+        *,
+        task_timeout_seconds: int = 3600,
+    ) -> None:
         self._task_store = task_store
         self._stages = stages
         self._queue: asyncio.Queue[str | None] = asyncio.Queue()
         self._worker_task: asyncio.Task[None] | None = None
         self._listeners: list[PipelineListener] = []
         self._logger = structlog.get_logger(__name__)
+        self._task_timeout_seconds = max(int(task_timeout_seconds), 1)
 
     def add_listener(self, listener: PipelineListener) -> None:
         self._listeners.append(listener)
@@ -44,8 +59,15 @@ class PipelineCoordinator:
     async def start(self) -> None:
         if self._worker_task is not None:
             return
-        for sequence in await self._task_store.list_recoverable_tasks():
-            await self.enqueue(sequence.task_id)
+        recovery_summary = await self._recover_incomplete_tasks()
+        self._logger.info(
+            "task.recovery_summary",
+            scanned=recovery_summary.scanned,
+            requeued=recovery_summary.requeued,
+            failed_interrupted=recovery_summary.failed_interrupted,
+            failed_timeout=recovery_summary.failed_timeout,
+            task_timeout_seconds=self._task_timeout_seconds,
+        )
         self._worker_task = asyncio.create_task(self._run(), name="gen3d-pipeline")
 
     async def stop(self) -> None:
@@ -93,6 +115,83 @@ class PipelineCoordinator:
             },
         )
         return CancelRequestResult(outcome="cancelled", sequence=sequence)
+
+    async def _recover_incomplete_tasks(self) -> RecoverySummary:
+        summary = RecoverySummary()
+        for sequence in await self._task_store.list_incomplete_tasks():
+            summary.scanned += 1
+            age_seconds = max(
+                (utcnow() - sequence.created_at).total_seconds(),
+                0.0,
+            )
+            with bound_contextvars(task_id=sequence.task_id):
+                if age_seconds > self._task_timeout_seconds:
+                    summary.failed_timeout += 1
+                    self._logger.warning(
+                        "task.recovered_as_failed",
+                        recovery_action="timeout",
+                        previous_status=sequence.status.value,
+                        current_stage=sequence.current_stage,
+                        task_age_seconds=round(age_seconds, 6),
+                    )
+                    await self._fail_recovered_task(
+                        sequence,
+                        message=(
+                            "task exceeded TASK_TIMEOUT_SECONDS before service recovery"
+                        ),
+                        recovery_action="timeout",
+                    )
+                    continue
+                if sequence.status in {TaskStatus.SUBMITTED, TaskStatus.PREPROCESSING}:
+                    summary.requeued += 1
+                    self._logger.info(
+                        "task.requeued_after_restart",
+                        previous_status=sequence.status.value,
+                        current_stage=sequence.current_stage,
+                        task_age_seconds=round(age_seconds, 6),
+                    )
+                    await self.enqueue(sequence.task_id)
+                    continue
+
+                summary.failed_interrupted += 1
+                self._logger.warning(
+                    "task.recovered_as_failed",
+                    recovery_action="interrupted",
+                    previous_status=sequence.status.value,
+                    current_stage=sequence.current_stage,
+                    task_age_seconds=round(age_seconds, 6),
+                )
+                await self._fail_recovered_task(
+                    sequence,
+                    message="服务重启，任务中断",
+                    recovery_action="interrupted",
+                )
+        return summary
+
+    async def _fail_recovered_task(
+        self,
+        sequence: RequestSequence,
+        *,
+        message: str,
+        recovery_action: str,
+    ) -> None:
+        failed_stage = sequence.current_stage or sequence.status.value
+        sequence.transition_to(
+            TaskStatus.FAILED,
+            current_stage=failed_stage,
+            error_message=message,
+            failed_stage=failed_stage,
+        )
+        await self._publish_update(
+            sequence,
+            "failed",
+            {
+                "status": sequence.status.value,
+                "stage": failed_stage,
+                "message": message,
+                "recovery_action": recovery_action,
+            },
+        )
 
     async def _run(self) -> None:
         while True:

@@ -188,6 +188,7 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
                 delay_ms=config.mock_export_delay_ms,
             ),
         ],
+        task_timeout_seconds=config.task_timeout_seconds,
     )
     engine = AsyncGen3DEngine(
         task_store=task_store,
@@ -195,6 +196,7 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
         artifact_store=artifact_store,
         webhook_sender=webhook_sender,
         webhook_timeout_seconds=config.webhook_timeout_seconds,
+        webhook_max_retries=config.webhook_max_retries,
         provider_mode=config.provider_mode,
         allowed_callback_domains=config.allowed_callback_domains,
         rate_limiter=rate_limiter,
@@ -292,11 +294,12 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
     )
     async def create_task(
         payload: TaskCreateRequest,
+        response: Response,
         api_token: str | None = Depends(require_bearer_token),
         app_container: AppContainer = Depends(get_container),
     ) -> TaskCreateResponse:
         try:
-            sequence, _ = await app_container.engine.submit_task(
+            sequence, created = await app_container.engine.submit_task(
                 task_type=task_type_from_request(payload.type),
                 image_url=payload.image_url,
                 options=payload.options.model_dump(exclude_none=True),
@@ -314,6 +317,9 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 detail=str(exc),
             ) from exc
+        response.status_code = (
+            status.HTTP_201_CREATED if created else status.HTTP_200_OK
+        )
         return TaskCreateResponse.from_sequence(sequence)
 
     @app.get(

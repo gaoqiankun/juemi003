@@ -24,7 +24,10 @@ from gen3d.security import (
     validate_image_url,
 )
 from gen3d.storage.artifact_store import ArtifactStore
-from gen3d.storage.task_store import TaskStore
+from gen3d.storage.task_store import (
+    TaskIdempotencyConflictError,
+    TaskStore,
+)
 
 WebhookSender = Callable[[str, dict[str, Any]], Awaitable[None]]
 
@@ -44,6 +47,7 @@ class AsyncGen3DEngine:
         artifact_store: ArtifactStore | None = None,
         webhook_sender: WebhookSender | None = None,
         webhook_timeout_seconds: float = 2.0,
+        webhook_max_retries: int = 3,
         provider_mode: str = "mock",
         allowed_callback_domains: tuple[str, ...] = (),
         rate_limiter: TokenRateLimiter | None = None,
@@ -55,6 +59,7 @@ class AsyncGen3DEngine:
         self._event_queues: dict[str, set[asyncio.Queue[dict[str, Any]]]] = defaultdict(set)
         self._webhook_sender = webhook_sender or self._default_webhook_sender
         self._webhook_timeout_seconds = webhook_timeout_seconds
+        self._webhook_max_retries = max(int(webhook_max_retries), 0)
         self._allow_local_inputs = provider_mode.strip().lower() == "mock"
         self._allowed_callback_domains = allowed_callback_domains
         self._rate_limiter = rate_limiter
@@ -114,7 +119,17 @@ class AsyncGen3DEngine:
             idempotency_key=idempotency_key,
             task_type=task_type,
         )
-        await self._task_store.create_task(sequence)
+        try:
+            await self._task_store.create_task(sequence)
+        except TaskIdempotencyConflictError as exc:
+            existing = exc.existing_sequence
+            with bound_contextvars(task_id=existing.task_id):
+                self._logger.info(
+                    "task.reused_after_conflict",
+                    idempotency_key=idempotency_key,
+                    status=existing.status.value,
+                )
+            return existing, False
         await self._pipeline.enqueue(sequence.task_id)
         if self._rate_limiter is not None:
             await self._rate_limiter.register_task(rate_limit_key, sequence.task_id)
@@ -248,22 +263,84 @@ class AsyncGen3DEngine:
             ),
         }
         with bound_contextvars(task_id=sequence.task_id):
-            try:
-                await self._webhook_sender(sequence.callback_url, payload)
-            except Exception as exc:
-                increment_webhook_total(result="failure")
-                self._logger.warning(
-                    "webhook.delivery_failed",
+            max_attempts = 1 + self._webhook_max_retries
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    await self._webhook_sender(sequence.callback_url, payload)
+                except Exception as exc:
+                    error_message = str(exc)
+                    increment_webhook_total(result="failure")
+                    if attempt <= self._webhook_max_retries:
+                        delay_seconds = float(2 ** (attempt - 1))
+                        await self._task_store.append_task_event(
+                            sequence.task_id,
+                            event="webhook_retry",
+                            metadata={
+                                "status": sequence.status.value,
+                                "current_stage": sequence.current_stage,
+                                "callback_url": sequence.callback_url,
+                                "attempt": attempt,
+                                "max_retries": self._webhook_max_retries,
+                                "delay_seconds": delay_seconds,
+                                "error": error_message,
+                            },
+                        )
+                        self._logger.warning(
+                            "webhook.retry_scheduled",
+                            callback_url=sequence.callback_url,
+                            attempt=attempt,
+                            max_retries=self._webhook_max_retries,
+                            delay_seconds=delay_seconds,
+                            error=error_message,
+                        )
+                        await asyncio.sleep(delay_seconds)
+                        continue
+
+                    await self._task_store.append_task_event(
+                        sequence.task_id,
+                        event="webhook_failed",
+                        metadata={
+                            "status": sequence.status.value,
+                            "current_stage": sequence.current_stage,
+                            "callback_url": sequence.callback_url,
+                            "attempts": attempt,
+                            "max_retries": self._webhook_max_retries,
+                            "error": error_message,
+                            "message": (
+                                "webhook delivery failed after "
+                                f"{attempt} attempts: {error_message}"
+                            ),
+                        },
+                    )
+                    self._logger.warning(
+                        "webhook.delivery_failed",
+                        callback_url=sequence.callback_url,
+                        attempts=attempt,
+                        max_retries=self._webhook_max_retries,
+                        error=error_message,
+                    )
+                    return
+
+                increment_webhook_total(result="success")
+                await self._task_store.append_task_event(
+                    sequence.task_id,
+                    event="webhook_delivered",
+                    metadata={
+                        "status": sequence.status.value,
+                        "current_stage": sequence.current_stage,
+                        "callback_url": sequence.callback_url,
+                        "attempt": attempt,
+                        "max_retries": self._webhook_max_retries,
+                    },
+                )
+                self._logger.info(
+                    "webhook.delivered",
                     callback_url=sequence.callback_url,
-                    error=str(exc),
+                    status=sequence.status.value,
+                    attempt=attempt,
+                    max_retries=self._webhook_max_retries,
                 )
                 return
-            increment_webhook_total(result="success")
-            self._logger.info(
-                "webhook.delivered",
-                callback_url=sequence.callback_url,
-                status=sequence.status.value,
-            )
 
     async def _default_webhook_sender(
         self,

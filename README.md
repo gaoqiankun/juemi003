@@ -17,6 +17,8 @@
 - `deploy.sh`
 - structlog JSON 结构化日志（`task_id` 贯穿处理链）
 - Prometheus `/metrics` 最小生产指标
+- 启动恢复中间态任务 + 超时任务 fail-fast
+- webhook 指数退避重试（1s / 2s / 4s）
 - mock 模式自动化测试
 
 ## 当前未宣称完成的内容
@@ -50,9 +52,11 @@
   "size_bytes": 123456,
   "backend": "local 或 minio",
   "content_type": "model/gltf-binary",
-  "expires_at": null
+ "expires_at": null
 }
 ```
+
+如果配置了 `callback_url`，webhook 投递失败会按 `WEBHOOK_MAX_RETRIES` 做指数退避重试；每次重试和最终成功/失败都会写入 `task_events`。服务启动时也会扫描未终态任务，对 `submitted/preprocessing` 重入队，对 `gpu_queued` 及之后阶段直接失败，并对超过 `TASK_TIMEOUT_SECONDS` 的任务做超时失败收口。
 
 ## GPU 服务器前置条件
 
@@ -152,6 +156,8 @@ export ARTIFACTS_DIR=/srv/gen3d/data/artifacts
 export ALLOWED_CALLBACK_DOMAINS=
 export RATE_LIMIT_CONCURRENT=5
 export RATE_LIMIT_PER_HOUR=100
+export WEBHOOK_MAX_RETRIES=3
+export TASK_TIMEOUT_SECONDS=3600
 ```
 
 #### minio backend
@@ -175,6 +181,8 @@ export OBJECT_STORE_PRESIGN_TTL_SECONDS=3600
 export ALLOWED_CALLBACK_DOMAINS=callback.example.com
 export RATE_LIMIT_CONCURRENT=5
 export RATE_LIMIT_PER_HOUR=100
+export WEBHOOK_MAX_RETRIES=3
+export TASK_TIMEOUT_SECONDS=3600
 ```
 
 ### 7. 先跑自检

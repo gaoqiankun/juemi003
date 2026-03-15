@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import sys
 import time
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -13,7 +14,13 @@ if str(WORKSPACE_ROOT) not in sys.path:
 
 from gen3d.engine.async_engine import AsyncGen3DEngine
 from gen3d.engine.pipeline import PipelineCoordinator
-from gen3d.engine.sequence import TaskStatus, TaskType
+from gen3d.engine.sequence import (
+    DEFAULT_PROGRESS_BY_STATUS,
+    RequestSequence,
+    TaskStatus,
+    TaskType,
+    utcnow,
+)
 from gen3d.model.trellis2.provider import MockTrellis2Provider
 from gen3d.stages.export.stage import ExportStage
 from gen3d.stages.gpu.stage import GPUStage
@@ -73,6 +80,7 @@ def build_engine(
     tmp_path: Path,
     *,
     queue_delay_ms: int = 10,
+    task_timeout_seconds: int = 3600,
 ) -> tuple[TaskStore, ArtifactStore, AsyncGen3DEngine]:
     task_store = TaskStore(tmp_path / "pipeline.sqlite3")
     artifact_store = ArtifactStore(tmp_path / "artifacts")
@@ -85,6 +93,7 @@ def build_engine(
             GPUStage(delay_ms=queue_delay_ms, worker=worker, task_store=task_store),
             ExportStage(provider=provider, artifact_store=artifact_store, delay_ms=10),
         ],
+        task_timeout_seconds=task_timeout_seconds,
     )
     engine = AsyncGen3DEngine(
         task_store=task_store,
@@ -92,6 +101,52 @@ def build_engine(
         artifact_store=artifact_store,
     )
     return task_store, artifact_store, engine
+
+
+async def wait_for_engine_status(
+    engine: AsyncGen3DEngine,
+    task_id: str,
+    status: TaskStatus,
+    *,
+    timeout_seconds: float = 3.0,
+):
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        current = await engine.get_task(task_id)
+        if current is not None and current.status == status:
+            return current
+        await asyncio.sleep(0.01)
+    raise AssertionError(f"task {task_id} did not reach {status.value} in time")
+
+
+async def seed_task(
+    task_store: TaskStore,
+    *,
+    task_id: str,
+    status: TaskStatus,
+    current_stage: str | None = None,
+    created_at_offset_seconds: int = 0,
+    callback_url: str | None = None,
+    idempotency_key: str | None = None,
+) -> RequestSequence:
+    created_at = utcnow() - timedelta(seconds=max(created_at_offset_seconds, 0))
+    sequence = RequestSequence(
+        task_id=task_id,
+        task_type=TaskType.IMAGE_TO_3D,
+        input_url=SAMPLE_IMAGE_DATA_URL,
+        options={"resolution": 1024},
+        callback_url=callback_url,
+        idempotency_key=idempotency_key,
+        status=status,
+        progress=DEFAULT_PROGRESS_BY_STATUS[status],
+        current_stage=current_stage or status.value,
+        created_at=created_at,
+        queued_at=created_at,
+        started_at=None if status == TaskStatus.SUBMITTED else created_at,
+        updated_at=created_at,
+    )
+    await task_store.create_task(sequence)
+    return sequence
 
 
 def test_pipeline_persists_full_success_history(tmp_path: Path) -> None:
@@ -255,6 +310,161 @@ def test_pipeline_records_cancelled_event_for_gpu_queued_task(tmp_path: Path) ->
             assert events[-1]["event"] == "cancelled"
             assert events[-1]["metadata"]["status"] == "cancelled"
             assert events[-1]["metadata"]["current_stage"] == "cancelled"
+        finally:
+            await engine.stop()
+            await task_store.close()
+
+    asyncio.run(scenario())
+
+
+def test_pipeline_recovery_requeues_early_tasks_and_fails_interrupted_tasks(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> None:
+        seed_store = TaskStore(tmp_path / "pipeline.sqlite3")
+        await seed_store.initialize()
+        try:
+            await seed_task(
+                seed_store,
+                task_id="recover-submitted",
+                status=TaskStatus.SUBMITTED,
+            )
+            await seed_task(
+                seed_store,
+                task_id="recover-preprocessing",
+                status=TaskStatus.PREPROCESSING,
+            )
+            await seed_task(
+                seed_store,
+                task_id="recover-gpu",
+                status=TaskStatus.GPU_QUEUED,
+            )
+        finally:
+            await seed_store.close()
+
+        task_store, artifact_store, engine = build_engine(tmp_path)
+        await task_store.initialize()
+        await artifact_store.initialize()
+        await engine.start()
+        try:
+            submitted = await wait_for_engine_status(
+                engine,
+                "recover-submitted",
+                TaskStatus.SUCCEEDED,
+            )
+            preprocessing = await wait_for_engine_status(
+                engine,
+                "recover-preprocessing",
+                TaskStatus.SUCCEEDED,
+            )
+            interrupted = await wait_for_engine_status(
+                engine,
+                "recover-gpu",
+                TaskStatus.FAILED,
+            )
+
+            assert submitted.artifacts
+            assert preprocessing.artifacts
+            assert interrupted.error_message == "服务重启，任务中断"
+            assert interrupted.failed_stage == "gpu_queued"
+
+            events = await task_store.list_task_events("recover-gpu")
+            assert events[-1]["event"] == "failed"
+            assert events[-1]["metadata"]["recovery_action"] == "interrupted"
+            assert events[-1]["metadata"]["message"] == "服务重启，任务中断"
+        finally:
+            await engine.stop()
+            await task_store.close()
+
+    asyncio.run(scenario())
+
+
+def test_pipeline_recovery_fails_timed_out_tasks(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        seed_store = TaskStore(tmp_path / "pipeline.sqlite3")
+        await seed_store.initialize()
+        try:
+            await seed_task(
+                seed_store,
+                task_id="timed-out-task",
+                status=TaskStatus.PREPROCESSING,
+                created_at_offset_seconds=10,
+            )
+        finally:
+            await seed_store.close()
+
+        task_store, artifact_store, engine = build_engine(
+            tmp_path,
+            task_timeout_seconds=1,
+        )
+        await task_store.initialize()
+        await artifact_store.initialize()
+        await engine.start()
+        try:
+            timed_out = await wait_for_engine_status(
+                engine,
+                "timed-out-task",
+                TaskStatus.FAILED,
+            )
+
+            assert timed_out.error_message == (
+                "task exceeded TASK_TIMEOUT_SECONDS before service recovery"
+            )
+            assert timed_out.failed_stage == "preprocessing"
+
+            events = await task_store.list_task_events("timed-out-task")
+            assert events[-1]["event"] == "failed"
+            assert events[-1]["metadata"]["recovery_action"] == "timeout"
+            assert "TASK_TIMEOUT_SECONDS" in events[-1]["metadata"]["message"]
+        finally:
+            await engine.stop()
+            await task_store.close()
+
+    asyncio.run(scenario())
+
+
+def test_engine_idempotency_conflict_returns_existing_task(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def scenario() -> None:
+        task_store, artifact_store, engine = build_engine(tmp_path, queue_delay_ms=200)
+        await task_store.initialize()
+        await artifact_store.initialize()
+        await engine.start()
+        try:
+            gate = asyncio.Event()
+            arrivals = 0
+
+            async def always_miss_idempotency_key(_: str) -> None:
+                nonlocal arrivals
+                arrivals += 1
+                if arrivals == 2:
+                    gate.set()
+                await gate.wait()
+                return None
+
+            monkeypatch.setattr(
+                task_store,
+                "get_task_by_idempotency_key",
+                always_miss_idempotency_key,
+            )
+
+            async def submit():
+                return await engine.submit_task(
+                    task_type=TaskType.IMAGE_TO_3D,
+                    image_url=SAMPLE_IMAGE_DATA_URL,
+                    options={"resolution": 1024},
+                    idempotency_key="race-key",
+                )
+
+            results = await asyncio.gather(submit(), submit())
+            sequences = [sequence for sequence, _ in results]
+            created_flags = sorted(created for _, created in results)
+
+            assert created_flags == [False, True]
+            assert sequences[0].task_id == sequences[1].task_id
+            assert await engine.get_task(sequences[0].task_id) is not None
         finally:
             await engine.stop()
             await task_store.close()

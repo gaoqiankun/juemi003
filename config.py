@@ -89,6 +89,19 @@ class ServingConfig(BaseSettings):
         default=2.0,
         alias="WEBHOOK_TIMEOUT_SECONDS",
     )
+    # Maximum number of exponential-backoff retries after the initial webhook attempt fails.
+    # Retry delays are fixed at 1s, 2s, 4s, ... based on the retry index.
+    webhook_max_retries: int = Field(
+        default=3,
+        alias="WEBHOOK_MAX_RETRIES",
+        ge=0,
+    )
+    # Maximum allowed task age for unfinished tasks before startup recovery marks them failed.
+    task_timeout_seconds: int = Field(
+        default=3600,
+        alias="TASK_TIMEOUT_SECONDS",
+        ge=1,
+    )
     # Optional comma-separated callback host allowlist.
     # Empty means "allow any callback host".
     allowed_callback_domains: tuple[str, ...] = Field(

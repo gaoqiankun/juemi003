@@ -19,9 +19,11 @@ if str(WORKSPACE_ROOT) not in sys.path:
 from gen3d.api import server as server_module
 from gen3d.api.server import create_app, run_real_mode_preflight
 from gen3d.config import ServingConfig, ServingConfigurationError
+from gen3d.engine import async_engine as async_engine_module
 from gen3d.model.base import GenerationResult, ModelProviderConfigurationError
 from gen3d.model.trellis2.provider import MockTrellis2Provider, Trellis2Provider
 from gen3d.storage.artifact_store import ArtifactStoreConfigurationError
+from gen3d.storage.task_store import TaskStore
 
 WebhookSender = Callable[[str, dict], Awaitable[None]]
 SAMPLE_IMAGE_DATA_URL = (
@@ -38,17 +40,25 @@ def make_client(
     api_token: str | None = "test-token",
     rate_limit_concurrent: int = 5,
     rate_limit_per_hour: int = 100,
+    webhook_max_retries: int = 3,
+    task_timeout_seconds: int = 3600,
+    database_path: Path | None = None,
+    artifacts_dir: Path | None = None,
 ) -> TestClient:
+    database_path = database_path or (tmp_path / "gen3d.sqlite3")
+    artifacts_dir = artifacts_dir or (tmp_path / "artifacts")
     config = ServingConfig(
         api_token=api_token,
-        database_path=tmp_path / "gen3d.sqlite3",
-        artifacts_dir=tmp_path / "artifacts",
+        database_path=database_path,
+        artifacts_dir=artifacts_dir,
         preprocess_delay_ms=40,
         queue_delay_ms=queue_delay_ms,
         mock_gpu_stage_delay_ms=60,
         mock_export_delay_ms=40,
         rate_limit_concurrent=rate_limit_concurrent,
         rate_limit_per_hour=rate_limit_per_hour,
+        webhook_max_retries=webhook_max_retries,
+        task_timeout_seconds=task_timeout_seconds,
     )
     return TestClient(create_app(config, webhook_sender=webhook_sender))
 
@@ -177,6 +187,31 @@ def wait_for_metric_sample(
     raise AssertionError(
         f"metric sample {sample_name}{labels} did not reach {minimum_value} in time"
     )
+
+
+def wait_for_condition(
+    predicate: Callable[[], bool],
+    *,
+    timeout_seconds: float = 2.0,
+) -> None:
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        if predicate():
+            return
+        time.sleep(0.01)
+    raise AssertionError("condition was not satisfied in time")
+
+
+def read_task_events(database_path: Path, task_id: str) -> list[dict]:
+    async def scenario() -> list[dict]:
+        task_store = TaskStore(database_path)
+        await task_store.initialize()
+        try:
+            return await task_store.list_task_events(task_id)
+        finally:
+            await task_store.close()
+
+    return asyncio.run(scenario())
 
 
 def test_health_and_ready_endpoints(tmp_path: Path) -> None:
@@ -472,6 +507,120 @@ def test_metrics_track_webhook(tmp_path: Path) -> None:
             )
             >= webhook_success_before + 1
         )
+
+
+def test_create_task_with_existing_idempotency_key_returns_http_200(tmp_path: Path) -> None:
+    with make_client(tmp_path, queue_delay_ms=300) as client:
+        first_response = client.post(
+            "/v1/tasks",
+            headers=auth_headers(),
+            json={
+                "type": "image_to_3d",
+                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "idempotency_key": "same-task",
+                "options": {"resolution": 1024},
+            },
+        )
+        second_response = client.post(
+            "/v1/tasks",
+            headers=auth_headers(),
+            json={
+                "type": "image_to_3d",
+                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "idempotency_key": "same-task",
+                "options": {"resolution": 1024},
+            },
+        )
+
+        wait_for_status(client, first_response.json()["taskId"], "succeeded")
+
+    assert first_response.status_code == 201
+    assert second_response.status_code == 200
+    assert second_response.json()["taskId"] == first_response.json()["taskId"]
+
+
+def test_webhook_failures_are_retried_and_recorded(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database_path = tmp_path / "gen3d.sqlite3"
+    attempts: list[str] = []
+
+    async def failing_webhook_sender(callback_url: str, payload: dict) -> None:
+        attempts.append(callback_url)
+        raise RuntimeError(f"webhook boom {len(attempts)}")
+
+    async def no_op_sleep(_: float) -> None:
+        return None
+
+    monkeypatch.setattr(async_engine_module.asyncio, "sleep", no_op_sleep)
+
+    with make_client(
+        tmp_path,
+        webhook_sender=failing_webhook_sender,
+        webhook_max_retries=2,
+        database_path=database_path,
+    ) as client:
+        initial_metrics_payload = fetch_metrics_payload(client)
+        webhook_failure_before = metric_sample_value(
+            initial_metrics_payload,
+            "gen3d_webhook_total",
+            {"result": "failure"},
+        )
+        webhook_success_before = metric_sample_value(
+            initial_metrics_payload,
+            "gen3d_webhook_total",
+            {"result": "success"},
+        )
+
+        create_response = client.post(
+            "/v1/tasks",
+            headers=auth_headers(),
+            json={
+                "type": "image_to_3d",
+                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "callback_url": "https://callback.test/retry",
+                "options": {"resolution": 1024},
+            },
+        )
+        assert create_response.status_code == 201
+        task_id = create_response.json()["taskId"]
+
+        wait_for_status(client, task_id, "succeeded")
+        wait_for_condition(lambda: len(attempts) == 3, timeout_seconds=2.0)
+
+        assert (
+            wait_for_metric_sample(
+                client,
+                "gen3d_webhook_total",
+                labels={"result": "failure"},
+                minimum_value=webhook_failure_before + 3,
+            )
+            >= webhook_failure_before + 3
+        )
+        webhook_success_after = metric_sample_value(
+            fetch_metrics_payload(client),
+            "gen3d_webhook_total",
+            {"result": "success"},
+        )
+
+    assert attempts == [
+        "https://callback.test/retry",
+        "https://callback.test/retry",
+        "https://callback.test/retry",
+    ]
+    assert webhook_success_after == webhook_success_before
+
+    events = read_task_events(database_path, task_id)
+    webhook_events = [event for event in events if event["event"].startswith("webhook_")]
+    assert [event["event"] for event in webhook_events] == [
+        "webhook_retry",
+        "webhook_retry",
+        "webhook_failed",
+    ]
+    assert webhook_events[-1]["metadata"]["attempts"] == 3
+    assert webhook_events[-1]["metadata"]["error"] == "webhook boom 3"
+    assert "webhook boom 3" in webhook_events[-1]["metadata"]["message"]
 
 
 def test_gpu_queued_task_can_be_cancelled_and_repeat_cancel_is_rejected(tmp_path: Path) -> None:

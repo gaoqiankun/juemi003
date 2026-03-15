@@ -8,7 +8,15 @@ from typing import Any
 
 import aiosqlite
 
-from gen3d.engine.sequence import RequestSequence, TaskStatus, TaskType
+from gen3d.engine.sequence import RequestSequence, TaskStatus, TaskType, utcnow
+
+
+class TaskIdempotencyConflictError(RuntimeError):
+    def __init__(self, existing_sequence: RequestSequence) -> None:
+        super().__init__(
+            f"idempotency key already exists for task {existing_sequence.task_id}"
+        )
+        self.existing_sequence = existing_sequence
 
 
 def _serialize_datetime(value: datetime | None) -> str | None:
@@ -78,58 +86,64 @@ class TaskStore:
     async def create_task(self, sequence: RequestSequence) -> None:
         db = self._require_db()
         async with self._lock:
-            await db.execute(
-                """
-                INSERT INTO tasks (
-                    id, status, type, input_url, options_json, idempotency_key,
-                    callback_url, output_artifacts_json, error_message, failed_stage,
-                    retry_count, assigned_worker_id, current_stage, progress,
-                    queue_position, estimated_wait_seconds, estimated_finish_at,
-                    created_at, queued_at, started_at, completed_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    sequence.task_id,
-                    sequence.status.value,
-                    sequence.task_type.value,
-                    sequence.input_url,
-                    json.dumps(sequence.options),
-                    sequence.idempotency_key,
-                    sequence.callback_url,
-                    json.dumps(sequence.artifacts),
-                    sequence.error_message,
-                    sequence.failed_stage,
-                    sequence.retry_count,
-                    sequence.assigned_worker_id,
-                    sequence.current_stage,
-                    sequence.progress,
-                    sequence.queue_position,
-                    sequence.estimated_wait_seconds,
-                    _serialize_datetime(sequence.estimated_finish_at),
-                    _serialize_datetime(sequence.created_at),
-                    _serialize_datetime(sequence.queued_at),
-                    _serialize_datetime(sequence.started_at),
-                    _serialize_datetime(sequence.completed_at),
-                    _serialize_datetime(sequence.updated_at),
-                ),
-            )
-            await db.execute(
-                """
-                INSERT INTO task_events (task_id, event, metadata_json, created_at)
-                VALUES (?, ?, ?, ?)
-                """,
-                (
-                    sequence.task_id,
-                    "submitted",
-                    json.dumps(
-                        {
-                            "status": sequence.status.value,
-                            "current_stage": sequence.current_stage,
-                            "progress": sequence.progress,
-                        }
+            try:
+                await db.execute(
+                    """
+                    INSERT INTO tasks (
+                        id, status, type, input_url, options_json, idempotency_key,
+                        callback_url, output_artifacts_json, error_message, failed_stage,
+                        retry_count, assigned_worker_id, current_stage, progress,
+                        queue_position, estimated_wait_seconds, estimated_finish_at,
+                        created_at, queued_at, started_at, completed_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        sequence.task_id,
+                        sequence.status.value,
+                        sequence.task_type.value,
+                        sequence.input_url,
+                        json.dumps(sequence.options),
+                        sequence.idempotency_key,
+                        sequence.callback_url,
+                        json.dumps(sequence.artifacts),
+                        sequence.error_message,
+                        sequence.failed_stage,
+                        sequence.retry_count,
+                        sequence.assigned_worker_id,
+                        sequence.current_stage,
+                        sequence.progress,
+                        sequence.queue_position,
+                        sequence.estimated_wait_seconds,
+                        _serialize_datetime(sequence.estimated_finish_at),
+                        _serialize_datetime(sequence.created_at),
+                        _serialize_datetime(sequence.queued_at),
+                        _serialize_datetime(sequence.started_at),
+                        _serialize_datetime(sequence.completed_at),
+                        _serialize_datetime(sequence.updated_at),
                     ),
-                    _serialize_datetime(sequence.created_at),
-                ),
+                )
+            except aiosqlite.IntegrityError as exc:
+                conflict_text = str(exc).lower()
+                if not sequence.idempotency_key or "idempotency_key" not in conflict_text:
+                    raise
+                cursor = await db.execute(
+                    "SELECT * FROM tasks WHERE idempotency_key = ?",
+                    (sequence.idempotency_key,),
+                )
+                row = await cursor.fetchone()
+                if row is None:
+                    raise
+                raise TaskIdempotencyConflictError(self._row_to_sequence(row)) from exc
+            await self._insert_task_event(
+                db,
+                task_id=sequence.task_id,
+                event="submitted",
+                metadata={
+                    "status": sequence.status.value,
+                    "current_stage": sequence.current_stage,
+                    "progress": sequence.progress,
+                },
+                created_at=sequence.created_at,
             )
             await db.commit()
 
@@ -194,18 +208,32 @@ class TaskStore:
                 ),
             )
             if event is not None:
-                await db.execute(
-                    """
-                    INSERT INTO task_events (task_id, event, metadata_json, created_at)
-                    VALUES (?, ?, ?, ?)
-                    """,
-                    (
-                        sequence.task_id,
-                        event,
-                        json.dumps(metadata or {}),
-                        _serialize_datetime(sequence.updated_at),
-                    ),
+                await self._insert_task_event(
+                    db,
+                    task_id=sequence.task_id,
+                    event=event,
+                    metadata=metadata or {},
+                    created_at=sequence.updated_at,
                 )
+            await db.commit()
+
+    async def append_task_event(
+        self,
+        task_id: str,
+        *,
+        event: str,
+        metadata: dict[str, Any] | None = None,
+        created_at: datetime | None = None,
+    ) -> None:
+        db = self._require_db()
+        async with self._lock:
+            await self._insert_task_event(
+                db,
+                task_id=task_id,
+                event=event,
+                metadata=metadata or {},
+                created_at=created_at,
+            )
             await db.commit()
 
     async def get_task(self, task_id: str) -> RequestSequence | None:
@@ -249,17 +277,18 @@ class TaskStore:
         row = await cursor.fetchone()
         return self._row_to_sequence(row) if row is not None else None
 
-    async def list_recoverable_tasks(self) -> list[RequestSequence]:
+    async def list_incomplete_tasks(self) -> list[RequestSequence]:
         db = self._require_db()
         cursor = await db.execute(
             """
             SELECT * FROM tasks
-            WHERE status IN (?, ?)
+            WHERE status NOT IN (?, ?, ?)
             ORDER BY created_at ASC
             """,
             (
-                TaskStatus.SUBMITTED.value,
-                TaskStatus.PREPROCESSING.value,
+                TaskStatus.SUCCEEDED.value,
+                TaskStatus.FAILED.value,
+                TaskStatus.CANCELLED.value,
             ),
         )
         rows = await cursor.fetchall()
@@ -269,6 +298,28 @@ class TaskStore:
         if self._db is None:
             raise RuntimeError("TaskStore is not initialized")
         return self._db
+
+    async def _insert_task_event(
+        self,
+        db: aiosqlite.Connection,
+        *,
+        task_id: str,
+        event: str,
+        metadata: dict[str, Any],
+        created_at: datetime | None,
+    ) -> None:
+        await db.execute(
+            """
+            INSERT INTO task_events (task_id, event, metadata_json, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                task_id,
+                event,
+                json.dumps(metadata),
+                _serialize_datetime(created_at or utcnow()),
+            ),
+        )
 
     def _row_to_sequence(self, row: aiosqlite.Row) -> RequestSequence:
         return RequestSequence(
