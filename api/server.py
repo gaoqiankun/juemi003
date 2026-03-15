@@ -266,31 +266,39 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
             )
         return credentials.credentials
 
+    def has_valid_bearer_token(
+        credentials: HTTPAuthorizationCredentials | None,
+        configured_token: str | None,
+    ) -> bool:
+        return (
+            configured_token is not None
+            and credentials is not None
+            and credentials.scheme.lower() == "bearer"
+            and credentials.credentials == configured_token
+        )
+
     def require_metrics_access(
         request: Request,
         credentials: HTTPAuthorizationCredentials | None = Depends(auth_scheme),
         app_container: AppContainer = Depends(get_container),
     ) -> None:
-        if is_loopback_host(request.client.host if request.client else None):
-            return
         configured_token = app_container.config.api_token
-        if (
-            configured_token
-            and credentials is not None
-            and credentials.scheme.lower() == "bearer"
-            and credentials.credentials == configured_token
-        ):
+        if configured_token is None and app_container.config.is_mock_provider:
             return
+        if has_valid_bearer_token(credentials, configured_token):
+            return
+        if is_loopback_host(request.client.host if request.client else None):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="bearer token required for metrics",
+            )
         if configured_token:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="invalid bearer token",
                 headers={"WWW-Authenticate": "Bearer"},
             )
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="metrics are only available from loopback without API_TOKEN",
-        )
+        return
 
     @app.get("/health", response_model=HealthResponse)
     async def health(app_container: AppContainer = Depends(get_container)) -> HealthResponse:
