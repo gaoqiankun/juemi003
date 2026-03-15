@@ -252,7 +252,7 @@ python -m gen3d.serve
 - `docker/trellis2/Dockerfile`
 - `docker-compose.yml`
 - `deploy.sh`
-- `scripts/build-trellis2.sh`
+- `docker/trellis2/build.sh`
 
 它们的定位是“GPU 服务器第一轮验证材料”，不是已经在当前机器实测通过的生产镜像。
 当前 `gen3d` 部署镜像已经改成基于预先构建好的 `flash-attn` 基础镜像：
@@ -277,7 +277,7 @@ HOST_GID=<部署用户 gid>
 先构建 `TRELLIS.2` 基础镜像：
 
 ```bash
-./scripts/build-trellis2.sh --image hey3d/trellis2:latest
+./docker/trellis2/build.sh --image hey3d/trellis2:latest
 ```
 
 可选环境变量 build args：
@@ -318,11 +318,11 @@ docker build -f docker/Dockerfile -t hey3d-gen3d:local .
 
 ```bash
 export TORCH_CUDA_ARCH_LIST="8.0;8.6;8.9;9.0"
-./scripts/build-trellis2.sh --image hey3d/trellis2:latest
+./docker/trellis2/build.sh --image hey3d/trellis2:latest
 ```
 
 更窄的架构列表会明显减少编译时间。
-如果你修改过 `FLASHATTN_*`、`TRELLIS2_*` 或 `TORCH_CUDA_ARCH_LIST` 这类 build args，重试 `./scripts/build-trellis2.sh` 时建议带 `docker builder prune` 或手动加 `docker build --no-cache`，避免继续复用之前失败的扩展编译层。
+如果你修改过 `FLASHATTN_*`、`TRELLIS2_*` 或 `TORCH_CUDA_ARCH_LIST` 这类 build args，重试 `./docker/trellis2/build.sh` 时建议带 `docker builder prune` 或手动加 `docker build --no-cache`，避免继续复用之前失败的扩展编译层。
 
 ### Compose 启动 local backend
 

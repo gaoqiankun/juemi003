@@ -2,10 +2,10 @@
 set -euo pipefail
 
 # Usage:
-#   ./scripts/build-trellis2.sh
-#   ./scripts/build-trellis2.sh --image hey3d/trellis2:20260315
-#   ./scripts/build-trellis2.sh --image hey3d/trellis2:20260315 --platform linux/amd64
-#   ./scripts/build-trellis2.sh --image hey3d/trellis2:20260315 --push
+#   ./docker/trellis2/build.sh
+#   ./docker/trellis2/build.sh --image hey3d/trellis2:20260315
+#   ./docker/trellis2/build.sh --image hey3d/trellis2:20260315 --platform linux/amd64
+#   ./docker/trellis2/build.sh --image hey3d/trellis2:20260315 --push
 #
 # Optional environment build args:
 #   FLASHATTN_DEVEL_IMAGE
@@ -14,7 +14,7 @@ set -euo pipefail
 #   TRELLIS2_REF
 #   TORCH_CUDA_ARCH_LIST
 
-ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 DEFAULT_IMAGE="hey3d/trellis2:latest"
 LATEST_IMAGE="hey3d/trellis2:latest"
 IMAGE="$DEFAULT_IMAGE"
@@ -24,10 +24,10 @@ PLATFORM="linux/amd64"
 usage() {
   cat <<'EOF'
 Usage:
-  ./scripts/build-trellis2.sh
-  ./scripts/build-trellis2.sh --image hey3d/trellis2:20260315
-  ./scripts/build-trellis2.sh --image hey3d/trellis2:20260315 --platform linux/amd64
-  ./scripts/build-trellis2.sh --image hey3d/trellis2:20260315 --push
+  ./docker/trellis2/build.sh
+  ./docker/trellis2/build.sh --image hey3d/trellis2:20260315
+  ./docker/trellis2/build.sh --image hey3d/trellis2:20260315 --platform linux/amd64
+  ./docker/trellis2/build.sh --image hey3d/trellis2:20260315 --push
 
 Options:
   --image IMAGE       target image name (default: hey3d/trellis2:latest)
