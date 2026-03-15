@@ -249,16 +249,19 @@ python -m gen3d.serve
 仓库内已提供：
 
 - `docker/Dockerfile`
+- `docker/trellis2/Dockerfile`
 - `docker-compose.yml`
 - `deploy.sh`
+- `scripts/build-trellis2.sh`
 
 它们的定位是“GPU 服务器第一轮验证材料”，不是已经在当前机器实测通过的生产镜像。
 当前 `gen3d` 部署镜像已经改成基于预先构建好的 `flash-attn` 基础镜像：
 
 - `hey3d/flashattn-devel:latest`
 - `hey3d/flashattn-runtime:latest`
+- `hey3d/trellis2:latest`
 
-因此，先决条件是你已经在目标服务器上把这两层基础镜像 build 好或 load 进本地 Docker。
+因此，先决条件是你已经在目标服务器上把这三层基础镜像 build 好或 load 进本地 Docker。
 为避免容器把宿主机挂载目录写成 `root:root`，部署 `.env` 建议显式保留：
 
 ```dotenv
@@ -271,6 +274,24 @@ HOST_GID=<部署用户 gid>
 
 ### Docker build
 
+先构建 `TRELLIS.2` 基础镜像：
+
+```bash
+./scripts/build-trellis2.sh --image hey3d/trellis2:latest
+```
+
+可选环境变量 build args：
+
+```bash
+export FLASHATTN_DEVEL_IMAGE=hey3d/flashattn-devel:latest
+export FLASHATTN_RUNTIME_IMAGE=hey3d/flashattn-runtime:latest
+export TRELLIS2_REPO_URL=https://github.com/microsoft/TRELLIS.2.git
+export TRELLIS2_REF=main
+export TORCH_CUDA_ARCH_LIST="8.0;8.6;8.9;9.0"
+```
+
+再构建应用镜像：
+
 ```bash
 docker build -f docker/Dockerfile -t hey3d-gen3d:local .
 ```
@@ -278,15 +299,11 @@ docker build -f docker/Dockerfile -t hey3d-gen3d:local .
 可选 build args：
 
 ```bash
---build-arg FLASHATTN_DEVEL_IMAGE=hey3d/flashattn-devel:latest
---build-arg FLASHATTN_RUNTIME_IMAGE=hey3d/flashattn-runtime:latest
---build-arg TRELLIS2_REPO_URL=https://github.com/microsoft/TRELLIS.2.git
---build-arg TRELLIS2_REF=main
---build-arg TORCH_CUDA_ARCH_LIST="8.0;8.6;8.9;9.0"
+--build-arg TRELLIS2_IMAGE=hey3d/trellis2:latest
 ```
 
 如果你们有内部 `flash-attn` 基础镜像仓库或 TRELLIS.2 私有镜像，在这里替换。
-如果 `gen3d` 部署镜像在 `o_voxel` / `cumesh` / `flex_gemm` 编译阶段报
+如果 `TRELLIS.2` 基础镜像在 `o_voxel` / `cumesh` / `flex_gemm` 编译阶段报
 `torch.utils.cpp_extension._get_cuda_arch_flags` 相关错误，说明 `docker build`
 阶段无法自动探测 GPU 架构。这时必须显式传 `TORCH_CUDA_ARCH_LIST`。
 
@@ -300,11 +317,12 @@ docker build -f docker/Dockerfile -t hey3d-gen3d:local .
 如果不确定，可以先传较宽的组合：
 
 ```bash
---build-arg TORCH_CUDA_ARCH_LIST="8.0;8.6;8.9;9.0"
+export TORCH_CUDA_ARCH_LIST="8.0;8.6;8.9;9.0"
+./scripts/build-trellis2.sh --image hey3d/trellis2:latest
 ```
 
 更窄的架构列表会明显减少编译时间。
-如果你修改过 `FLASHATTN_*`、`TRELLIS2_*` 或 `TORCH_CUDA_ARCH_LIST` 这类 build args，重试时建议带 `--no-cache`，避免继续复用之前失败的扩展编译层。
+如果你修改过 `FLASHATTN_*`、`TRELLIS2_*` 或 `TORCH_CUDA_ARCH_LIST` 这类 build args，重试 `./scripts/build-trellis2.sh` 时建议带 `docker builder prune` 或手动加 `docker build --no-cache`，避免继续复用之前失败的扩展编译层。
 
 ### Compose 启动 local backend
 
@@ -313,8 +331,7 @@ export API_TOKEN=dev-api-token
 export PROVIDER_MODE=real
 export ARTIFACT_STORE_MODE=local
 export GEN3D_MODEL_DIR=/absolute/path/to/models/trellis2
-export FLASHATTN_DEVEL_IMAGE=hey3d/flashattn-devel:latest
-export FLASHATTN_RUNTIME_IMAGE=hey3d/flashattn-runtime:latest
+export TRELLIS2_IMAGE=hey3d/trellis2:latest
 
 docker compose up --build hey3d-gen3d
 ```
@@ -326,8 +343,7 @@ export API_TOKEN=dev-api-token
 export PROVIDER_MODE=real
 export ARTIFACT_STORE_MODE=minio
 export GEN3D_MODEL_DIR=/absolute/path/to/models/trellis2
-export FLASHATTN_DEVEL_IMAGE=hey3d/flashattn-devel:latest
-export FLASHATTN_RUNTIME_IMAGE=hey3d/flashattn-runtime:latest
+export TRELLIS2_IMAGE=hey3d/trellis2:latest
 export OBJECT_STORE_ENDPOINT=http://minio:9000
 export OBJECT_STORE_EXTERNAL_ENDPOINT=http://127.0.0.1:9000
 export OBJECT_STORE_BUCKET=gen3d-artifacts

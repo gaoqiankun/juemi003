@@ -2,11 +2,13 @@
 set -euo pipefail
 
 # Usage:
-#   ./deploy.sh --image hey3d-gen3d:20260313-1
-#   ./deploy.sh --image hey3d-gen3d:20260313-1 --target ubuntu@1.2.3.4 --remote-root /opt/hey3d/gen3d
-#   ./deploy.sh --image hey3d-gen3d:20260313-1 --target ubuntu@1.2.3.4 --remote-root /opt/hey3d/gen3d --port 2222
-#   ./deploy.sh --image hey3d-gen3d:20260313-1 --no-build
-#   ./deploy.sh --image hey3d-gen3d:20260313-1 --platform linux/amd64
+#   ./deploy.sh
+#   ./deploy.sh --image hey3d/gen3d:20260313-1
+#   ./deploy.sh --image hey3d/gen3d:20260313-1 --target ubuntu@1.2.3.4 --remote-root /opt/hey3d/gen3d
+#   ./deploy.sh --image hey3d/gen3d:20260313-1 --target ubuntu@1.2.3.4 --remote-root /opt/hey3d/gen3d --port 2222
+#   ./deploy.sh --image hey3d/gen3d:20260313-1 --no-build
+#   ./deploy.sh --image hey3d/gen3d:20260313-1 --platform linux/amd64
+#   ./deploy.sh --trellis2-image hey3d/trellis2:20260315
 
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
@@ -16,14 +18,46 @@ STAGE_DIR="$DIST_DIR/$RELEASE_NAME"
 TARGET=""
 REMOTE_ROOT=""
 SSH_PORT="22"
-IMAGE=""
+DEFAULT_IMAGE="hey3d/gen3d:latest"
+LATEST_IMAGE="hey3d/gen3d:latest"
+DEFAULT_TRELLIS2_IMAGE="hey3d/trellis2:latest"
+IMAGE="$DEFAULT_IMAGE"
+TRELLIS2_IMAGE="$DEFAULT_TRELLIS2_IMAGE"
 DO_BUILD="1"
 PLATFORM="linux/amd64"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  ./deploy.sh
+  ./deploy.sh --image hey3d/gen3d:20260313-1
+  ./deploy.sh --image hey3d/gen3d:20260313-1 --target ubuntu@1.2.3.4 --remote-root /opt/hey3d/gen3d
+  ./deploy.sh --image hey3d/gen3d:20260313-1 --target ubuntu@1.2.3.4 --remote-root /opt/hey3d/gen3d --port 2222
+  ./deploy.sh --image hey3d/gen3d:20260313-1 --no-build
+  ./deploy.sh --image hey3d/gen3d:20260313-1 --platform linux/amd64
+  ./deploy.sh --trellis2-image hey3d/trellis2:20260315
+
+Options:
+  --image IMAGE            target app image (default: hey3d/gen3d:latest)
+                           if IMAGE is not tagged :latest, also tag hey3d/gen3d:latest
+  --trellis2-image IMAGE   TRELLIS2 base image build arg (default: hey3d/trellis2:latest)
+  --target TARGET          upload release package to remote host
+  --remote-root PATH       remote deployment root
+  --port PORT              SSH port (default: 22)
+  --no-build               skip docker build and use existing IMAGE
+  --platform VALUE         docker build platform (default: linux/amd64)
+  -h, --help               show this help
+EOF
+}
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --image)
       IMAGE="${2:-}"
+      shift 2
+      ;;
+    --trellis2-image)
+      TRELLIS2_IMAGE="${2:-}"
       shift 2
       ;;
     --target)
@@ -47,7 +81,7 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     -h|--help)
-      sed -n '1,14p' "$0"
+      usage
       exit 0
       ;;
     *)
@@ -56,11 +90,6 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
-
-if [[ -z "$IMAGE" ]]; then
-  echo "[ERROR] --image is required, e.g. --image hey3d-gen3d:20260313-1"
-  exit 1
-fi
 
 if ! command -v docker >/dev/null 2>&1; then
   echo "[ERROR] docker is not installed"
@@ -73,7 +102,17 @@ mkdir -p "$STAGE_DIR"
 
 if [[ "$DO_BUILD" == "1" ]]; then
   echo "[INFO] Building image: $IMAGE ($PLATFORM)"
-  docker build --platform "$PLATFORM" -t "$IMAGE" -f "$ROOT_DIR/docker/Dockerfile" "$ROOT_DIR"
+  docker build \
+    --platform "$PLATFORM" \
+    --build-arg "TRELLIS2_IMAGE=$TRELLIS2_IMAGE" \
+    -t "$IMAGE" \
+    -f "$ROOT_DIR/docker/Dockerfile" \
+    "$ROOT_DIR"
+
+  if [[ "$IMAGE" != *":latest" ]]; then
+    echo "[INFO] Tagging latest alias: $LATEST_IMAGE"
+    docker tag "$IMAGE" "$LATEST_IMAGE"
+  fi
 else
   echo "[INFO] Skipping build (--no-build)"
   docker image inspect "$IMAGE" >/dev/null
@@ -83,7 +122,7 @@ echo "[INFO] Preparing release files"
 cp "$ROOT_DIR/docker-compose.yml" "$STAGE_DIR/"
 cp "$ROOT_DIR/README.md" "$STAGE_DIR/"
 
-cat > "$STAGE_DIR/.env" <<ENVEOF
+cat > "$STAGE_DIR/.env.example" <<ENVEOF
 HEY3D_IMAGE=$IMAGE
 GEN3D_DATA_DIR=/opt/hey3d/gen3d/data
 GEN3D_MODEL_DIR=/opt/hey3d/gen3d/models/trellis2
@@ -116,7 +155,8 @@ cat > "$STAGE_DIR/DEPLOY_QUICKSTART.txt" <<EOF2
 1) docker load -i image.tar.gz
 2) mkdir -p ${REMOTE_ROOT:-/opt/hey3d/gen3d}/data ${REMOTE_ROOT:-/opt/hey3d/gen3d}/models/trellis2
 3) ln -sfn ${REMOTE_ROOT:-/opt/hey3d/gen3d}/releases/$RELEASE_NAME ${REMOTE_ROOT:-/opt/hey3d/gen3d}/current
-4) cd ${REMOTE_ROOT:-/opt/hey3d/gen3d}/current && docker compose up -d
+4) cd ${REMOTE_ROOT:-/opt/hey3d/gen3d}/current && cp .env.example .env  # then edit .env and set API_TOKEN, etc.
+5) cd ${REMOTE_ROOT:-/opt/hey3d/gen3d}/current && docker compose up -d
 EOF2
 
 TAR_PATH="$DIST_DIR/$RELEASE_NAME.tar.gz"

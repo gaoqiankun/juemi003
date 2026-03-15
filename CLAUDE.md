@@ -9,8 +9,8 @@
 
 ## 当前状态
 
-- `gen3d` 已是可运行的 Python/FastAPI 3D 生成服务，不再处于纯规划阶段
-- 当前测试基线：`python -m pytest tests -q` 为 `23 passed`
+- `gen3d` 已是可运行的 Python/FastAPI 3D 生成服务，Phase A/B/C 全部完成
+- 当前测试基线：`python -m pytest tests -q` 为 `34 passed`
 - Provider：
   - `mock`：`MockTrellis2Provider`
   - `real`：`Trellis2Provider`
@@ -21,6 +21,12 @@
 - 对外功能已具备：任务提交、任务查询、SSE 事件流、取消、终态 webhook、artifacts 查询
 - 部署材料已齐：`docker/Dockerfile`、根目录 `docker-compose.yml`、`deploy.sh`
 - 真实 TRELLIS2 链路已在 GPU 服务器跑通
+- **Phase C 新增能力（已上线）**：
+  - C1：安全收口（SSRF 防护、API_TOKEN 强制、rate limit、artifact 代理、/metrics 访问控制）
+  - C2：基础可靠性（服务重启任务恢复、webhook 指数退避重试、幂等 key 竞态修复、任务超时）
+  - C3：多卡并发（GPU_DEVICE_IDS 多进程 worker、QUEUE_MAX_SIZE 有界队列、503 拒绝）
+  - C4：可观测性（structlog JSON 结构化日志、Prometheus 指标）
+  - C5：Web 测试页（/static/index.html，SSE 进度 + model-viewer 3D 预览）
 
 ## 关键路径
 
@@ -50,7 +56,7 @@
 
 - Phase A：完成。Mock 链路、状态流、SSE、取消、webhook、artifacts 已落地
 - Phase B：完成。真实 preprocess、真实 Trellis2 provider、artifact backend、Docker/deploy 材料、GPU 服务器 smoke 已落地
-- Phase C：未开始。Observability 仍只有最小 readiness 指标
+- Phase C：完成（2026-03-15）。安全（C1）、可观测性（C4）、可靠性（C2）、多卡并发（C3）、Web 测试页（C5）全部落地
 - Phase D：未开始。多机 worker、阶段解耦未做
 
 ## 已知待办 / 技术债

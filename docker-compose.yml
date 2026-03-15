@@ -10,11 +10,7 @@ services:
       context: .
       dockerfile: docker/Dockerfile
       args:
-        FLASHATTN_DEVEL_IMAGE: ${FLASHATTN_DEVEL_IMAGE:-hey3d/flashattn-devel:latest}
-        FLASHATTN_RUNTIME_IMAGE: ${FLASHATTN_RUNTIME_IMAGE:-hey3d/flashattn-runtime:latest}
-        TRELLIS2_REPO_URL: ${TRELLIS2_REPO_URL:-https://github.com/microsoft/TRELLIS.2.git}
-        TRELLIS2_REF: ${TRELLIS2_REF:-main}
-        TORCH_CUDA_ARCH_LIST: ${TORCH_CUDA_ARCH_LIST:-8.0;8.6;8.9;9.0}
+        TRELLIS2_IMAGE: ${TRELLIS2_IMAGE:-hey3d/trellis2:latest}
     runtime: ${DOCKER_RUNTIME:-nvidia}
     ports:
       - "18001:18001"
