@@ -567,7 +567,7 @@
           <form id="config-form" class="grid">
             <div class="field">
               <label for="api-base-url">API Base URL</label>
-              <input id="api-base-url" name="api-base-url" type="url" value="http://localhost:8000" required>
+              <input id="api-base-url" name="api-base-url" type="url" value="" required>
             </div>
             <div class="actions">
               <button type="submit">保存地址</button>
@@ -654,7 +654,7 @@
 
     const state = {
       config: {
-        baseUrl: "http://localhost:8000",
+        baseUrl: getDefaultBaseUrl(),
         token: "",
       },
       tasks: new Map(),
@@ -695,17 +695,18 @@
     function loadConfig() {
       try {
         const saved = JSON.parse(localStorage.getItem(STORAGE_KEYS.config) || "{}");
-        state.config.baseUrl = normalizeBaseUrl(saved.baseUrl || state.config.baseUrl);
+        state.config.baseUrl = normalizeBaseUrl(saved.baseUrl || getDefaultBaseUrl());
         state.config.token = saved.token || "";
       } catch (error) {
         console.warn("Failed to parse saved config:", error);
+        state.config.baseUrl = getDefaultBaseUrl();
       }
       elements.baseUrl.value = state.config.baseUrl;
       elements.apiKey.value = state.config.token;
     }
 
     function saveConfig(statusElement = elements.configStatus, successMessage = "已保存连接配置。") {
-      state.config.baseUrl = normalizeBaseUrl(elements.baseUrl.value || "http://localhost:8000");
+      state.config.baseUrl = normalizeBaseUrl(elements.baseUrl.value || getDefaultBaseUrl());
       state.config.token = elements.apiKey.value.trim();
       elements.baseUrl.value = state.config.baseUrl;
       elements.apiKey.value = state.config.token;
@@ -806,9 +807,13 @@
     function normalizeBaseUrl(value) {
       const trimmed = String(value || "").trim();
       if (!trimmed) {
-        return "http://localhost:8000";
+        return getDefaultBaseUrl();
       }
       return trimmed.replace(/\/+$/, "");
+    }
+
+    function getDefaultBaseUrl() {
+      return window.location.origin || "http://localhost:8000";
     }
 
     function ensureTrailingSlash(url) {

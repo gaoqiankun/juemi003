@@ -15,6 +15,8 @@ services:
       - "18001:18001"
     environment:
       API_TOKEN: ${API_TOKEN:-dev-api-token}
+      # ADMIN_TOKEN protects /admin/* key-management endpoints. Set this in deployment.
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-}
       PROVIDER_MODE: ${PROVIDER_MODE:-real}
       MODEL_PROVIDER: trellis2
       MODEL_PATH: ${MODEL_PATH:-microsoft/TRELLIS.2-4B}
@@ -25,6 +27,7 @@ services:
       ARTIFACT_STORE_MODE: ${ARTIFACT_STORE_MODE:-local}
       DATABASE_PATH: /data/gen3d.sqlite3
       ARTIFACTS_DIR: /data/artifacts
+      UPLOADS_DIR: /data/uploads
       OBJECT_STORE_ENDPOINT: ${OBJECT_STORE_ENDPOINT:-}
       OBJECT_STORE_EXTERNAL_ENDPOINT: ${OBJECT_STORE_EXTERNAL_ENDPOINT:-}
       OBJECT_STORE_BUCKET: ${OBJECT_STORE_BUCKET:-gen3d-artifacts}
