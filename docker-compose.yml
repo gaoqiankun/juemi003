@@ -5,7 +5,6 @@ services:
     image: ${HEY3D_IMAGE:-hey3d-gen3d:local}
     container_name: hey3d-gen3d
     restart: unless-stopped
-    user: "${HOST_UID:-0}:${HOST_GID:-0}"
     build:
       context: .
       dockerfile: docker/Dockerfile
