@@ -2,8 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import secrets
+import uuid
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from email.parser import BytesParser
+from email.policy import default as default_email_policy
 from pathlib import Path
 from typing import Any
 
@@ -13,11 +17,16 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
 
 from gen3d.api.schemas import (
+    AdminApiKeyCreateRequest,
+    AdminApiKeyCreateResponse,
+    AdminApiKeyListItem,
+    AdminApiKeySetActiveRequest,
     HealthResponse,
     TaskArtifactsResponse,
     TaskCreateRequest,
     TaskCreateResponse,
     TaskResponse,
+    UploadImageResponse,
     task_type_from_request,
 )
 from gen3d.config import ServingConfig, ServingConfigurationError
@@ -42,15 +51,23 @@ from gen3d.storage.artifact_store import (
     ArtifactStoreConfigurationError,
     build_boto3_object_storage_client,
 )
+from gen3d.storage.api_key_store import ApiKeyStore
 from gen3d.storage.task_store import TaskStore
 
 STATIC_DIR = Path(__file__).resolve().parents[1] / "static"
+ALLOWED_UPLOAD_CONTENT_TYPES = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+    "image/gif": ".gif",
+}
 
 
 @dataclass(slots=True)
 class AppContainer:
     config: ServingConfig
     task_store: TaskStore
+    api_key_store: ApiKeyStore
     artifact_store: ArtifactStore
     pipeline: PipelineCoordinator
     engine: AsyncGen3DEngine
@@ -169,6 +186,7 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
     config = config or ServingConfig()
     validate_runtime_security_config(config)
     task_store = TaskStore(config.database_path)
+    api_key_store = ApiKeyStore(config.database_path)
     artifact_store = build_artifact_store(config)
     provider = build_provider(config)
     rate_limiter = TokenRateLimiter(
@@ -195,6 +213,7 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
                 download_timeout_seconds=config.preprocess_download_timeout_seconds,
                 max_image_bytes=config.preprocess_max_image_bytes,
                 allow_local_inputs=config.is_mock_provider,
+                uploads_dir=config.uploads_dir,
             ),
             gpu_stage,
             ExportStage(
@@ -221,6 +240,7 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
     container = AppContainer(
         config=config,
         task_store=task_store,
+        api_key_store=api_key_store,
         artifact_store=artifact_store,
         pipeline=pipeline,
         engine=engine,
@@ -229,11 +249,14 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         app.state.container = container
+        config.uploads_dir.mkdir(parents=True, exist_ok=True)
         await container.task_store.initialize()
+        await container.api_key_store.initialize()
         await artifact_store.initialize()
         await container.engine.start()
         yield
         await container.engine.stop()
+        await container.api_key_store.close()
         await container.task_store.close()
 
     app = FastAPI(title=config.service_name, lifespan=lifespan)
@@ -247,34 +270,41 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
     def get_container() -> AppContainer:
         return container
 
-    def require_bearer_token(
+    async def require_bearer_token(
         credentials: HTTPAuthorizationCredentials | None = Depends(auth_scheme),
         app_container: AppContainer = Depends(get_container),
     ) -> str | None:
-        configured_token = app_container.config.api_token
-        if configured_token is None and app_container.config.is_mock_provider:
+        if credentials is None and _allows_mock_anonymous_access(app_container.config):
             return None
-        if (
-            credentials is None
-            or credentials.scheme.lower() != "bearer"
-            or credentials.credentials != configured_token
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="invalid bearer token",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        return credentials.credentials
+        provided_token = _extract_bearer_token(credentials)
+        if provided_token and await app_container.api_key_store.validate_token(provided_token):
+            return provided_token
+        if _is_valid_token(provided_token, app_container.config.api_token):
+            return provided_token
+        if _allows_mock_anonymous_access(app_container.config) and credentials is None:
+            return None
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="invalid bearer token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
-    def has_valid_bearer_token(
-        credentials: HTTPAuthorizationCredentials | None,
-        configured_token: str | None,
-    ) -> bool:
-        return (
-            configured_token is not None
-            and credentials is not None
-            and credentials.scheme.lower() == "bearer"
-            and credentials.credentials == configured_token
+    def require_admin_token(
+        credentials: HTTPAuthorizationCredentials | None = Depends(auth_scheme),
+        app_container: AppContainer = Depends(get_container),
+    ) -> None:
+        configured_token = app_container.config.admin_token
+        if not configured_token:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="admin token is not configured",
+            )
+        if _is_valid_token(_extract_bearer_token(credentials), configured_token):
+            return
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="invalid admin token",
+            headers={"WWW-Authenticate": "Bearer"},
         )
 
     def require_metrics_access(
@@ -283,9 +313,9 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
         app_container: AppContainer = Depends(get_container),
     ) -> None:
         configured_token = app_container.config.api_token
-        if configured_token is None and app_container.config.is_mock_provider:
+        if _allows_mock_anonymous_access(app_container.config):
             return
-        if has_valid_bearer_token(credentials, configured_token):
+        if _is_valid_token(_extract_bearer_token(credentials), configured_token):
             return
         if is_loopback_host(request.client.host if request.client else None):
             raise HTTPException(
@@ -316,6 +346,100 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
     )
     async def metrics(app_container: AppContainer = Depends(get_container)) -> str:
         return render_metrics(ready=app_container.engine.ready)
+
+    @app.post(
+        "/admin/keys",
+        response_model=AdminApiKeyCreateResponse,
+        status_code=status.HTTP_201_CREATED,
+        dependencies=[Depends(require_admin_token)],
+    )
+    async def create_admin_key(
+        payload: AdminApiKeyCreateRequest,
+        app_container: AppContainer = Depends(get_container),
+    ) -> AdminApiKeyCreateResponse:
+        try:
+            api_key = await app_container.api_key_store.create_key(payload.label)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return AdminApiKeyCreateResponse(**api_key)
+
+    @app.get(
+        "/admin/keys",
+        response_model=list[AdminApiKeyListItem],
+        dependencies=[Depends(require_admin_token)],
+    )
+    async def list_admin_keys(
+        app_container: AppContainer = Depends(get_container),
+    ) -> list[AdminApiKeyListItem]:
+        api_keys = await app_container.api_key_store.list_keys()
+        return [AdminApiKeyListItem(**api_key) for api_key in api_keys]
+
+    @app.patch(
+        "/admin/keys/{key_id}",
+        response_model=AdminApiKeyListItem,
+        dependencies=[Depends(require_admin_token)],
+    )
+    async def set_admin_key_active(
+        key_id: str,
+        payload: AdminApiKeySetActiveRequest,
+        app_container: AppContainer = Depends(get_container),
+    ) -> AdminApiKeyListItem:
+        updated = await app_container.api_key_store.set_active(
+            key_id,
+            payload.is_active,
+        )
+        if not updated:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="api key not found",
+            )
+        api_key = await app_container.api_key_store.get_key(key_id)
+        if api_key is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="api key not found",
+            )
+        return AdminApiKeyListItem(**api_key)
+
+    @app.post(
+        "/v1/upload",
+        response_model=UploadImageResponse,
+        status_code=status.HTTP_201_CREATED,
+    )
+    async def upload_image(
+        request: Request,
+        api_token: str | None = Depends(require_bearer_token),
+        app_container: AppContainer = Depends(get_container),
+    ) -> UploadImageResponse:
+        del api_token
+        _, content_type, payload = await _extract_uploaded_file(request)
+        content_type = content_type.strip().lower()
+        extension = ALLOWED_UPLOAD_CONTENT_TYPES.get(content_type)
+        if extension is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "unsupported file type; allowed content types: "
+                    "image/jpeg, image/png, image/webp, image/gif"
+                ),
+            )
+
+        if len(payload) > app_container.config.preprocess_max_image_bytes:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "uploaded file exceeds max size of "
+                    f"{app_container.config.preprocess_max_image_bytes} bytes"
+                ),
+            )
+
+        upload_id = uuid.uuid4().hex
+        destination = app_container.config.uploads_dir / f"{upload_id}{extension}"
+        await asyncio.to_thread(destination.write_bytes, payload)
+        return UploadImageResponse(
+            upload_id=upload_id,
+            url=f"upload://{upload_id}",
+        )
 
     @app.post(
         "/v1/tasks",
@@ -495,3 +619,60 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     return app
+
+
+def _extract_bearer_token(
+    credentials: HTTPAuthorizationCredentials | None,
+) -> str | None:
+    if credentials is None or credentials.scheme.lower() != "bearer":
+        return None
+    token = credentials.credentials.strip()
+    return token or None
+
+
+def _is_valid_token(provided_token: str | None, configured_token: str | None) -> bool:
+    return (
+        provided_token is not None
+        and configured_token is not None
+        and secrets.compare_digest(provided_token, configured_token)
+    )
+
+
+def _allows_mock_anonymous_access(config: ServingConfig) -> bool:
+    return config.api_token is None and config.is_mock_provider
+
+
+async def _extract_uploaded_file(request: Request) -> tuple[str, str, bytes]:
+    content_type = request.headers.get("content-type", "")
+    if "multipart/form-data" not in content_type.lower():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="content-type must be multipart/form-data",
+        )
+
+    body = await request.body()
+    message = BytesParser(policy=default_email_policy).parsebytes(
+        (
+            f"Content-Type: {content_type}\r\n"
+            "MIME-Version: 1.0\r\n\r\n"
+        ).encode("utf-8")
+        + body
+    )
+    if not message.is_multipart():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="invalid multipart form payload",
+        )
+
+    for part in message.iter_parts():
+        if part.get_param("name", header="content-disposition") != "file":
+            continue
+        filename = part.get_filename() or "upload"
+        part_content_type = part.get_content_type()
+        payload = part.get_payload(decode=True) or b""
+        return filename, part_content_type, payload
+
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="multipart form must include a file field",
+    )

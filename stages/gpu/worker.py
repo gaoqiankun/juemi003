@@ -4,6 +4,7 @@ import asyncio
 import io
 import multiprocessing as mp
 import os
+import queue
 import uuid
 from contextlib import suppress
 from dataclasses import dataclass
@@ -19,6 +20,7 @@ from gen3d.model.base import (
 from gen3d.model.trellis2.provider import MockTrellis2Provider, Trellis2Provider
 
 ProgressCallback = Callable[[StageProgress], Awaitable[None] | None]
+_RESPONSE_QUEUE_POLL_TIMEOUT_SECONDS = 1.0
 
 
 class GPUWorkerHandle(Protocol):
@@ -171,7 +173,19 @@ class ProcessGPUWorker:
 
     async def _pump_responses(self) -> None:
         while True:
-            message = await asyncio.to_thread(self._response_queue.get)
+            try:
+                message = await asyncio.to_thread(
+                    self._response_queue.get,
+                    timeout=_RESPONSE_QUEUE_POLL_TIMEOUT_SECONDS,
+                )
+            except queue.Empty:
+                process = self._process
+                if process is not None and not process.is_alive():
+                    self._fail_startup_and_pending(
+                        self._process_exit_message(),
+                    )
+                    return
+                continue
             message_type = message.get("type")
             if message_type == "ready":
                 if self._startup_future is not None and not self._startup_future.done():
@@ -218,6 +232,27 @@ class ProcessGPUWorker:
                         )
                     )
                 self._pending.pop(request_id, None)
+
+    def _fail_startup_and_pending(self, error_message: str) -> None:
+        if self._startup_future is not None and not self._startup_future.done():
+            self._startup_future.set_exception(
+                ModelProviderExecutionError("gpu_run", error_message)
+            )
+        for pending in list(self._pending.values()):
+            if pending.future.done():
+                continue
+            pending.future.set_exception(
+                ModelProviderExecutionError("gpu_run", error_message)
+            )
+        self._pending.clear()
+
+    def _process_exit_message(self) -> str:
+        if self._process is None or self._process.exitcode is None:
+            return f"GPU worker process {self.worker_id} exited unexpectedly"
+        return (
+            f"GPU worker process {self.worker_id} exited unexpectedly "
+            f"(exitcode={self._process.exitcode})"
+        )
 
 
 def build_gpu_workers(

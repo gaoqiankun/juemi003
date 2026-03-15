@@ -20,6 +20,8 @@ def validate_image_url(image_url: str, *, allow_local_inputs: bool) -> str:
     normalized = image_url.strip()
     if not normalized:
         raise TaskSubmissionValidationError("image_url is required")
+    if urlparse(normalized).scheme == "upload":
+        return normalized
     if allow_local_inputs:
         return normalized
     _parse_http_url(normalized, field_name="image_url")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import sys
 import time
 from datetime import timedelta
@@ -84,9 +85,11 @@ def build_engine(
     gpu_device_ids: tuple[str, ...] = ("0",),
     queue_max_size: int = 20,
     mock_gpu_stage_delay_ms: int = 20,
+    uploads_dir: Path | None = None,
 ) -> tuple[TaskStore, ArtifactStore, AsyncGen3DEngine]:
     task_store = TaskStore(tmp_path / "pipeline.sqlite3")
     artifact_store = ArtifactStore(tmp_path / "artifacts")
+    uploads_dir = uploads_dir or (tmp_path / "uploads")
     provider = MockTrellis2Provider(stage_delay_ms=mock_gpu_stage_delay_ms)
     gpu_stage = GPUStage(
         delay_ms=queue_delay_ms,
@@ -102,7 +105,7 @@ def build_engine(
     pipeline = PipelineCoordinator(
         task_store=task_store,
         stages=[
-            PreprocessStage(delay_ms=10),
+            PreprocessStage(delay_ms=10, uploads_dir=uploads_dir),
             gpu_stage,
             ExportStage(provider=provider, artifact_store=artifact_store, delay_ms=10),
         ],
@@ -116,6 +119,32 @@ def build_engine(
         artifact_store=artifact_store,
     )
     return task_store, artifact_store, engine
+
+
+def test_preprocess_stage_reads_uploaded_file_from_upload_scheme(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        uploads_dir = tmp_path / "uploads"
+        uploads_dir.mkdir(parents=True, exist_ok=True)
+        upload_id = "sampleuploadid"
+        uploads_dir.joinpath(f"{upload_id}.png").write_bytes(
+            base64.b64decode(SAMPLE_IMAGE_DATA_URL.partition(",")[2])
+        )
+
+        stage = PreprocessStage(delay_ms=0, uploads_dir=uploads_dir)
+        sequence = RequestSequence.new_task(
+            input_url=f"upload://{upload_id}",
+            options={"resolution": 1024},
+            task_type=TaskType.IMAGE_TO_3D,
+        )
+
+        result = await stage.run(sequence)
+
+        assert result.prepared_input is not None
+        assert result.prepared_input["image_url"] == f"upload://{upload_id}"
+        assert result.prepared_input["width"] == 1
+        assert result.prepared_input["height"] == 1
+
+    asyncio.run(scenario())
 
 
 async def wait_for_engine_status(

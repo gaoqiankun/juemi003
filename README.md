@@ -151,12 +151,14 @@ HF_TOKEN=...
 
 ```bash
 export API_TOKEN=dev-api-token
+export ADMIN_TOKEN=dev-admin-token
 export PROVIDER_MODE=real
 export MODEL_PROVIDER=trellis2
 export MODEL_PATH=/models/trellis2
 export ARTIFACT_STORE_MODE=local
 export DATABASE_PATH=/srv/gen3d/data/gen3d.sqlite3
 export ARTIFACTS_DIR=/srv/gen3d/data/artifacts
+export UPLOADS_DIR=/srv/gen3d/data/uploads
 export GPU_DEVICE_IDS=0
 export QUEUE_MAX_SIZE=20
 export ALLOWED_CALLBACK_DOMAINS=
@@ -170,12 +172,14 @@ export TASK_TIMEOUT_SECONDS=3600
 
 ```bash
 export API_TOKEN=dev-api-token
+export ADMIN_TOKEN=dev-admin-token
 export PROVIDER_MODE=real
 export MODEL_PROVIDER=trellis2
 export MODEL_PATH=/models/trellis2
 export ARTIFACT_STORE_MODE=minio
 export DATABASE_PATH=/srv/gen3d/data/gen3d.sqlite3
 export ARTIFACTS_DIR=/srv/gen3d/data/artifacts
+export UPLOADS_DIR=/srv/gen3d/data/uploads
 export GPU_DEVICE_IDS=0,1
 export QUEUE_MAX_SIZE=20
 export OBJECT_STORE_ENDPOINT=http://minio.internal:9000
@@ -328,8 +332,10 @@ export TORCH_CUDA_ARCH_LIST="8.0;8.6;8.9;9.0"
 
 ```bash
 export API_TOKEN=dev-api-token
+export ADMIN_TOKEN=dev-admin-token
 export PROVIDER_MODE=real
 export ARTIFACT_STORE_MODE=local
+export UPLOADS_DIR=/srv/gen3d/data/uploads
 export GEN3D_MODEL_DIR=/absolute/path/to/models/trellis2
 export TRELLIS2_IMAGE=hey3d/trellis2:latest
 
@@ -340,8 +346,10 @@ docker compose up --build hey3d-gen3d
 
 ```bash
 export API_TOKEN=dev-api-token
+export ADMIN_TOKEN=dev-admin-token
 export PROVIDER_MODE=real
 export ARTIFACT_STORE_MODE=minio
+export UPLOADS_DIR=/srv/gen3d/data/uploads
 export GEN3D_MODEL_DIR=/absolute/path/to/models/trellis2
 export TRELLIS2_IMAGE=hey3d/trellis2:latest
 export OBJECT_STORE_ENDPOINT=http://minio:9000

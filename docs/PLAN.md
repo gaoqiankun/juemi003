@@ -145,7 +145,8 @@ HTTP 请求 (server 调用)
 
 ### 3.1 API Server（`api/`）
 - FastAPI，与 AsyncGen3DEngine 共享 asyncio loop
-- Bearer token 鉴权（内部单 key，预留多 key 扩展）
+- Bearer token 鉴权（支持多用户 API key，兼容单一 `API_TOKEN`，管理端点使用 `ADMIN_TOKEN`）
+- 支持 `POST /v1/upload` 保存图片，并在任务流转里使用内部 `upload://{upload_id}` scheme
 - SSE endpoint 通过 asyncio.Queue 推送进度
 - MinIO presigned URL 生成
 

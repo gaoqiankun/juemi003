@@ -26,6 +26,10 @@ class ServingConfig(BaseSettings):
         default=None,
         validation_alias=AliasChoices("API_TOKEN", "INTERNAL_API_KEY"),
     )
+    admin_token: str | None = Field(
+        default=None,
+        alias="ADMIN_TOKEN",
+    )
     database_path: Path = Field(
         default=Path("./data/gen3d.sqlite3"),
         alias="DATABASE_PATH",
@@ -34,6 +38,10 @@ class ServingConfig(BaseSettings):
     artifacts_dir: Path = Field(
         default=Path("./data/artifacts"),
         alias="ARTIFACTS_DIR",
+    )
+    uploads_dir: Path = Field(
+        default=Path("./data/uploads"),
+        alias="UPLOADS_DIR",
     )
     object_store_endpoint: str | None = Field(
         default=None,
@@ -148,9 +156,9 @@ class ServingConfig(BaseSettings):
     def is_mock_provider(self) -> bool:
         return self.provider_mode_normalized == "mock"
 
-    @field_validator("api_token", mode="before")
+    @field_validator("api_token", "admin_token", mode="before")
     @classmethod
-    def _normalize_api_token(cls, value: Any) -> str | None:
+    def _normalize_optional_token(cls, value: Any) -> str | None:
         if value is None:
             return None
         normalized = str(value).strip()

@@ -28,11 +28,13 @@ class PreprocessStage(BaseStage):
         download_timeout_seconds: float = 15.0,
         max_image_bytes: int = 10 * 1024 * 1024,
         allow_local_inputs: bool = True,
+        uploads_dir: Path = Path("./data/uploads"),
     ) -> None:
         self._delay_seconds = max(delay_ms, 0) / 1000
         self._download_timeout_seconds = max(download_timeout_seconds, 1.0)
         self._max_image_bytes = max(max_image_bytes, 1)
         self._allow_local_inputs = allow_local_inputs
+        self._uploads_dir = Path(uploads_dir)
         self._logger = structlog.get_logger(__name__)
 
     async def run(
@@ -113,6 +115,8 @@ class PreprocessStage(BaseStage):
         parsed = urlparse(input_url)
         if parsed.scheme in {"http", "https"}:
             return await self._download_http_image(input_url)
+        if parsed.scheme == "upload":
+            return await self._read_uploaded_file(parsed)
         if parsed.scheme == "file":
             return await self._read_local_file(parsed.path)
         if parsed.scheme == "data":
@@ -125,10 +129,26 @@ class PreprocessStage(BaseStage):
         raise StageExecutionError(
             stage_name=TaskStatus.PREPROCESSING.value,
             message=(
-                "unsupported input_url; expected http(s), file://, data:, "
+                "unsupported input_url; expected http(s), upload://, file://, data:, "
                 "or an existing local file path"
             ),
         )
+
+    async def _read_uploaded_file(self, parsed_input_url) -> bytes:
+        upload_id = (parsed_input_url.netloc or parsed_input_url.path.lstrip("/")).strip()
+        if not upload_id:
+            raise StageExecutionError(
+                stage_name=TaskStatus.PREPROCESSING.value,
+                message="upload URL is missing upload_id",
+            )
+
+        matches = sorted(self._uploads_dir.glob(f"{upload_id}.*"))
+        if not matches:
+            raise StageExecutionError(
+                stage_name=TaskStatus.PREPROCESSING.value,
+                message=f"uploaded input image not found: {upload_id}",
+            )
+        return await self._read_local_file(str(matches[0]))
 
     async def _download_http_image(self, input_url: str) -> bytes:
         try:

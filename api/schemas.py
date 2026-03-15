@@ -159,5 +159,40 @@ class HealthResponse(BaseModel):
     service: str
 
 
+class UploadImageResponse(BaseModel):
+    upload_id: str = Field(serialization_alias="uploadId")
+    url: str
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class AdminApiKeyCreateRequest(BaseModel):
+    label: str = Field(min_length=1)
+
+
+class AdminApiKeySetActiveRequest(BaseModel):
+    is_active: bool = Field(serialization_alias="isActive")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class AdminApiKeyListItem(BaseModel):
+    key_id: str = Field(serialization_alias="keyId")
+    label: str
+    created_at: datetime = Field(serialization_alias="createdAt")
+    is_active: bool = Field(serialization_alias="isActive")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class AdminApiKeyCreateResponse(BaseModel):
+    key_id: str = Field(serialization_alias="keyId")
+    token: str
+    label: str
+    created_at: datetime = Field(serialization_alias="createdAt")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 def task_type_from_request(value: str) -> TaskType:
     return TaskType(value)

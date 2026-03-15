@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import importlib
 import json
 import sys
@@ -38,22 +39,29 @@ def make_client(
     queue_delay_ms: int = 200,
     webhook_sender: WebhookSender | None = None,
     api_token: str | None = "test-token",
+    admin_token: str | None = None,
     rate_limit_concurrent: int = 5,
     rate_limit_per_hour: int = 100,
     webhook_max_retries: int = 3,
     task_timeout_seconds: int = 3600,
     database_path: Path | None = None,
     artifacts_dir: Path | None = None,
+    uploads_dir: Path | None = None,
     gpu_device_ids: tuple[str, ...] = ("0",),
     queue_max_size: int = 20,
+    preprocess_max_image_bytes: int = 10 * 1024 * 1024,
 ) -> TestClient:
     database_path = database_path or (tmp_path / "gen3d.sqlite3")
     artifacts_dir = artifacts_dir or (tmp_path / "artifacts")
+    uploads_dir = uploads_dir or (tmp_path / "uploads")
     config = ServingConfig(
         api_token=api_token,
+        admin_token=admin_token,
         database_path=database_path,
         artifacts_dir=artifacts_dir,
+        uploads_dir=uploads_dir,
         preprocess_delay_ms=40,
+        preprocess_max_image_bytes=preprocess_max_image_bytes,
         queue_delay_ms=queue_delay_ms,
         gpu_device_ids=gpu_device_ids,
         queue_max_size=queue_max_size,
@@ -72,6 +80,8 @@ def make_real_mode_client(
     monkeypatch: pytest.MonkeyPatch,
     *,
     allowed_callback_domains: tuple[str, ...] = (),
+    admin_token: str | None = None,
+    uploads_dir: Path | None = None,
 ) -> TestClient:
     monkeypatch.setattr(
         server_module,
@@ -81,8 +91,10 @@ def make_real_mode_client(
     config = ServingConfig(
         provider_mode="real",
         api_token="test-token",
+        admin_token=admin_token,
         database_path=tmp_path / "gen3d-real.sqlite3",
         artifacts_dir=tmp_path / "artifacts-real",
+        uploads_dir=uploads_dir or (tmp_path / "uploads-real"),
         preprocess_delay_ms=0,
         queue_delay_ms=20,
         mock_gpu_stage_delay_ms=0,
@@ -92,8 +104,36 @@ def make_real_mode_client(
     return TestClient(create_app(config))
 
 
-def auth_headers() -> dict[str, str]:
-    return {"Authorization": "Bearer test-token"}
+def auth_headers(token: str = "test-token") -> dict[str, str]:
+    return {"Authorization": f"Bearer {token}"}
+
+
+def admin_headers(token: str = "admin-token") -> dict[str, str]:
+    return {"Authorization": f"Bearer {token}"}
+
+
+def create_managed_api_key(
+    client: TestClient,
+    *,
+    label: str = "QA Key",
+    admin_token: str = "admin-token",
+) -> dict:
+    response = client.post(
+        "/admin/keys",
+        headers=admin_headers(admin_token),
+        json={"label": label},
+    )
+    assert response.status_code == 201
+    return response.json()
+
+
+def make_image_bytes(image_format: str) -> bytes:
+    from PIL import Image
+
+    image = Image.new("RGB", (2, 2), (255, 255, 255))
+    buffer = io.BytesIO()
+    image.save(buffer, format=image_format)
+    return buffer.getvalue()
 
 
 def collect_task_snapshots(
@@ -101,12 +141,13 @@ def collect_task_snapshots(
     task_id: str,
     *,
     terminal_status: str,
+    token: str = "test-token",
     timeout_seconds: float = 4.0,
 ) -> list[dict]:
     snapshots: list[dict] = []
     deadline = time.time() + timeout_seconds
     while time.time() < deadline:
-        response = client.get(f"/v1/tasks/{task_id}", headers=auth_headers())
+        response = client.get(f"/v1/tasks/{task_id}", headers=auth_headers(token))
         assert response.status_code == 200
         payload = response.json()
         snapshots.append(payload)
@@ -121,11 +162,12 @@ def wait_for_status(
     task_id: str,
     status: str,
     *,
+    token: str = "test-token",
     timeout_seconds: float = 3.0,
 ) -> dict:
     deadline = time.time() + timeout_seconds
     while time.time() < deadline:
-        response = client.get(f"/v1/tasks/{task_id}", headers=auth_headers())
+        response = client.get(f"/v1/tasks/{task_id}", headers=auth_headers(token))
         assert response.status_code == 200
         payload = response.json()
         if payload["status"] == status:
@@ -134,9 +176,18 @@ def wait_for_status(
     raise AssertionError(f"task {task_id} did not reach {status} in time")
 
 
-def collect_sse_events(client: TestClient, task_id: str) -> list[dict]:
+def collect_sse_events(
+    client: TestClient,
+    task_id: str,
+    *,
+    token: str = "test-token",
+) -> list[dict]:
     events: list[dict] = []
-    with client.stream("GET", f"/v1/tasks/{task_id}/events", headers=auth_headers()) as response:
+    with client.stream(
+        "GET",
+        f"/v1/tasks/{task_id}/events",
+        headers=auth_headers(token),
+    ) as response:
         assert response.status_code == 200
         current_event: str | None = None
         for line in response.iter_lines():
@@ -154,8 +205,8 @@ def collect_sse_events(client: TestClient, task_id: str) -> list[dict]:
     return events
 
 
-def fetch_metrics_payload(client: TestClient) -> str:
-    response = client.get("/metrics", headers=auth_headers())
+def fetch_metrics_payload(client: TestClient, *, token: str = "test-token") -> str:
+    response = client.get("/metrics", headers=auth_headers(token))
     assert response.status_code == 200
     return response.text
 
@@ -254,6 +305,214 @@ def test_bearer_auth_is_required_for_task_routes(tmp_path: Path) -> None:
     assert get_response.status_code == 401
     assert metrics_response.status_code == 401
     assert metrics_authorized_response.status_code == 200
+
+
+def test_admin_key_routes_return_503_when_admin_token_is_unset(tmp_path: Path) -> None:
+    with make_client(tmp_path, admin_token=None) as client:
+        response = client.get("/admin/keys", headers=admin_headers())
+
+    assert response.status_code == 503
+    assert "not configured" in response.json()["detail"]
+
+
+def test_admin_key_crud_flow_returns_token_once_and_list_hides_token(tmp_path: Path) -> None:
+    with make_client(tmp_path, admin_token="admin-token") as client:
+        create_response = client.post(
+            "/admin/keys",
+            headers=admin_headers(),
+            json={"label": "QA Team"},
+        )
+        assert create_response.status_code == 201
+        created_payload = create_response.json()
+        key_id = created_payload["keyId"]
+
+        list_response = client.get("/admin/keys", headers=admin_headers())
+        patch_response = client.patch(
+            f"/admin/keys/{key_id}",
+            headers=admin_headers(),
+            json={"is_active": False},
+        )
+        missing_response = client.patch(
+            "/admin/keys/missing-key",
+            headers=admin_headers(),
+            json={"is_active": False},
+        )
+
+    assert set(created_payload) == {"keyId", "token", "label", "createdAt"}
+    assert created_payload["label"] == "QA Team"
+    assert created_payload["token"]
+
+    assert list_response.status_code == 200
+    assert all("token" not in item for item in list_response.json())
+    assert list_response.json()[0]["keyId"] == key_id
+    assert list_response.json()[0]["isActive"] is True
+
+    assert patch_response.status_code == 200
+    assert patch_response.json()["keyId"] == key_id
+    assert patch_response.json()["isActive"] is False
+
+    assert missing_response.status_code == 404
+    assert missing_response.json()["detail"] == "api key not found"
+
+
+def test_managed_api_key_auth_supports_valid_invalid_and_fallback_tokens(
+    tmp_path: Path,
+) -> None:
+    with make_client(tmp_path, admin_token="admin-token") as client:
+        managed_key = create_managed_api_key(client, label="Tester A")
+
+        managed_response = client.post(
+            "/v1/tasks",
+            headers=auth_headers(managed_key["token"]),
+            json={
+                "type": "image_to_3d",
+                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "options": {"resolution": 1024},
+            },
+        )
+        invalid_response = client.post(
+            "/v1/tasks",
+            headers=auth_headers("invalid-key"),
+            json={
+                "type": "image_to_3d",
+                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "options": {"resolution": 1024},
+            },
+        )
+        fallback_response = client.post(
+            "/v1/tasks",
+            headers=auth_headers(),
+            json={
+                "type": "image_to_3d",
+                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "options": {"resolution": 1024},
+            },
+        )
+
+        assert managed_response.status_code == 201
+        assert fallback_response.status_code == 201
+        wait_for_status(
+            client,
+            managed_response.json()["taskId"],
+            "succeeded",
+            token=managed_key["token"],
+        )
+        wait_for_status(client, fallback_response.json()["taskId"], "succeeded")
+
+    assert invalid_response.status_code == 401
+    assert invalid_response.json()["detail"] == "invalid bearer token"
+
+
+def test_inactive_managed_api_key_is_rejected(tmp_path: Path) -> None:
+    with make_client(tmp_path, admin_token="admin-token") as client:
+        managed_key = create_managed_api_key(client, label="Tester B")
+        deactivate_response = client.patch(
+            f"/admin/keys/{managed_key['keyId']}",
+            headers=admin_headers(),
+            json={"is_active": False},
+        )
+        create_response = client.post(
+            "/v1/tasks",
+            headers=auth_headers(managed_key["token"]),
+            json={
+                "type": "image_to_3d",
+                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "options": {"resolution": 1024},
+            },
+        )
+
+    assert deactivate_response.status_code == 200
+    assert deactivate_response.json()["isActive"] is False
+    assert create_response.status_code == 401
+    assert create_response.json()["detail"] == "invalid bearer token"
+
+
+def test_upload_endpoint_accepts_png_and_jpg_and_uploaded_url_can_run_task(
+    tmp_path: Path,
+) -> None:
+    uploads_dir = tmp_path / "uploads"
+    with make_client(tmp_path, uploads_dir=uploads_dir) as client:
+        png_response = client.post(
+            "/v1/upload",
+            headers=auth_headers(),
+            files={
+                "file": (
+                    "pixel.png",
+                    make_image_bytes("PNG"),
+                    "image/png",
+                )
+            },
+        )
+        jpg_response = client.post(
+            "/v1/upload",
+            headers=auth_headers(),
+            files={
+                "file": (
+                    "pixel.jpg",
+                    make_image_bytes("JPEG"),
+                    "image/jpeg",
+                )
+            },
+        )
+
+        assert png_response.status_code == 201
+        assert jpg_response.status_code == 201
+
+        png_payload = png_response.json()
+        jpg_payload = jpg_response.json()
+        assert uploads_dir.joinpath(f"{png_payload['uploadId']}.png").exists()
+        assert uploads_dir.joinpath(f"{jpg_payload['uploadId']}.jpg").exists()
+
+        create_response = client.post(
+            "/v1/tasks",
+            headers=auth_headers(),
+            json={
+                "type": "image_to_3d",
+                "image_url": png_payload["url"],
+                "options": {"resolution": 1024},
+            },
+        )
+        assert create_response.status_code == 201
+        wait_for_status(client, create_response.json()["taskId"], "succeeded")
+
+    assert png_payload["url"] == f"upload://{png_payload['uploadId']}"
+    assert jpg_payload["url"] == f"upload://{jpg_payload['uploadId']}"
+
+
+def test_upload_endpoint_rejects_unsupported_file_type(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        response = client.post(
+            "/v1/upload",
+            headers=auth_headers(),
+            files={
+                "file": (
+                    "note.txt",
+                    b"not an image",
+                    "text/plain",
+                )
+            },
+        )
+
+    assert response.status_code == 400
+    assert "unsupported file type" in response.json()["detail"]
+
+
+def test_upload_endpoint_rejects_oversized_file(tmp_path: Path) -> None:
+    with make_client(tmp_path, preprocess_max_image_bytes=8) as client:
+        response = client.post(
+            "/v1/upload",
+            headers=auth_headers(),
+            files={
+                "file": (
+                    "huge.png",
+                    b"123456789",
+                    "image/png",
+                )
+            },
+        )
+
+    assert response.status_code == 400
+    assert "exceeds max size" in response.json()["detail"]
 
 
 def test_sse_stream_replays_full_task_lifecycle(tmp_path: Path) -> None:
