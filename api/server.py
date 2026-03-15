@@ -462,7 +462,6 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
 
     @app.get(
         "/v1/tasks/{task_id}/artifacts/{filename}",
-        dependencies=[Depends(require_bearer_token)],
     )
     async def download_artifact(
         task_id: str,
