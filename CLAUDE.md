@@ -1,6 +1,7 @@
 # Hey3D gen3d · Claude 架构师记忆
 
 > 子仓库：`/Users/gqk/work/hey3d/gen3d/`（独立 git 仓库）
+> 最后更新：2026-03-15
 
 ## 规划日志
 
@@ -20,6 +21,7 @@
   - `minio`
 - 对外功能已具备：任务提交、任务查询、SSE 事件流、取消、终态 webhook、artifacts 查询
 - 部署材料已齐：`docker/Dockerfile`、根目录 `docker-compose.yml`、`deploy.sh`
+- D1 已完成：`docker/trellis2/` 已拆成独立基础镜像目录，TRELLIS.2 CUDA 扩展编译从应用镜像剥离，常规应用镜像 build 目标 < 2 分钟
 - 真实 TRELLIS2 链路已在 GPU 服务器跑通
 - **Phase C 新增能力（已上线）**：
   - C1：安全收口（SSRF 防护、API_TOKEN 强制、rate limit、artifact 代理、/metrics 访问控制）
@@ -67,7 +69,10 @@
 - Real mode 的 `gpu_ss` / `gpu_shape` / `gpu_material` 进度仍是语义占位，未接上官方细粒度 hook
 - 取消只支持 `gpu_queued` 状态，运行中阶段不可中断
 - `observability/metrics.py` 目前只有 readiness gauge，Prometheus/Grafana 未完成
-- artifact 仍由 root 写宿主机 bind mount，权限收口待处理
+- 下一步待办：
+  ① server → gen3d 集成（iOS 路径必须）
+  ② 图片上传接口（`POST /v1/upload`）
+  ③ release 包 `docker-compose.yml` 去掉 `build:` 块
 
 ## 使用提醒
 

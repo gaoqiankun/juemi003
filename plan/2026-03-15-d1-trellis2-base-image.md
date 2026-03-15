@@ -1,7 +1,6 @@
 # D1 · trellis2 基础镜像分层
 Date: 2026-03-15
 Status: done
-Commits: n/a（按要求未执行 git 操作）
 
 ## Goal
 把 TRELLIS.2 CUDA 扩展编译步骤从应用镜像中剥离，形成独立的 `hey3d/trellis2` 基础镜像，使日常应用镜像 build 从 20 分钟降至 < 1 分钟。
@@ -20,7 +19,7 @@ Commits: n/a（按要求未执行 git 操作）
 | `docker/trellis2/Dockerfile` | 新建独立目录，从 flashattn 镜像编译安装全部 TRELLIS.2 CUDA 扩展 |
 | `docker/Dockerfile` | 改为以 `TRELLIS2_IMAGE` 为 FROM，只安装 `requirements-worker.txt` 并复制应用代码 |
 | `docker-compose.yml` | build.args 收口为 `TRELLIS2_IMAGE` 参数（默认 `hey3d/trellis2:latest`） |
-| `docker/trellis2/build.sh` | 新建，封装 `docker build docker/trellis2` + 可选 push |
+| `docker/trellis2/build.sh` | 新建，封装 `docker build docker/trellis2/` + 可选 push；从 `scripts/build-trellis2.sh` 迁移，与 Dockerfile 同目录，与 flashattn 文件组织一致 |
 | `README.md` | 更新基础镜像构建顺序、build args 和 compose 使用方式 |
 
 ## Notes
@@ -28,4 +27,3 @@ Commits: n/a（按要求未执行 git 操作）
 - 应用镜像 build 后应 < 2 分钟
 - docker/trellis2/build.sh 要支持 --image、--push、--platform 参数，与 deploy.sh 风格一致
 - 主镜像保留 `requirements-worker.txt` 安装，避免把应用依赖硬编码进 `docker/trellis2/` 独立上下文
-- 本轮未实际运行 `docker build`，只做脚本/文档/静态校验
