@@ -461,6 +461,75 @@ def test_health_and_ready_endpoints(tmp_path: Path) -> None:
     }
 
 
+def test_app_startup_does_not_trigger_model_load(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    original_build_model_runtime = server_module.build_model_runtime
+    calls: list[str] = []
+
+    def tracking_build_model_runtime(config: ServingConfig, model_name: str):
+        calls.append(model_name)
+        return original_build_model_runtime(config, model_name)
+
+    monkeypatch.setattr(
+        server_module,
+        "build_model_runtime",
+        tracking_build_model_runtime,
+    )
+
+    with make_client(tmp_path) as client:
+        readiness_response = client.get("/readiness")
+
+    assert readiness_response.status_code == 503
+    assert calls == []
+
+
+def test_create_task_returns_immediately_while_model_loads_in_worker(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_build_model_runtime = server_module.build_model_runtime
+
+    def slow_build_model_runtime(config: ServingConfig, model_name: str):
+        time.sleep(0.5)
+        return original_build_model_runtime(config, model_name)
+
+    monkeypatch.setattr(
+        server_module,
+        "build_model_runtime",
+        slow_build_model_runtime,
+    )
+
+    with make_client(tmp_path, queue_delay_ms=0) as client:
+        input_url = upload_input_url(client)
+
+        started_at = time.perf_counter()
+        create_response = client.post(
+            "/v1/tasks",
+            headers=task_auth_headers(client),
+            json={
+                "type": "image_to_3d",
+                "input_url": input_url,
+                "options": {"resolution": 1024},
+            },
+        )
+        elapsed_seconds = time.perf_counter() - started_at
+
+        assert create_response.status_code == 201
+        assert create_response.json()["status"] == "queued"
+        assert elapsed_seconds < 0.25
+
+        readiness_during_response = client.get("/readiness")
+        assert readiness_during_response.status_code == 503
+
+        wait_for_status(client, create_response.json()["taskId"], "succeeded", timeout_seconds=5.0)
+        readiness_after_response = client.get("/readiness")
+
+    assert readiness_after_response.status_code == 200
+    assert readiness_after_response.json() == {
+        "status": "ready",
+        "service": "gen3d",
+    }
+
+
 def test_bearer_auth_is_required_for_task_routes(tmp_path: Path) -> None:
     with make_client(tmp_path) as client:
         create_response = client.post(

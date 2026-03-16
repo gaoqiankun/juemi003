@@ -200,7 +200,6 @@ class AsyncGen3DEngine:
                 )
             await self._decorate_sequence(existing)
             return existing, False
-        self._model_registry.load(sequence.model)
         if self._rate_limiter is not None:
             await self._rate_limiter.register_task(rate_limit_key, sequence.task_id)
         sequence.queue_position = await self._task_store.get_queue_position(sequence.task_id) or 1
@@ -398,7 +397,6 @@ class AsyncGen3DEngine:
                         worker_id=worker_id,
                         model=sequence.model,
                     )
-                self._model_registry.load(sequence.model)
                 try:
                     await self._model_registry.wait_ready(sequence.model)
                 except ModelRegistryLoadError as exc:

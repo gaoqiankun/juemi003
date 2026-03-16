@@ -117,12 +117,18 @@ class ModelRegistry:
 
     async def _load_runtime(self, model_name: str, entry: _ModelEntry) -> None:
         try:
-            maybe_runtime = self._runtime_loader(model_name)
-            runtime = (
-                await maybe_runtime
-                if inspect.isawaitable(maybe_runtime)
-                else maybe_runtime
-            )
+            if inspect.iscoroutinefunction(self._runtime_loader):
+                runtime = await self._runtime_loader(model_name)
+            else:
+                maybe_runtime = await asyncio.to_thread(
+                    self._runtime_loader,
+                    model_name,
+                )
+                runtime = (
+                    await maybe_runtime
+                    if inspect.isawaitable(maybe_runtime)
+                    else maybe_runtime
+                )
             for worker in runtime.workers:
                 await worker.start()
         except asyncio.CancelledError:
