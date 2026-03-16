@@ -121,25 +121,7 @@ fi
 echo "[INFO] Preparing release files"
 cp "$ROOT_DIR/docker-compose.yml" "$STAGE_DIR/"
 cp "$ROOT_DIR/README.md" "$STAGE_DIR/"
-
-cat > "$STAGE_DIR/.env.example" <<ENVEOF
-HEY3D_IMAGE=$IMAGE
-GEN3D_DATA_DIR=/opt/hey3d/gen3d/data
-GEN3D_MODEL_DIR=/opt/hey3d/gen3d/models/trellis2
-GEN3D_MINIO_DIR=/opt/hey3d/gen3d/.minio
-API_TOKEN=changeme
-ADMIN_TOKEN=
-HF_TOKEN=
-PROVIDER_MODE=real
-MODEL_PATH=microsoft/TRELLIS.2-4B
-ARTIFACT_STORE_MODE=local
-ALLOWED_CALLBACK_DOMAINS=[]
-RATE_LIMIT_CONCURRENT=5
-RATE_LIMIT_PER_HOUR=100
-DOCKER_RUNTIME=nvidia
-NVIDIA_VISIBLE_DEVICES=all
-NVIDIA_DRIVER_CAPABILITIES=compute,utility
-ENVEOF
+cp "$ROOT_DIR/.env.example" "$STAGE_DIR/.env.example"
 
 IMAGE_TAR_GZ="$STAGE_DIR/image.tar.gz"
 
