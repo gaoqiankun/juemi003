@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Any
 
-from pydantic import AliasChoices, Field, field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -19,12 +19,6 @@ class ServingConfig(BaseSettings):
     model_path: str = Field(
         default="microsoft/TRELLIS.2-4B",
         alias="MODEL_PATH",
-    )
-    # Shared Bearer token used by protected task and metrics endpoints.
-    # Deliberately has no default; non-mock startup must fail fast when it is missing.
-    api_token: str | None = Field(
-        default=None,
-        validation_alias=AliasChoices("API_TOKEN", "INTERNAL_API_KEY"),
     )
     admin_token: str | None = Field(
         default=None,
@@ -156,7 +150,7 @@ class ServingConfig(BaseSettings):
     def is_mock_provider(self) -> bool:
         return self.provider_mode_normalized == "mock"
 
-    @field_validator("api_token", "admin_token", mode="before")
+    @field_validator("admin_token", mode="before")
     @classmethod
     def _normalize_optional_token(cls, value: Any) -> str | None:
         if value is None:

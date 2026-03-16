@@ -14,8 +14,7 @@ services:
     ports:
       - "18001:18001"
     environment:
-      API_TOKEN: ${API_TOKEN:-dev-api-token}
-      # ADMIN_TOKEN protects /admin/* key-management endpoints. Set this in deployment.
+      # ADMIN_TOKEN only protects /admin/privileged-keys bootstrap endpoints.
       ADMIN_TOKEN: ${ADMIN_TOKEN:-}
       PROVIDER_MODE: ${PROVIDER_MODE:-real}
       MODEL_PROVIDER: trellis2

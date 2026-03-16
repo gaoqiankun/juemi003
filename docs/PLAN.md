@@ -145,7 +145,7 @@ HTTP 请求 (server 调用)
 
 ### 3.1 API Server（`api/`）
 - FastAPI，与 AsyncGen3DEngine 共享 asyncio loop
-- Bearer token 鉴权（支持多用户 API key，兼容单一 `API_TOKEN`，管理端点使用 `ADMIN_TOKEN`）
+- Bearer token 分层鉴权（`ADMIN_TOKEN` 只创建特权 token；`key_manager` / `task_viewer` / `metrics` / `user` 各司其职）
 - 支持 `POST /v1/upload` 保存图片，并在任务流转里使用内部 `upload://{upload_id}` scheme
 - SSE endpoint 通过 asyncio.Queue 推送进度
 - MinIO presigned URL 生成
@@ -431,7 +431,7 @@ estimatedWaitSeconds =
 
 ```
 POST   /v1/tasks
-  Auth: Bearer <API_TOKEN>
+  Auth: Bearer <user key>
   Body: {
     type: "image_to_3d",
     image_url: str,                         # real mode must be http(s)
@@ -459,15 +459,32 @@ GET    /v1/tasks
     nextCursor
   }
   Notes:
-    - managed API key 只返回该 key 自己提交的任务
-    - 兼容单一 API_TOKEN 的 legacy token 返回全量任务
+    - user key 只返回该 key 自己提交的任务
     - 按 createdAt 倒序，默认 20 条，最多 50 条
     - `before` 用上一页返回的 `nextCursor`
 
 DELETE /v1/tasks/{id}
   Notes:
     - 仅允许删除终态任务
-    - managed API key 只能删除自己的任务
+    - user key 只能删除自己的任务
+
+POST   /admin/privileged-keys
+GET    /admin/privileged-keys
+DELETE /admin/privileged-keys/{id}
+  Auth: Bearer <ADMIN_TOKEN>
+  Notes:
+    - 仅用于创建/列出/吊销特权 token
+
+POST   /admin/keys
+GET    /admin/keys
+PATCH  /admin/keys/{id}
+  Auth: Bearer <key_manager token>
+
+GET    /admin/tasks
+  Auth: Bearer <task_viewer token>
+
+GET    /metrics
+  Auth: Bearer <metrics token>
     - 软删除记录，并 best-effort 清理 artifact 文件
 
 GET    /v1/tasks/{id}

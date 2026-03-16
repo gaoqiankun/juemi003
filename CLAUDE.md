@@ -24,7 +24,7 @@
 - D1 已完成：`docker/trellis2/` 已拆成独立基础镜像目录，TRELLIS.2 CUDA 扩展编译从应用镜像剥离，常规应用镜像 build 目标 < 2 分钟
 - 真实 TRELLIS2 链路已在 GPU 服务器跑通
 - **Phase C 新增能力（已上线）**：
-  - C1：安全收口（SSRF 防护、API_TOKEN 强制、rate limit、artifact 代理、/metrics 访问控制）
+  - C1：安全收口（SSRF 防护、scoped token 分层、rate limit、artifact 代理、/metrics 访问控制）
   - C2：基础可靠性（服务重启任务恢复、webhook 指数退避重试、幂等 key 竞态修复、任务超时）
   - C3：多卡并发（GPU_DEVICE_IDS 多进程 worker、QUEUE_MAX_SIZE 有界队列、503 拒绝）
   - C4：可观测性（structlog JSON 结构化日志、Prometheus 指标）

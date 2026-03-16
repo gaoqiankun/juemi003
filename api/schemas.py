@@ -248,5 +248,35 @@ class AdminApiKeyCreateResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class PrivilegedApiKeyCreateRequest(BaseModel):
+    scope: Literal["key_manager", "task_viewer", "metrics"]
+    label: str = Field(min_length=1)
+    allowed_ips: list[str] | None = Field(
+        default=None,
+        validation_alias=AliasChoices("allowed_ips", "allowedIps"),
+        serialization_alias="allowedIps",
+    )
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class PrivilegedApiKeyListItem(BaseModel):
+    key_id: str = Field(serialization_alias="keyId")
+    scope: Literal["key_manager", "task_viewer", "metrics"]
+    label: str
+    allowed_ips: list[str] | None = Field(
+        default=None,
+        serialization_alias="allowedIps",
+    )
+    created_at: datetime = Field(serialization_alias="createdAt")
+    is_active: bool = Field(serialization_alias="isActive")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class PrivilegedApiKeyCreateResponse(PrivilegedApiKeyListItem):
+    token: str
+
+
 def task_type_from_request(value: str) -> TaskType:
     return TaskType(value)

@@ -25,6 +25,9 @@ from gen3d.api.schemas import (
     AdminApiKeySetActiveRequest,
     CursorPaginationParams,
     HealthResponse,
+    PrivilegedApiKeyCreateRequest,
+    PrivilegedApiKeyCreateResponse,
+    PrivilegedApiKeyListItem,
     TaskListResponse,
     TaskSummary,
     TaskArtifactsResponse,
@@ -34,7 +37,7 @@ from gen3d.api.schemas import (
     UploadImageResponse,
     task_type_from_request,
 )
-from gen3d.config import ServingConfig, ServingConfigurationError
+from gen3d.config import ServingConfig
 from gen3d.engine.async_engine import AsyncGen3DEngine
 from gen3d.engine.pipeline import PipelineCoordinator, PipelineQueueFullError
 from gen3d.engine.sequence import TERMINAL_STATUSES, TaskStatus
@@ -45,7 +48,6 @@ from gen3d.security import (
     RateLimitExceededError,
     TaskSubmissionValidationError,
     TokenRateLimiter,
-    is_loopback_host,
 )
 from gen3d.stages.export.stage import ExportStage
 from gen3d.stages.gpu.stage import GPUStage
@@ -56,7 +58,13 @@ from gen3d.storage.artifact_store import (
     ArtifactStoreConfigurationError,
     build_boto3_object_storage_client,
 )
-from gen3d.storage.api_key_store import ApiKeyStore
+from gen3d.storage.api_key_store import (
+    ApiKeyStore,
+    KEY_MANAGER_SCOPE,
+    METRICS_SCOPE,
+    TASK_VIEWER_SCOPE,
+    USER_KEY_SCOPE,
+)
 from gen3d.storage.task_store import TaskStore
 
 STATIC_DIR = Path(__file__).resolve().parents[1] / "static"
@@ -179,12 +187,7 @@ async def run_real_mode_preflight(config: ServingConfig) -> dict[str, Any]:
 
 
 def validate_runtime_security_config(config: ServingConfig) -> None:
-    if config.is_mock_provider:
-        return
-    if not config.api_token:
-        raise ServingConfigurationError(
-            "API_TOKEN is required when PROVIDER_MODE != mock"
-        )
+    del config
 
 
 def create_app(config: ServingConfig | None = None, webhook_sender=None) -> FastAPI:
@@ -284,23 +287,41 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
     async def require_bearer_token(
         credentials: HTTPAuthorizationCredentials | None = Depends(auth_scheme),
         app_container: AppContainer = Depends(get_container),
-    ) -> str | None:
-        if credentials is None and _allows_mock_anonymous_access(app_container.config):
-            return None
-        provided_token = _extract_bearer_token(credentials)
-        if provided_token:
-            managed_key_id = await app_container.api_key_store.validate_token(
-                provided_token
-            )
-            if managed_key_id is not None:
-                return managed_key_id
-        if _allows_mock_anonymous_access(app_container.config) and credentials is None:
-            return None
+    ) -> str:
+        key = await app_container.api_key_store.validate_token(
+            _extract_bearer_token(credentials),
+            required_scope=USER_KEY_SCOPE,
+        )
+        if key is not None:
+            return str(key["key_id"])
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="invalid bearer token",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    def _require_scoped_token(scope: str):
+        async def dependency(
+            credentials: HTTPAuthorizationCredentials | None = Depends(auth_scheme),
+            app_container: AppContainer = Depends(get_container),
+        ) -> dict[str, Any]:
+            key = await app_container.api_key_store.validate_token(
+                _extract_bearer_token(credentials),
+                required_scope=scope,
+            )
+            if key is not None:
+                return key
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="invalid bearer token",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        return dependency
+
+    require_key_manager_token = _require_scoped_token(KEY_MANAGER_SCOPE)
+    require_task_viewer_token = _require_scoped_token(TASK_VIEWER_SCOPE)
+    require_metrics_token = _require_scoped_token(METRICS_SCOPE)
 
     def require_admin_token(
         credentials: HTTPAuthorizationCredentials | None = Depends(auth_scheme),
@@ -315,29 +336,6 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    def require_metrics_access(
-        request: Request,
-        credentials: HTTPAuthorizationCredentials | None = Depends(auth_scheme),
-        app_container: AppContainer = Depends(get_container),
-    ) -> None:
-        configured_token = app_container.config.api_token
-        if _allows_mock_anonymous_access(app_container.config):
-            return
-        if _is_valid_token(_extract_bearer_token(credentials), configured_token):
-            return
-        if is_loopback_host(request.client.host if request.client else None):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="bearer token required for metrics",
-            )
-        if configured_token:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="invalid bearer token",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        return
-
     @app.get("/health", response_model=HealthResponse)
     async def health(app_container: AppContainer = Depends(get_container)) -> HealthResponse:
         return HealthResponse(status="ok", service=app_container.config.service_name)
@@ -350,23 +348,71 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
     @app.get(
         "/metrics",
         response_class=PlainTextResponse,
-        dependencies=[Depends(require_metrics_access)],
+        dependencies=[Depends(require_metrics_token)],
     )
     async def metrics(app_container: AppContainer = Depends(get_container)) -> str:
         return render_metrics(ready=app_container.engine.ready)
 
     @app.post(
+        "/admin/privileged-keys",
+        response_model=PrivilegedApiKeyCreateResponse,
+        status_code=status.HTTP_201_CREATED,
+        dependencies=[Depends(require_admin_token)],
+    )
+    async def create_privileged_key(
+        payload: PrivilegedApiKeyCreateRequest,
+        app_container: AppContainer = Depends(get_container),
+    ) -> PrivilegedApiKeyCreateResponse:
+        try:
+            api_key = await app_container.api_key_store.create_privileged_key(
+                label=payload.label,
+                scope=payload.scope,
+                allowed_ips=payload.allowed_ips,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return PrivilegedApiKeyCreateResponse(**api_key)
+
+    @app.get(
+        "/admin/privileged-keys",
+        response_model=list[PrivilegedApiKeyListItem],
+        dependencies=[Depends(require_admin_token)],
+    )
+    async def list_privileged_keys(
+        app_container: AppContainer = Depends(get_container),
+    ) -> list[PrivilegedApiKeyListItem]:
+        api_keys = await app_container.api_key_store.list_privileged_keys()
+        return [PrivilegedApiKeyListItem(**api_key) for api_key in api_keys]
+
+    @app.delete(
+        "/admin/privileged-keys/{key_id}",
+        status_code=status.HTTP_204_NO_CONTENT,
+        dependencies=[Depends(require_admin_token)],
+    )
+    async def delete_privileged_key(
+        key_id: str,
+        app_container: AppContainer = Depends(get_container),
+    ) -> Response:
+        revoked = await app_container.api_key_store.revoke_privileged_key(key_id)
+        if not revoked:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="privileged token not found",
+            )
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    @app.post(
         "/admin/keys",
         response_model=AdminApiKeyCreateResponse,
         status_code=status.HTTP_201_CREATED,
-        dependencies=[Depends(require_admin_token)],
+        dependencies=[Depends(require_key_manager_token)],
     )
     async def create_admin_key(
         payload: AdminApiKeyCreateRequest,
         app_container: AppContainer = Depends(get_container),
     ) -> AdminApiKeyCreateResponse:
         try:
-            api_key = await app_container.api_key_store.create_key(payload.label)
+            api_key = await app_container.api_key_store.create_user_key(payload.label)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         return AdminApiKeyCreateResponse(**api_key)
@@ -374,18 +420,18 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
     @app.get(
         "/admin/keys",
         response_model=list[AdminApiKeyListItem],
-        dependencies=[Depends(require_admin_token)],
+        dependencies=[Depends(require_key_manager_token)],
     )
     async def list_admin_keys(
         app_container: AppContainer = Depends(get_container),
     ) -> list[AdminApiKeyListItem]:
-        api_keys = await app_container.api_key_store.list_keys()
+        api_keys = await app_container.api_key_store.list_user_keys()
         return [AdminApiKeyListItem(**api_key) for api_key in api_keys]
 
     @app.patch(
         "/admin/keys/{key_id}",
         response_model=AdminApiKeyListItem,
-        dependencies=[Depends(require_admin_token)],
+        dependencies=[Depends(require_key_manager_token)],
     )
     async def set_admin_key_active(
         key_id: str,
@@ -401,7 +447,7 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="api key not found",
             )
-        api_key = await app_container.api_key_store.get_key(key_id)
+        api_key = await app_container.api_key_store.get_user_key(key_id)
         if api_key is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -416,7 +462,7 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
     )
     async def upload_image(
         request: Request,
-        key_id: str | None = Depends(require_bearer_token),
+        key_id: str = Depends(require_bearer_token),
         app_container: AppContainer = Depends(get_container),
     ) -> UploadImageResponse:
         del key_id
@@ -457,7 +503,7 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
     async def create_task(
         payload: TaskCreateRequest,
         response: Response,
-        key_id: str | None = Depends(require_bearer_token),
+        key_id: str = Depends(require_bearer_token),
         app_container: AppContainer = Depends(get_container),
     ) -> TaskCreateResponse:
         try:
@@ -497,7 +543,7 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
         response_model=TaskListResponse,
     )
     async def list_tasks(
-        key_id: str | None = Depends(require_bearer_token),
+        key_id: str = Depends(require_bearer_token),
         pagination: CursorPaginationParams = Depends(get_cursor_pagination_params),
         app_container: AppContainer = Depends(get_container),
     ) -> TaskListResponse:
@@ -515,7 +561,7 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
     @app.get(
         "/admin/tasks",
         response_model=TaskListResponse,
-        dependencies=[Depends(require_admin_token)],
+        dependencies=[Depends(require_task_viewer_token)],
     )
     async def list_admin_tasks(
         key_id: str | None = Query(default=None),
@@ -539,7 +585,7 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
     )
     async def delete_task(
         task_id: str,
-        key_id: str | None = Depends(require_bearer_token),
+        key_id: str = Depends(require_bearer_token),
         app_container: AppContainer = Depends(get_container),
     ) -> Response:
         sequence = await app_container.engine.get_task(task_id)
@@ -548,7 +594,7 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="task not found",
             )
-        if key_id is not None and sequence.key_id != key_id:
+        if sequence.key_id != key_id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="forbidden",
@@ -719,10 +765,6 @@ def _is_valid_token(provided_token: str | None, configured_token: str | None) ->
         and configured_token is not None
         and secrets.compare_digest(provided_token, configured_token)
     )
-
-
-def _allows_mock_anonymous_access(config: ServingConfig) -> bool:
-    return config.api_token is None and config.is_mock_provider
 
 
 async def _extract_uploaded_file(request: Request) -> tuple[str, str, bytes]:

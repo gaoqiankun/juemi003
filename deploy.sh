@@ -137,7 +137,7 @@ cat > "$STAGE_DIR/DEPLOY_QUICKSTART.txt" <<EOF2
 1) docker load -i image.tar.gz
 2) mkdir -p ${REMOTE_ROOT:-/opt/hey3d/gen3d}/data ${REMOTE_ROOT:-/opt/hey3d/gen3d}/models/trellis2
 3) ln -sfn ${REMOTE_ROOT:-/opt/hey3d/gen3d}/releases/$RELEASE_NAME ${REMOTE_ROOT:-/opt/hey3d/gen3d}/current
-4) cd ${REMOTE_ROOT:-/opt/hey3d/gen3d}/current && cp .env.example .env  # then edit .env and set API_TOKEN, etc.
+4) cd ${REMOTE_ROOT:-/opt/hey3d/gen3d}/current && cp .env.example .env  # then edit .env and set ADMIN_TOKEN, etc.
 5) cd ${REMOTE_ROOT:-/opt/hey3d/gen3d}/current && docker compose up -d
 EOF2
 

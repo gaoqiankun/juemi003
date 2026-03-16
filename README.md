@@ -147,10 +147,12 @@ HF_TOKEN=...
 
 ### 6. 配环境变量
 
+启动后先用 `ADMIN_TOKEN` 调 `/admin/privileged-keys` 创建 `key_manager`、`task_viewer`、`metrics`
+三类特权 token；再用 `key_manager` token 调 `/admin/keys` 创建 `scope=user` 的业务 key。
+
 #### local backend
 
 ```bash
-export API_TOKEN=dev-api-token
 export ADMIN_TOKEN=dev-admin-token
 export PROVIDER_MODE=real
 export MODEL_PROVIDER=trellis2
@@ -171,7 +173,6 @@ export TASK_TIMEOUT_SECONDS=3600
 #### minio backend
 
 ```bash
-export API_TOKEN=dev-api-token
 export ADMIN_TOKEN=dev-admin-token
 export PROVIDER_MODE=real
 export MODEL_PROVIDER=trellis2
@@ -331,7 +332,6 @@ export TORCH_CUDA_ARCH_LIST="8.0;8.6;8.9;9.0"
 ### Compose 启动 local backend
 
 ```bash
-export API_TOKEN=dev-api-token
 export ADMIN_TOKEN=dev-admin-token
 export PROVIDER_MODE=real
 export ARTIFACT_STORE_MODE=local
@@ -345,7 +345,6 @@ docker compose up --build hey3d-gen3d
 ### Compose 启动 minio backend
 
 ```bash
-export API_TOKEN=dev-api-token
 export ADMIN_TOKEN=dev-admin-token
 export PROVIDER_MODE=real
 export ARTIFACT_STORE_MODE=minio
