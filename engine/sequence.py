@@ -16,7 +16,8 @@ class TaskType(str, Enum):
 
 
 class TaskStatus(str, Enum):
-    SUBMITTED = "submitted"
+    QUEUED = "queued"
+    SUBMITTED = "queued"
     PREPROCESSING = "preprocessing"
     GPU_QUEUED = "gpu_queued"
     GPU_SS = "gpu_ss"
@@ -30,7 +31,7 @@ class TaskStatus(str, Enum):
 
 
 DEFAULT_PROGRESS_BY_STATUS: dict[TaskStatus, int] = {
-    TaskStatus.SUBMITTED: 0,
+    TaskStatus.QUEUED: 0,
     TaskStatus.PREPROCESSING: 1,
     TaskStatus.GPU_QUEUED: 5,
     TaskStatus.GPU_SS: 25,
@@ -50,7 +51,7 @@ TERMINAL_STATUSES = {
 }
 
 ALLOWED_TRANSITIONS: dict[TaskStatus, set[TaskStatus]] = {
-    TaskStatus.SUBMITTED: {
+    TaskStatus.QUEUED: {
         TaskStatus.PREPROCESSING,
         TaskStatus.FAILED,
         TaskStatus.CANCELLED,
@@ -101,6 +102,7 @@ ALLOWED_TRANSITIONS: dict[TaskStatus, set[TaskStatus]] = {
 class RequestSequence:
     task_id: str
     task_type: TaskType
+    model: str
     input_url: str
     options: dict[str, Any]
     callback_url: str | None = None
@@ -130,6 +132,7 @@ class RequestSequence:
     def new_task(
         cls,
         *,
+        model: str = "trellis",
         input_url: str,
         options: dict[str, Any],
         callback_url: str | None = None,
@@ -141,13 +144,15 @@ class RequestSequence:
         return cls(
             task_id=str(uuid4()),
             task_type=task_type,
+            model=model.strip() or "trellis",
             input_url=input_url,
             options=options,
             callback_url=callback_url,
             idempotency_key=idempotency_key,
             key_id=key_id,
-            progress=DEFAULT_PROGRESS_BY_STATUS[TaskStatus.SUBMITTED],
-            current_stage=TaskStatus.SUBMITTED.value,
+            status=TaskStatus.QUEUED,
+            progress=DEFAULT_PROGRESS_BY_STATUS[TaskStatus.QUEUED],
+            current_stage=TaskStatus.QUEUED.value,
             created_at=now,
             queued_at=now,
             updated_at=now,
@@ -187,3 +192,17 @@ class RequestSequence:
             self.error_message = error_message
         if failed_stage is not None:
             self.failed_stage = failed_stage
+
+    def mark_as_queued(self) -> None:
+        now = utcnow()
+        self.status = TaskStatus.QUEUED
+        self.progress = DEFAULT_PROGRESS_BY_STATUS[TaskStatus.QUEUED]
+        self.current_stage = TaskStatus.QUEUED.value
+        self.queue_position = None
+        self.estimated_wait_seconds = None
+        self.estimated_finish_at = None
+        self.assigned_worker_id = None
+        self.started_at = None
+        self.updated_at = now
+        self.error_message = None
+        self.failed_stage = None

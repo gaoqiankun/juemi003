@@ -29,12 +29,14 @@ class PreprocessStage(BaseStage):
         max_image_bytes: int = 10 * 1024 * 1024,
         allow_local_inputs: bool = True,
         uploads_dir: Path = Path("./data/uploads"),
+        task_store=None,
     ) -> None:
         self._delay_seconds = max(delay_ms, 0) / 1000
         self._download_timeout_seconds = max(download_timeout_seconds, 1.0)
         self._max_image_bytes = max(max_image_bytes, 1)
         self._allow_local_inputs = allow_local_inputs
         self._uploads_dir = Path(uploads_dir)
+        self._task_store = task_store
         self._logger = structlog.get_logger(__name__)
 
     async def run(
@@ -83,6 +85,12 @@ class PreprocessStage(BaseStage):
                     width=normalized_image.width,
                     height=normalized_image.height,
                 )
+                if self._task_store is not None:
+                    await self._task_store.update_stage_stats(
+                        model=sequence.model,
+                        stage=TaskStatus.PREPROCESSING.value,
+                        duration_seconds=duration_seconds,
+                    )
                 return sequence
             except Exception as exc:
                 duration_seconds = time.perf_counter() - started_at

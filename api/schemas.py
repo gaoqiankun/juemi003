@@ -60,7 +60,10 @@ class TaskOptions(BaseModel):
 
 class TaskCreateRequest(BaseModel):
     type: Literal["image_to_3d"]
-    image_url: str
+    input_url: str = Field(
+        validation_alias=AliasChoices("input_url", "image_url"),
+    )
+    model: str = "trellis"
     callback_url: str | None = None
     idempotency_key: str | None = None
     options: TaskOptions = Field(default_factory=TaskOptions)
@@ -88,6 +91,8 @@ class TaskArtifactsResponse(BaseModel):
 class TaskResponse(BaseModel):
     task_id: str = Field(serialization_alias="taskId")
     status: TaskStatus
+    model: str
+    input_url: str
     progress: int
     current_stage: str = Field(serialization_alias="currentStage")
     queue_position: int | None = Field(default=None, serialization_alias="queuePosition")
@@ -118,6 +123,8 @@ class TaskResponse(BaseModel):
         return cls(
             task_id=sequence.task_id,
             status=sequence.status,
+            model=sequence.model,
+            input_url=sequence.input_url,
             progress=sequence.progress,
             current_stage=sequence.current_stage,
             queue_position=sequence.queue_position,
@@ -134,6 +141,8 @@ class TaskResponse(BaseModel):
 class TaskCreateResponse(BaseModel):
     task_id: str = Field(serialization_alias="taskId")
     status: TaskStatus
+    model: str
+    input_url: str
     queue_position: int | None = Field(default=None, serialization_alias="queuePosition")
     estimated_wait_seconds: int | None = Field(
         default=None,
@@ -151,6 +160,8 @@ class TaskCreateResponse(BaseModel):
         return cls(
             task_id=sequence.task_id,
             status=sequence.status,
+            model=sequence.model,
+            input_url=sequence.input_url,
             queue_position=sequence.queue_position,
             estimated_wait_seconds=sequence.estimated_wait_seconds,
             estimated_finish_at=sequence.estimated_finish_at,
@@ -160,6 +171,8 @@ class TaskCreateResponse(BaseModel):
 class TaskSummary(BaseModel):
     task_id: str = Field(serialization_alias="taskId")
     status: TaskStatus
+    model: str
+    input_url: str
     created_at: datetime = Field(serialization_alias="createdAt")
     finished_at: datetime | None = Field(default=None, serialization_alias="finishedAt")
     artifact_url: str | None = Field(default=None, serialization_alias="artifactUrl")
@@ -178,6 +191,8 @@ class TaskSummary(BaseModel):
         return cls(
             task_id=sequence.task_id,
             status=sequence.status,
+            model=sequence.model,
+            input_url=sequence.input_url,
             created_at=sequence.created_at,
             finished_at=sequence.completed_at,
             artifact_url=artifact_url,
@@ -209,7 +224,7 @@ class TaskListResponse(CursorPage[TaskSummary]):
 
 
 class HealthResponse(BaseModel):
-    status: Literal["ok", "ready"]
+    status: Literal["ok", "ready", "not_ready"]
     service: str
 
 

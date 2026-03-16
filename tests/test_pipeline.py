@@ -14,6 +14,7 @@ if str(WORKSPACE_ROOT) not in sys.path:
     sys.path.insert(0, str(WORKSPACE_ROOT))
 
 from gen3d.engine.async_engine import AsyncGen3DEngine
+from gen3d.engine.model_registry import ModelRegistry, ModelRuntime
 from gen3d.engine.pipeline import PipelineCoordinator
 from gen3d.engine.sequence import (
     DEFAULT_PROGRESS_BY_STATUS,
@@ -24,6 +25,7 @@ from gen3d.engine.sequence import (
 )
 from gen3d.model.trellis2.provider import MockTrellis2Provider
 from gen3d.stages.export.stage import ExportStage
+from gen3d.stages.gpu.scheduler import GPUSlotScheduler
 from gen3d.stages.gpu.stage import GPUStage
 from gen3d.stages.gpu.worker import build_gpu_workers
 from gen3d.stages.preprocess.stage import PreprocessStage
@@ -115,33 +117,53 @@ def build_engine(
     task_store = TaskStore(tmp_path / "pipeline.sqlite3")
     artifact_store = ArtifactStore(tmp_path / "artifacts")
     uploads_dir = uploads_dir or (tmp_path / "uploads")
-    provider = MockTrellis2Provider(stage_delay_ms=mock_gpu_stage_delay_ms)
-    gpu_stage = GPUStage(
-        delay_ms=queue_delay_ms,
-        workers=build_gpu_workers(
+
+    def build_runtime(model_name: str) -> ModelRuntime:
+        provider = MockTrellis2Provider(stage_delay_ms=mock_gpu_stage_delay_ms)
+        workers = build_gpu_workers(
             provider=provider,
             provider_mode="mock",
             provider_name="trellis2",
             model_path="microsoft/TRELLIS.2-4B",
             device_ids=gpu_device_ids,
-        ),
+        )
+        return ModelRuntime(
+            model_name=model_name,
+            provider=provider,
+            workers=workers,
+            scheduler=GPUSlotScheduler(workers),
+        )
+
+    model_registry = ModelRegistry(build_runtime)
+    gpu_stage = GPUStage(
+        delay_ms=queue_delay_ms,
+        model_registry=model_registry,
         task_store=task_store,
     )
     pipeline = PipelineCoordinator(
         task_store=task_store,
         stages=[
-            PreprocessStage(delay_ms=10, uploads_dir=uploads_dir),
+            PreprocessStage(delay_ms=10, uploads_dir=uploads_dir, task_store=task_store),
             gpu_stage,
-            ExportStage(provider=provider, artifact_store=artifact_store, delay_ms=10),
+            ExportStage(
+                model_registry=model_registry,
+                artifact_store=artifact_store,
+                task_store=task_store,
+                delay_ms=10,
+            ),
         ],
         task_timeout_seconds=task_timeout_seconds,
         queue_max_size=queue_max_size,
-        worker_count=gpu_stage.slot_count,
+        worker_count=len(gpu_device_ids),
     )
     engine = AsyncGen3DEngine(
         task_store=task_store,
         pipeline=pipeline,
+        model_registry=model_registry,
         artifact_store=artifact_store,
+        parallel_slots=len(gpu_device_ids),
+        queue_max_size=queue_max_size,
+        uploads_dir=uploads_dir,
     )
     return task_store, artifact_store, engine
 
@@ -202,6 +224,7 @@ async def seed_task(
     sequence = RequestSequence(
         task_id=task_id,
         task_type=TaskType.IMAGE_TO_3D,
+        model="trellis",
         input_url=SAMPLE_IMAGE_DATA_URL,
         options={"resolution": 1024},
         callback_url=callback_url,
@@ -211,7 +234,7 @@ async def seed_task(
         current_stage=current_stage or status.value,
         created_at=created_at,
         queued_at=created_at,
-        started_at=None if status == TaskStatus.SUBMITTED else created_at,
+        started_at=None if status == TaskStatus.QUEUED else created_at,
         updated_at=created_at,
     )
     await task_store.create_task(sequence)
@@ -250,7 +273,7 @@ def test_pipeline_persists_full_success_history(tmp_path: Path) -> None:
             events = await task_store.list_task_events(sequence.task_id)
             event_statuses = [event["metadata"].get("status") for event in events]
             assert event_statuses == [
-                "submitted",
+                "queued",
                 "preprocessing",
                 "gpu_queued",
                 "gpu_ss",
@@ -396,7 +419,7 @@ def test_pipeline_recovery_requeues_early_tasks_and_fails_interrupted_tasks(
             await seed_task(
                 seed_store,
                 task_id="recover-submitted",
-                status=TaskStatus.SUBMITTED,
+                status=TaskStatus.QUEUED,
             )
             await seed_task(
                 seed_store,

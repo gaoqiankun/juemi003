@@ -2,20 +2,21 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import math
 from collections import defaultdict
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
+from datetime import timedelta
+from pathlib import Path
 from typing import Any, Awaitable, Callable
+from urllib.parse import urlparse
 
 import httpx
 import structlog
 from structlog.contextvars import bound_contextvars
 
-from gen3d.engine.pipeline import (
-    CancelRequestResult,
-    PipelineCoordinator,
-    PipelineQueueFullError,
-)
+from gen3d.engine.model_registry import ModelRegistry, ModelRegistryLoadError
+from gen3d.engine.pipeline import CancelRequestResult, PipelineCoordinator, PipelineQueueFullError
 from gen3d.engine.sequence import (
     RequestSequence,
     TERMINAL_STATUSES,
@@ -23,7 +24,7 @@ from gen3d.engine.sequence import (
     TaskType,
     utcnow,
 )
-from gen3d.observability.metrics import increment_webhook_total
+from gen3d.observability.metrics import increment_webhook_total, set_queue_depth
 from gen3d.pagination import CursorPageResult
 from gen3d.security import (
     TokenRateLimiter,
@@ -31,12 +32,26 @@ from gen3d.security import (
     validate_image_url,
 )
 from gen3d.storage.artifact_store import ArtifactStore, ArtifactStoreOperationError
-from gen3d.storage.task_store import (
-    TaskIdempotencyConflictError,
-    TaskStore,
-)
+from gen3d.storage.task_store import TaskIdempotencyConflictError, TaskStore
 
 WebhookSender = Callable[[str, dict[str, Any]], Awaitable[None]]
+_STAGE_ORDER = [
+    TaskStatus.PREPROCESSING.value,
+    TaskStatus.GPU_SS.value,
+    TaskStatus.GPU_SHAPE.value,
+    TaskStatus.GPU_MATERIAL.value,
+    TaskStatus.EXPORTING.value,
+    TaskStatus.UPLOADING.value,
+]
+_PROCESSING_STATUSES = {
+    TaskStatus.PREPROCESSING,
+    TaskStatus.GPU_QUEUED,
+    TaskStatus.GPU_SS,
+    TaskStatus.GPU_SHAPE,
+    TaskStatus.GPU_MATERIAL,
+    TaskStatus.EXPORTING,
+    TaskStatus.UPLOADING,
+}
 
 
 @dataclass(slots=True)
@@ -54,6 +69,7 @@ class AsyncGen3DEngine:
         *,
         task_store: TaskStore,
         pipeline: PipelineCoordinator,
+        model_registry: ModelRegistry,
         artifact_store: ArtifactStore | None = None,
         webhook_sender: WebhookSender | None = None,
         webhook_timeout_seconds: float = 2.0,
@@ -61,21 +77,31 @@ class AsyncGen3DEngine:
         provider_mode: str = "mock",
         allowed_callback_domains: tuple[str, ...] = (),
         rate_limiter: TokenRateLimiter | None = None,
+        parallel_slots: int = 1,
+        queue_max_size: int = 20,
+        uploads_dir: Path = Path("./data/uploads"),
+        worker_poll_interval_seconds: float = 0.05,
     ) -> None:
         self._task_store = task_store
         self._pipeline = pipeline
+        self._model_registry = model_registry
         self._artifact_store = artifact_store
         self._started = False
+        self._worker_count = max(int(parallel_slots), 1)
+        self._queue_capacity = self._worker_count + max(int(queue_max_size), 0)
+        self._worker_poll_interval_seconds = max(float(worker_poll_interval_seconds), 0.01)
         self._event_queues: dict[str, set[asyncio.Queue[dict[str, Any]]]] = defaultdict(set)
         self._cleanup_event = asyncio.Event()
         self._cleanup_semaphore = asyncio.Semaphore(self._CLEANUP_CONCURRENCY)
         self._cleanup_worker_task: asyncio.Task[None] | None = None
+        self._worker_tasks: list[asyncio.Task[None]] = []
         self._webhook_sender = webhook_sender or self._default_webhook_sender
         self._webhook_timeout_seconds = webhook_timeout_seconds
         self._webhook_max_retries = max(int(webhook_max_retries), 0)
         self._allow_local_inputs = provider_mode.strip().lower() == "mock"
         self._allowed_callback_domains = allowed_callback_domains
         self._rate_limiter = rate_limiter
+        self._uploads_dir = Path(uploads_dir)
         self._logger = structlog.get_logger(__name__)
         self._pipeline.add_listener(self._publish_update)
 
@@ -86,18 +112,33 @@ class AsyncGen3DEngine:
         if await self._has_pending_cleanups():
             self._cleanup_event.set()
         self._cleanup_worker_task = asyncio.create_task(self._run_cleanup_worker())
+        self._worker_tasks = [
+            asyncio.create_task(
+                self._run_worker_loop(worker_index),
+                name=f"gen3d-worker-{worker_index}",
+            )
+            for worker_index in range(self._worker_count)
+        ]
+        set_queue_depth(await self._task_store.count_queued_tasks())
         self._started = True
 
     async def stop(self) -> None:
         if not self._started:
             return
+        for worker_task in self._worker_tasks:
+            worker_task.cancel()
+        if self._worker_tasks:
+            await asyncio.gather(*self._worker_tasks, return_exceptions=True)
+        self._worker_tasks.clear()
         if self._cleanup_worker_task is not None:
             self._cleanup_worker_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._cleanup_worker_task
             self._cleanup_worker_task = None
         await self._pipeline.stop()
+        await self._model_registry.close()
         self._started = False
+        set_queue_depth(0)
 
     async def submit_task(
         self,
@@ -108,6 +149,7 @@ class AsyncGen3DEngine:
         callback_url: str | None = None,
         idempotency_key: str | None = None,
         key_id: str | None = None,
+        model: str = "trellis",
     ) -> tuple[RequestSequence, bool]:
         image_url = validate_image_url(
             image_url,
@@ -117,6 +159,7 @@ class AsyncGen3DEngine:
             callback_url,
             allowed_domains=self._allowed_callback_domains,
         )
+        normalized_model = str(model).strip().lower() or "trellis"
         rate_limit_key = key_id or "anonymous"
         if self._rate_limiter is not None:
             await self._rate_limiter.record_request(rate_limit_key)
@@ -129,11 +172,15 @@ class AsyncGen3DEngine:
                         idempotency_key=idempotency_key,
                         status=existing.status.value,
                     )
+                await self._decorate_sequence(existing)
                 return existing, False
         if self._rate_limiter is not None:
             await self._rate_limiter.check_concurrent_tasks(rate_limit_key)
+        if await self._task_store.count_incomplete_tasks() >= self._queue_capacity:
+            raise PipelineQueueFullError("pipeline queue is full")
 
         sequence = RequestSequence.new_task(
+            model=normalized_model,
             input_url=image_url,
             options=options,
             callback_url=callback_url,
@@ -151,14 +198,21 @@ class AsyncGen3DEngine:
                     idempotency_key=idempotency_key,
                     status=existing.status.value,
                 )
+            await self._decorate_sequence(existing)
             return existing, False
-        try:
-            await self._pipeline.enqueue(sequence.task_id)
-        except PipelineQueueFullError:
-            await self._task_store.delete_task(sequence.task_id)
-            raise
+        self._model_registry.load(sequence.model)
         if self._rate_limiter is not None:
             await self._rate_limiter.register_task(rate_limit_key, sequence.task_id)
+        sequence.queue_position = await self._task_store.get_queue_position(sequence.task_id) or 1
+        sequence.estimated_wait_seconds = await self._estimate_queued_wait(
+            model=sequence.model,
+            queue_position=sequence.queue_position,
+        )
+        if sequence.estimated_wait_seconds is not None:
+            sequence.estimated_finish_at = utcnow() + timedelta(
+                seconds=sequence.estimated_wait_seconds
+            )
+        set_queue_depth(await self._task_store.count_queued_tasks())
         with bound_contextvars(task_id=sequence.task_id):
             self._logger.info(
                 "task.submitted",
@@ -166,6 +220,7 @@ class AsyncGen3DEngine:
                 callback_enabled=bool(callback_url),
                 idempotency_key=idempotency_key,
                 key_id=key_id,
+                model=sequence.model,
             )
         return sequence, True
 
@@ -181,13 +236,8 @@ class AsyncGen3DEngine:
             limit=limit,
             before=before,
         )
-        if self._artifact_store is None:
-            return page
         for sequence in page.items:
-            if not sequence.artifacts:
-                sequence.artifacts = await self._artifact_store.list_artifacts(
-                    sequence.task_id
-                )
+            await self._decorate_sequence(sequence)
         return page
 
     async def delete_task(self, task_id: str) -> RequestSequence | None:
@@ -220,14 +270,12 @@ class AsyncGen3DEngine:
                 if not pending_task_ids:
                     break
                 await asyncio.gather(
-                    *(
-                        self._cleanup_single_task(task_id)
-                        for task_id in pending_task_ids
-                    )
+                    *(self._cleanup_single_task(task_id) for task_id in pending_task_ids)
                 )
 
     async def _cleanup_single_task(self, task_id: str) -> None:
         async with self._cleanup_semaphore:
+            sequence = await self._task_store.get_task(task_id, include_deleted=True)
             if self._artifact_store is not None:
                 try:
                     await self._artifact_store.delete_artifacts(task_id)
@@ -245,6 +293,8 @@ class AsyncGen3DEngine:
                             stage="cleanup",
                             error=str(exc),
                         )
+            if sequence is not None:
+                await self._cleanup_uploaded_input(sequence.input_url, task_id=task_id)
             try:
                 await self._task_store.mark_cleanup_done(task_id)
             except Exception as exc:  # pragma: no cover - defensive guard
@@ -254,12 +304,33 @@ class AsyncGen3DEngine:
                         error=str(exc),
                     )
 
+    async def _cleanup_uploaded_input(self, input_url: str, *, task_id: str) -> None:
+        parsed = urlparse(input_url)
+        if parsed.scheme != "upload":
+            return
+        upload_id = (parsed.netloc or parsed.path.lstrip("/")).strip()
+        if not upload_id:
+            return
+        try:
+            matches = await asyncio.to_thread(
+                lambda: list(self._uploads_dir.glob(f"{upload_id}.*"))
+            )
+            for match in matches:
+                if match.exists():
+                    await asyncio.to_thread(match.unlink)
+        except Exception as exc:  # pragma: no cover - defensive guard
+            with bound_contextvars(task_id=task_id):
+                self._logger.warning(
+                    "task.upload_cleanup_failed",
+                    error=str(exc),
+                    input_url=input_url,
+                )
+
     async def get_task(self, task_id: str) -> RequestSequence | None:
         sequence = await self._task_store.get_task(task_id)
         if sequence is None:
             return None
-        if self._artifact_store is not None and not sequence.artifacts:
-            sequence.artifacts = await self._artifact_store.list_artifacts(task_id)
+        await self._decorate_sequence(sequence)
         return sequence
 
     async def get_artifacts(self, task_id: str) -> list[dict[str, Any]] | None:
@@ -278,7 +349,7 @@ class AsyncGen3DEngine:
 
     @property
     def ready(self) -> bool:
-        return self._started
+        return self._started and self._model_registry.has_ready_model()
 
     async def stream_events(self, task_id: str) -> AsyncIterator[dict[str, Any]]:
         queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
@@ -288,7 +359,7 @@ class AsyncGen3DEngine:
             for event_record in history:
                 yield self._build_replayed_event_payload(task_id, event_record)
 
-            current = await self.get_task(task_id)
+            current = await self._task_store.get_task(task_id)
             if current is not None and current.status in {
                 TaskStatus.SUCCEEDED,
                 TaskStatus.FAILED,
@@ -312,6 +383,134 @@ class AsyncGen3DEngine:
                 if not subscribers:
                     self._event_queues.pop(task_id, None)
 
+    async def _run_worker_loop(self, worker_index: int) -> None:
+        worker_id = f"pipeline-worker-{worker_index}"
+        while True:
+            try:
+                sequence = await self._task_store.claim_next_queued_task(worker_id)
+                set_queue_depth(await self._task_store.count_queued_tasks())
+                if sequence is None:
+                    await asyncio.sleep(self._worker_poll_interval_seconds)
+                    continue
+                with bound_contextvars(task_id=sequence.task_id):
+                    self._logger.info(
+                        "task.claimed",
+                        worker_id=worker_id,
+                        model=sequence.model,
+                    )
+                self._model_registry.load(sequence.model)
+                try:
+                    await self._model_registry.wait_ready(sequence.model)
+                except ModelRegistryLoadError as exc:
+                    latest = await self._task_store.get_task(sequence.task_id) or sequence
+                    latest.transition_to(
+                        TaskStatus.FAILED,
+                        current_stage=TaskStatus.QUEUED.value,
+                        error_message=str(exc),
+                        failed_stage=TaskStatus.QUEUED.value,
+                    )
+                    await self._pipeline.publish_update(
+                        latest,
+                        "failed",
+                        {
+                            "status": latest.status.value,
+                            "stage": TaskStatus.QUEUED.value,
+                            "message": str(exc),
+                        },
+                    )
+                    continue
+
+                latest = await self._task_store.get_task(sequence.task_id)
+                if latest is None or latest.status in TERMINAL_STATUSES:
+                    continue
+                await self._pipeline.run_sequence(latest)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # pragma: no cover - defensive guard
+                self._logger.exception(
+                    "worker.loop_failed",
+                    worker_id=worker_id,
+                    error=str(exc),
+                )
+                await asyncio.sleep(self._worker_poll_interval_seconds)
+            finally:
+                set_queue_depth(await self._task_store.count_queued_tasks())
+
+    async def _decorate_sequence(self, sequence: RequestSequence) -> None:
+        if self._artifact_store is not None and not sequence.artifacts:
+            sequence.artifacts = await self._artifact_store.list_artifacts(sequence.task_id)
+
+        if sequence.status == TaskStatus.QUEUED:
+            queue_position = await self._task_store.get_queue_position(sequence.task_id)
+            sequence.queue_position = queue_position or None
+            sequence.estimated_wait_seconds = await self._estimate_queued_wait(
+                model=sequence.model,
+                queue_position=queue_position,
+            )
+        elif sequence.status in _PROCESSING_STATUSES:
+            sequence.queue_position = None
+            sequence.estimated_wait_seconds = await self._estimate_processing_wait(sequence)
+        else:
+            sequence.queue_position = None
+            sequence.estimated_wait_seconds = None
+
+        sequence.estimated_finish_at = (
+            utcnow() + timedelta(seconds=sequence.estimated_wait_seconds)
+            if sequence.estimated_wait_seconds is not None
+            else None
+        )
+
+    async def _estimate_queued_wait(self, *, model: str, queue_position: int | None) -> int | None:
+        if queue_position is None or queue_position <= 0:
+            return None
+        stats = await self._task_store.get_stage_stats(model)
+        total_seconds = self._sum_stage_means(stats, _STAGE_ORDER)
+        if total_seconds is None:
+            return None
+        waves = math.ceil(queue_position / self._worker_count)
+        return int(math.ceil(waves * total_seconds))
+
+    async def _estimate_processing_wait(self, sequence: RequestSequence) -> int | None:
+        stats = await self._task_store.get_stage_stats(sequence.model)
+        current_stage = (sequence.current_stage or sequence.status.value).strip().lower()
+        if current_stage == TaskStatus.GPU_QUEUED.value:
+            remaining = self._sum_stage_means(stats, _STAGE_ORDER[1:])
+            return int(math.ceil(remaining)) if remaining is not None else None
+        if current_stage not in _STAGE_ORDER:
+            return None
+        current_mean = self._stage_mean(stats, current_stage)
+        if current_mean is None:
+            return None
+        current_index = _STAGE_ORDER.index(current_stage)
+        remaining = self._sum_stage_means(stats, _STAGE_ORDER[current_index + 1 :])
+        if remaining is None and current_index + 1 < len(_STAGE_ORDER):
+            return None
+        progress_ratio = min(max(sequence.progress, 0), 100) / 100
+        seconds = (current_mean * max(0.0, 1.0 - progress_ratio)) + (remaining or 0.0)
+        return int(math.ceil(seconds))
+
+    @staticmethod
+    def _stage_mean(stats: dict[str, dict[str, float | int]], stage: str) -> float | None:
+        stage_stats = stats.get(stage)
+        if not stage_stats:
+            return None
+        if int(stage_stats.get("count", 0)) <= 0:
+            return None
+        return float(stage_stats.get("mean_seconds", 0.0))
+
+    def _sum_stage_means(
+        self,
+        stats: dict[str, dict[str, float | int]],
+        stages: list[str],
+    ) -> float | None:
+        total = 0.0
+        for stage in stages:
+            mean = self._stage_mean(stats, stage)
+            if mean is None:
+                return None
+            total += mean
+        return total
+
     async def _publish_update(
         self,
         sequence: RequestSequence,
@@ -324,10 +523,7 @@ class AsyncGen3DEngine:
                 queue.put_nowait(payload)
             if self._rate_limiter is not None and sequence.status in TERMINAL_STATUSES:
                 await self._rate_limiter.release_task(sequence.task_id)
-            if (
-                event in {"succeeded", "failed"}
-                and sequence.callback_url
-            ):
+            if event in {"succeeded", "failed"} and sequence.callback_url:
                 await self._send_webhook(sequence)
 
     def _build_event_payload(

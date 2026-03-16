@@ -238,6 +238,35 @@ def make_image_bytes(image_format: str) -> bytes:
     return buffer.getvalue()
 
 
+def upload_input_url(
+    client: TestClient,
+    *,
+    token: str | None = None,
+    image_format: str = "PNG",
+) -> str:
+    content_type = {
+        "PNG": "image/png",
+        "JPEG": "image/jpeg",
+        "WEBP": "image/webp",
+        "GIF": "image/gif",
+    }[image_format]
+    suffix = image_format.lower() if image_format != "JPEG" else "jpg"
+    headers = auth_headers(token) if token is not None else task_auth_headers(client)
+    response = client.post(
+        "/v1/upload",
+        headers=headers,
+        files={
+            "file": (
+                f"pixel.{suffix}",
+                make_image_bytes(image_format),
+                content_type,
+            )
+        },
+    )
+    assert response.status_code == 201
+    return response.json()["url"]
+
+
 def collect_task_snapshots(
     client: TestClient,
     task_id: str,
@@ -404,12 +433,32 @@ def seed_tasks(database_path: Path, sequences: list[RequestSequence]) -> None:
 def test_health_and_ready_endpoints(tmp_path: Path) -> None:
     with make_client(tmp_path) as client:
         health_response = client.get("/health")
-        ready_response = client.get("/ready")
+        readiness_before_response = client.get("/readiness")
+        create_response = client.post(
+            "/v1/tasks",
+            headers=task_auth_headers(client),
+            json={
+                "type": "image_to_3d",
+                "input_url": upload_input_url(client),
+                "options": {"resolution": 1024},
+            },
+        )
+        assert create_response.status_code == 201
+        wait_for_status(client, create_response.json()["taskId"], "succeeded")
+        readiness_after_response = client.get("/readiness")
 
     assert health_response.status_code == 200
     assert health_response.json() == {"status": "ok", "service": "gen3d"}
-    assert ready_response.status_code == 200
-    assert ready_response.json() == {"status": "ready", "service": "gen3d"}
+    assert readiness_before_response.status_code == 503
+    assert readiness_before_response.json() == {
+        "status": "not_ready",
+        "service": "gen3d",
+    }
+    assert readiness_after_response.status_code == 200
+    assert readiness_after_response.json() == {
+        "status": "ready",
+        "service": "gen3d",
+    }
 
 
 def test_bearer_auth_is_required_for_task_routes(tmp_path: Path) -> None:
@@ -575,7 +624,7 @@ def test_user_key_auth_accepts_user_keys_and_rejects_other_token_scopes(
             headers=auth_headers(managed_key["token"]),
             json={
                 "type": "image_to_3d",
-                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "input_url": upload_input_url(client),
                 "options": {"resolution": 1024},
             },
         )
@@ -584,7 +633,7 @@ def test_user_key_auth_accepts_user_keys_and_rejects_other_token_scopes(
             headers=auth_headers("invalid-key"),
             json={
                 "type": "image_to_3d",
-                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "input_url": upload_input_url(client),
                 "options": {"resolution": 1024},
             },
         )
@@ -593,7 +642,7 @@ def test_user_key_auth_accepts_user_keys_and_rejects_other_token_scopes(
             headers=auth_headers(key_manager_token),
             json={
                 "type": "image_to_3d",
-                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "input_url": upload_input_url(client),
                 "options": {"resolution": 1024},
             },
         )
@@ -643,7 +692,7 @@ def test_inactive_managed_api_key_is_rejected(tmp_path: Path) -> None:
             headers=auth_headers(managed_key["token"]),
             json={
                 "type": "image_to_3d",
-                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "input_url": upload_input_url(client),
                 "options": {"resolution": 1024},
             },
         )
@@ -666,7 +715,7 @@ def test_task_list_is_scoped_to_managed_api_keys(
             headers=auth_headers(managed_key_a["token"]),
             json={
                 "type": "image_to_3d",
-                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "input_url": upload_input_url(client),
                 "options": {"resolution": 1024},
             },
         )
@@ -676,7 +725,7 @@ def test_task_list_is_scoped_to_managed_api_keys(
             headers=auth_headers(managed_key_b["token"]),
             json={
                 "type": "image_to_3d",
-                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "input_url": upload_input_url(client),
                 "options": {"resolution": 1024},
             },
         )
@@ -716,7 +765,7 @@ def test_admin_tasks_returns_all_tasks_and_supports_key_filter(tmp_path: Path) -
             headers=auth_headers(managed_key_a["token"]),
             json={
                 "type": "image_to_3d",
-                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "input_url": upload_input_url(client),
                 "options": {"resolution": 1024},
             },
         )
@@ -726,7 +775,7 @@ def test_admin_tasks_returns_all_tasks_and_supports_key_filter(tmp_path: Path) -
             headers=auth_headers(managed_key_b["token"]),
             json={
                 "type": "image_to_3d",
-                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "input_url": upload_input_url(client),
                 "options": {"resolution": 1024},
             },
         )
@@ -835,11 +884,12 @@ def test_task_list_returns_requested_page_and_cursor_metadata(
             RequestSequence(
                 task_id=f"task-{index:02d}",
                 task_type=TaskType.IMAGE_TO_3D,
+                model="trellis",
                 input_url=SAMPLE_IMAGE_DATA_URL,
                 options={"resolution": 1024},
-                status=TaskStatus.SUBMITTED,
+                status=TaskStatus.QUEUED,
                 progress=0,
-                current_stage=TaskStatus.SUBMITTED.value,
+                current_stage=TaskStatus.QUEUED.value,
                 created_at=base_time - timedelta(seconds=54 - index),
                 queued_at=base_time - timedelta(seconds=54 - index),
                 updated_at=base_time - timedelta(seconds=54 - index),
@@ -1014,7 +1064,7 @@ def test_service_startup_migrates_existing_api_keys_table_and_preserves_legacy_r
             headers=auth_headers("legacy-user-token"),
             json={
                 "type": "image_to_3d",
-                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "input_url": upload_input_url(client),
                 "options": {"resolution": 1024},
             },
         )
@@ -1044,18 +1094,22 @@ def test_delete_task_soft_deletes_own_terminal_task_and_removes_artifacts(
     tmp_path: Path,
 ) -> None:
     artifacts_dir = tmp_path / "artifacts"
+    uploads_dir = tmp_path / "uploads"
     with make_client(
         tmp_path,
         admin_token="admin-token",
         artifacts_dir=artifacts_dir,
+        uploads_dir=uploads_dir,
     ) as client:
         managed_key = create_managed_api_key(client, label="Owner")
+        uploaded_url = upload_input_url(client, token=managed_key["token"])
+        upload_id = uploaded_url.removeprefix("upload://")
         create_response = client.post(
             "/v1/tasks",
             headers=auth_headers(managed_key["token"]),
             json={
                 "type": "image_to_3d",
-                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "input_url": uploaded_url,
                 "options": {"resolution": 1024},
             },
         )
@@ -1069,6 +1123,7 @@ def test_delete_task_soft_deletes_own_terminal_task_and_removes_artifacts(
             token=managed_key["token"],
         )
         assert artifacts_dir.joinpath(task_id).exists()
+        assert uploads_dir.joinpath(f"{upload_id}.png").exists()
 
         delete_response = client.delete(
             f"/v1/tasks/{task_id}",
@@ -1086,6 +1141,10 @@ def test_delete_task_soft_deletes_own_terminal_task_and_removes_artifacts(
     assert delete_response.status_code == 204
     wait_for_condition(
         lambda: artifacts_dir.joinpath(task_id).exists() is False,
+        timeout_seconds=2.0,
+    )
+    wait_for_condition(
+        lambda: uploads_dir.joinpath(f"{upload_id}.png").exists() is False,
         timeout_seconds=2.0,
     )
     assert [task["taskId"] for task in task_page_items(list_response)] == []
@@ -1111,7 +1170,7 @@ def test_delete_task_returns_204_without_waiting_for_artifact_cleanup(
             headers=auth_headers(managed_key["token"]),
             json={
                 "type": "image_to_3d",
-                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "input_url": upload_input_url(client),
                 "options": {"resolution": 1024},
             },
         )
@@ -1176,7 +1235,7 @@ def test_delete_task_artifact_cleanup_failure_only_logs_warning(
             headers=auth_headers(managed_key["token"]),
             json={
                 "type": "image_to_3d",
-                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "input_url": upload_input_url(client),
                 "options": {"resolution": 1024},
             },
         )
@@ -1233,7 +1292,7 @@ def test_cleanup_worker_recovers_pending_cleanup_after_restart(
             headers=auth_headers(managed_key["token"]),
             json={
                 "type": "image_to_3d",
-                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "input_url": upload_input_url(client),
                 "options": {"resolution": 1024},
             },
         )
@@ -1291,7 +1350,7 @@ def test_delete_non_terminal_task_returns_409(tmp_path: Path) -> None:
             headers=auth_headers(managed_key["token"]),
             json={
                 "type": "image_to_3d",
-                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "input_url": upload_input_url(client),
                 "options": {"resolution": 1024},
             },
         )
@@ -1316,7 +1375,7 @@ def test_delete_other_keys_task_returns_403(tmp_path: Path) -> None:
             headers=auth_headers(managed_key_a["token"]),
             json={
                 "type": "image_to_3d",
-                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "input_url": upload_input_url(client),
                 "options": {"resolution": 1024},
             },
         )
@@ -1349,6 +1408,7 @@ def test_task_list_cursor_pagination_is_stable_when_newer_task_arrives(
             RequestSequence(
                 task_id=f"seed-{index}",
                 task_type=TaskType.IMAGE_TO_3D,
+                model="trellis",
                 input_url=SAMPLE_IMAGE_DATA_URL,
                 options={"resolution": 1024},
                 status=TaskStatus.SUCCEEDED,
@@ -1376,7 +1436,7 @@ def test_task_list_cursor_pagination_is_stable_when_newer_task_arrives(
             headers=task_auth_headers(client),
             json={
                 "type": "image_to_3d",
-                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "input_url": upload_input_url(client),
                 "options": {"resolution": 1024},
             },
         )
@@ -1440,7 +1500,7 @@ def test_upload_endpoint_accepts_png_and_jpg_and_uploaded_url_can_run_task(
             headers=task_auth_headers(client),
             json={
                 "type": "image_to_3d",
-                "image_url": png_payload["url"],
+                "input_url": png_payload["url"],
                 "options": {"resolution": 1024},
             },
         )
@@ -1487,6 +1547,105 @@ def test_upload_endpoint_rejects_oversized_file(tmp_path: Path) -> None:
     assert "exceeds max size" in response.json()["detail"]
 
 
+def test_create_task_rejects_http_input_url(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        response = client.post(
+            "/v1/tasks",
+            headers=task_auth_headers(client),
+            json={
+                "type": "image_to_3d",
+                "input_url": "https://example.com/image.png",
+                "options": {"resolution": 1024},
+            },
+        )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "input_url must start with upload://"
+
+
+def test_task_detail_includes_input_url_and_dynamic_eta_after_stage_history(
+    tmp_path: Path,
+) -> None:
+    with make_client(tmp_path, queue_delay_ms=300) as client:
+        warmup_response = client.post(
+            "/v1/tasks",
+            headers=task_auth_headers(client),
+            json={
+                "type": "image_to_3d",
+                "input_url": upload_input_url(client),
+                "options": {"resolution": 1024},
+            },
+        )
+        assert warmup_response.status_code == 201
+        wait_for_status(client, warmup_response.json()["taskId"], "succeeded")
+
+        first_response = client.post(
+            "/v1/tasks",
+            headers=task_auth_headers(client),
+            json={
+                "type": "image_to_3d",
+                "input_url": upload_input_url(client),
+                "options": {"resolution": 1024},
+            },
+        )
+        second_input_url = upload_input_url(client)
+        second_response = client.post(
+            "/v1/tasks",
+            headers=task_auth_headers(client),
+            json={
+                "type": "image_to_3d",
+                "input_url": second_input_url,
+                "options": {"resolution": 1024},
+            },
+        )
+        assert first_response.status_code == 201
+        assert second_response.status_code == 201
+        wait_for_status(client, first_response.json()["taskId"], "preprocessing")
+
+        queued_detail = client.get(
+            f"/v1/tasks/{second_response.json()['taskId']}",
+            headers=task_auth_headers(client),
+        )
+        processing_detail = client.get(
+            f"/v1/tasks/{first_response.json()['taskId']}",
+            headers=task_auth_headers(client),
+        )
+
+    assert queued_detail.status_code == 200
+    assert queued_detail.json()["input_url"] == second_input_url
+    assert queued_detail.json()["status"] == "queued"
+    assert queued_detail.json()["queuePosition"] == 1
+    assert isinstance(queued_detail.json()["estimatedWaitSeconds"], int)
+    assert queued_detail.json()["estimatedWaitSeconds"] > 0
+
+    assert processing_detail.status_code == 200
+    assert processing_detail.json()["input_url"].startswith("upload://")
+    assert isinstance(processing_detail.json()["estimatedWaitSeconds"], int)
+    assert processing_detail.json()["estimatedWaitSeconds"] > 0
+
+
+def test_tasks_are_processed_in_fifo_order(tmp_path: Path) -> None:
+    with make_client(tmp_path, queue_delay_ms=300) as client:
+        task_ids: list[str] = []
+        for _ in range(3):
+            response = client.post(
+                "/v1/tasks",
+                headers=task_auth_headers(client),
+                json={
+                    "type": "image_to_3d",
+                    "input_url": upload_input_url(client),
+                    "options": {"resolution": 1024},
+                },
+            )
+            assert response.status_code == 201
+            task_ids.append(response.json()["taskId"])
+
+        completed = [wait_for_status(client, task_id, "succeeded") for task_id in task_ids]
+
+    started_at = [payload["startedAt"] for payload in completed]
+    assert started_at == sorted(started_at)
+
+
 def test_sse_stream_replays_full_task_lifecycle(tmp_path: Path) -> None:
     with make_client(tmp_path) as client:
         create_response = client.post(
@@ -1494,7 +1653,7 @@ def test_sse_stream_replays_full_task_lifecycle(tmp_path: Path) -> None:
             headers=task_auth_headers(client),
             json={
                 "type": "image_to_3d",
-                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "input_url": upload_input_url(client),
                 "options": {"resolution": 1024},
             },
         )
@@ -1504,7 +1663,7 @@ def test_sse_stream_replays_full_task_lifecycle(tmp_path: Path) -> None:
         events = collect_sse_events(client, task_id)
 
     statuses = [event["status"] for event in events]
-    assert statuses[0] == "submitted"
+    assert statuses[0] == "queued"
     assert "preprocessing" in statuses
     assert "gpu_queued" in statuses
     assert "gpu_ss" in statuses
@@ -1525,13 +1684,13 @@ def test_create_task_runs_full_mock_pipeline_and_exposes_artifact_metadata(tmp_p
             headers=task_auth_headers(client),
             json={
                 "type": "image_to_3d",
-                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "input_url": upload_input_url(client),
                 "options": {"resolution": 1024},
             },
         )
         assert create_response.status_code == 201
         payload = create_response.json()
-        assert payload["status"] == "submitted"
+        assert payload["status"] == "queued"
 
         snapshots = collect_task_snapshots(
             client,
@@ -1615,7 +1774,7 @@ def test_metrics_track_successful_task(tmp_path: Path) -> None:
             headers=task_auth_headers(client),
             json={
                 "type": "image_to_3d",
-                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "input_url": upload_input_url(client),
                 "options": {"resolution": 1024},
             },
         )
@@ -1683,7 +1842,7 @@ def test_metrics_track_failed_task(tmp_path: Path) -> None:
             headers=task_auth_headers(client),
             json={
                 "type": "image_to_3d",
-                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "input_url": upload_input_url(client),
                 "options": {
                     "resolution": 1024,
                     "mock_failure_stage": "preprocessing",
@@ -1724,7 +1883,7 @@ def test_metrics_track_webhook(tmp_path: Path) -> None:
             headers=task_auth_headers(client),
             json={
                 "type": "image_to_3d",
-                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "input_url": upload_input_url(client),
                 "callback_url": "https://callback.test/metrics",
                 "options": {"resolution": 1024},
             },
@@ -1751,7 +1910,7 @@ def test_create_task_with_existing_idempotency_key_returns_http_200(tmp_path: Pa
             headers=task_auth_headers(client),
             json={
                 "type": "image_to_3d",
-                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "input_url": upload_input_url(client),
                 "idempotency_key": "same-task",
                 "options": {"resolution": 1024},
             },
@@ -1761,7 +1920,7 @@ def test_create_task_with_existing_idempotency_key_returns_http_200(tmp_path: Pa
             headers=task_auth_headers(client),
             json={
                 "type": "image_to_3d",
-                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "input_url": upload_input_url(client),
                 "idempotency_key": "same-task",
                 "options": {"resolution": 1024},
             },
@@ -1813,7 +1972,7 @@ def test_webhook_failures_are_retried_and_recorded(
             headers=task_auth_headers(client),
             json={
                 "type": "image_to_3d",
-                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "input_url": upload_input_url(client),
                 "callback_url": "https://callback.test/retry",
                 "options": {"resolution": 1024},
             },
@@ -1869,7 +2028,7 @@ def test_create_task_returns_503_when_queue_is_full(tmp_path: Path) -> None:
             headers=task_auth_headers(client),
             json={
                 "type": "image_to_3d",
-                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "input_url": upload_input_url(client),
                 "options": {"resolution": 1024},
             },
         )
@@ -1878,7 +2037,7 @@ def test_create_task_returns_503_when_queue_is_full(tmp_path: Path) -> None:
             headers=task_auth_headers(client),
             json={
                 "type": "image_to_3d",
-                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "input_url": upload_input_url(client),
                 "options": {"resolution": 1024},
             },
         )
@@ -1887,7 +2046,7 @@ def test_create_task_returns_503_when_queue_is_full(tmp_path: Path) -> None:
             headers=task_auth_headers(client),
             json={
                 "type": "image_to_3d",
-                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "input_url": upload_input_url(client),
                 "options": {"resolution": 1024},
             },
         )
@@ -1908,7 +2067,7 @@ def test_single_gpu_default_configuration_exposes_slot_metric(tmp_path: Path) ->
             headers=task_auth_headers(client),
             json={
                 "type": "image_to_3d",
-                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "input_url": upload_input_url(client),
                 "options": {"resolution": 1024},
             },
         )
@@ -1933,7 +2092,7 @@ def test_gpu_queued_task_can_be_cancelled_and_repeat_cancel_is_rejected(tmp_path
             headers=task_auth_headers(client),
             json={
                 "type": "image_to_3d",
-                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "input_url": upload_input_url(client),
                 "options": {"resolution": 1024},
             },
         )
@@ -1948,7 +2107,7 @@ def test_gpu_queued_task_can_be_cancelled_and_repeat_cancel_is_rejected(tmp_path
             headers=task_auth_headers(client),
             json={
                 "type": "image_to_3d",
-                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "input_url": upload_input_url(client),
                 "options": {"resolution": 1024},
             },
         )
@@ -1970,7 +2129,7 @@ def test_gpu_queued_task_can_be_cancelled_and_repeat_cancel_is_rejected(tmp_path
             headers=task_auth_headers(client),
             json={
                 "type": "image_to_3d",
-                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "input_url": upload_input_url(client),
                 "options": {"resolution": 1024},
             },
         )
@@ -1981,7 +2140,7 @@ def test_gpu_queued_task_can_be_cancelled_and_repeat_cancel_is_rejected(tmp_path
             headers=task_auth_headers(client),
             json={
                 "type": "image_to_3d",
-                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "input_url": upload_input_url(client),
                 "options": {"resolution": 1024},
             },
         )
@@ -2004,7 +2163,7 @@ def test_failed_task_returns_error_details_and_failed_stage(tmp_path: Path) -> N
             headers=task_auth_headers(client),
             json={
                 "type": "image_to_3d",
-                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "input_url": upload_input_url(client),
                 "options": {
                     "resolution": 1024,
                     "mock_failure_stage": "gpu_shape",
@@ -2047,7 +2206,7 @@ def test_uploading_failure_returns_error_details_and_failed_stage(tmp_path: Path
             headers=task_auth_headers(client),
             json={
                 "type": "image_to_3d",
-                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "input_url": upload_input_url(client),
                 "options": {
                     "resolution": 1024,
                     "mock_failure_stage": "uploading",
@@ -2088,7 +2247,7 @@ def test_success_and_failure_terminal_states_trigger_webhooks(tmp_path: Path) ->
             headers=task_auth_headers(client),
             json={
                 "type": "image_to_3d",
-                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "input_url": upload_input_url(client),
                 "callback_url": "https://callback.test/success",
                 "options": {"resolution": 1024},
             },
@@ -2098,7 +2257,7 @@ def test_success_and_failure_terminal_states_trigger_webhooks(tmp_path: Path) ->
             headers=task_auth_headers(client),
             json={
                 "type": "image_to_3d",
-                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "input_url": upload_input_url(client),
                 "callback_url": "https://callback.test/failure",
                 "options": {
                     "resolution": 1024,
@@ -2141,34 +2300,25 @@ def test_invalid_image_input_fails_during_preprocessing(
             headers=task_auth_headers(client),
             json={
                 "type": "image_to_3d",
-                "image_url": "data:text/plain;base64,Zm9v",
+                "input_url": "data:text/plain;base64,Zm9v",
                 "options": {"resolution": 1024},
             },
         )
-        assert create_response.status_code == 201
-        payload = create_response.json()
-
-        snapshots = collect_task_snapshots(
-            client,
-            payload["taskId"],
-            terminal_status="failed",
-        )
-
-    final_payload = snapshots[-1]
-    assert final_payload["currentStage"] == "preprocessing"
-    assert "decode input image" in final_payload["error"]["message"]
+    assert create_response.status_code == 400
+    assert "input_url must start with upload://" in create_response.json()["detail"]
 
     with make_real_mode_client(
         tmp_path,
         monkeypatch,
         allowed_callback_domains=("callback.test",),
     ) as real_client:
+        uploaded_input_url = upload_input_url(real_client)
         file_url_response = real_client.post(
             "/v1/tasks",
             headers=task_auth_headers(real_client),
             json={
                 "type": "image_to_3d",
-                "image_url": "file:///tmp/input.png",
+                "input_url": "file:///tmp/input.png",
                 "options": {"resolution": 1024},
             },
         )
@@ -2177,7 +2327,7 @@ def test_invalid_image_input_fails_during_preprocessing(
             headers=task_auth_headers(real_client),
             json={
                 "type": "image_to_3d",
-                "image_url": "http://127.0.0.1:9/input.png",
+                "input_url": uploaded_input_url,
                 "callback_url": "ftp://callback.test/task",
                 "options": {"resolution": 1024},
             },
@@ -2187,7 +2337,7 @@ def test_invalid_image_input_fails_during_preprocessing(
             headers=task_auth_headers(real_client),
             json={
                 "type": "image_to_3d",
-                "image_url": "http://127.0.0.1:9/input.png",
+                "input_url": uploaded_input_url,
                 "callback_url": "https://evil.test/task",
                 "options": {"resolution": 1024},
             },
@@ -2197,14 +2347,14 @@ def test_invalid_image_input_fails_during_preprocessing(
             headers=task_auth_headers(real_client),
             json={
                 "type": "image_to_3d",
-                "image_url": "http://127.0.0.1:9/input.png",
+                "input_url": uploaded_input_url,
                 "callback_url": "https://callback.test/task",
                 "options": {"resolution": 1024},
             },
         )
 
-    assert file_url_response.status_code == 422
-    assert "image_url must use http:// or https://" in file_url_response.json()["detail"]
+    assert file_url_response.status_code == 400
+    assert "input_url must start with upload://" in file_url_response.json()["detail"]
     assert invalid_callback_response.status_code == 422
     assert "callback_url must use http:// or https://" in invalid_callback_response.json()["detail"]
     assert disallowed_callback_response.status_code == 422
@@ -2212,17 +2362,38 @@ def test_invalid_image_input_fails_during_preprocessing(
     assert allowed_callback_response.status_code == 201
 
 
-def test_real_mode_fails_fast_when_model_path_is_missing(tmp_path: Path) -> None:
+def test_real_mode_model_load_failure_marks_task_failed_without_blocking_startup(
+    tmp_path: Path,
+) -> None:
     config = ServingConfig(
         provider_mode="real",
         model_provider="trellis2",
         model_path=str(tmp_path / "missing-model"),
+        admin_token="admin-token",
         database_path=tmp_path / "gen3d.sqlite3",
         artifacts_dir=tmp_path / "artifacts",
+        uploads_dir=tmp_path / "uploads",
     )
+    app = create_app(config)
 
-    with pytest.raises(ModelProviderConfigurationError, match="model path does not exist"):
-        create_app(config)
+    with TestClient(app) as client:
+        readiness_before = client.get("/readiness")
+        create_response = client.post(
+            "/v1/tasks",
+            headers=task_auth_headers(client),
+            json={
+                "type": "image_to_3d",
+                "input_url": upload_input_url(client),
+                "options": {"resolution": 1024},
+            },
+        )
+        assert create_response.status_code == 201
+        failed_payload = wait_for_status(client, create_response.json()["taskId"], "failed")
+        readiness_after = client.get("/readiness")
+
+    assert readiness_before.status_code == 503
+    assert readiness_after.status_code == 503
+    assert "failed to load" in failed_payload["error"]["message"]
 
 
 def test_trellis2_provider_accepts_huggingface_repo_id_model_path() -> None:

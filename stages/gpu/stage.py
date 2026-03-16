@@ -2,16 +2,21 @@ from __future__ import annotations
 
 import asyncio
 import time
+from dataclasses import dataclass
 
 import structlog
 from structlog.contextvars import bound_contextvars
 
+from gen3d.engine.model_registry import ModelRegistry
 from gen3d.engine.sequence import RequestSequence, TaskStatus
 from gen3d.model.base import ModelProviderExecutionError, StageProgress
 from gen3d.observability.metrics import observe_stage_duration
 from gen3d.stages.base import BaseStage, StageExecutionError, StageUpdateHandler
-from gen3d.stages.gpu.scheduler import GPUSlotScheduler
-from gen3d.stages.gpu.worker import GPUWorkerHandle
+
+
+@dataclass(slots=True)
+class _GPUStageTiming:
+    stage_started_at: float
 
 
 class GPUStage(BaseStage):
@@ -21,36 +26,21 @@ class GPUStage(BaseStage):
         self,
         *,
         delay_ms: int = 0,
-        workers: list[GPUWorkerHandle],
+        model_registry: ModelRegistry,
         task_store,
     ) -> None:
         self._delay_seconds = max(delay_ms, 0) / 1000
-        self._workers = workers
-        self._scheduler = GPUSlotScheduler(workers)
+        self._model_registry = model_registry
         self._task_store = task_store
         self._logger = structlog.get_logger(__name__)
 
-    async def start(self) -> None:
-        for worker in self._workers:
-            await worker.start()
-        self._logger.info(
-            "gpu.worker_pool_started",
-            worker_count=len(self._workers),
-            device_ids=[worker.device_id for worker in self._workers],
-        )
-
-    async def stop(self) -> None:
-        for worker in self._workers:
-            await worker.stop()
-        self._logger.info(
-            "gpu.worker_pool_stopped",
-            worker_count=len(self._workers),
-            device_ids=[worker.device_id for worker in self._workers],
-        )
-
     @property
     def slot_count(self) -> int:
-        return self._scheduler.slot_count()
+        ready_models = self._model_registry.ready_models()
+        if not ready_models:
+            return 0
+        runtime = self._model_registry.get_runtime(ready_models[0])
+        return runtime.scheduler.slot_count()
 
     async def run(
         self,
@@ -59,8 +49,9 @@ class GPUStage(BaseStage):
     ) -> RequestSequence:
         started_at = time.perf_counter()
         with bound_contextvars(task_id=sequence.task_id):
-            self._logger.info("stage.started", stage=self.name)
+            self._logger.info("stage.started", stage=self.name, model=sequence.model)
             try:
+                runtime = self._model_registry.get_runtime(sequence.model)
                 sequence.transition_to(
                     TaskStatus.GPU_QUEUED,
                     current_stage=TaskStatus.GPU_QUEUED.value,
@@ -83,9 +74,10 @@ class GPUStage(BaseStage):
                     )
                     return latest
 
-                slot = await self._scheduler.acquire()
+                slot = await runtime.scheduler.acquire()
                 sequence.assigned_worker_id = slot.worker.worker_id
                 prepared_inputs = [sequence.prepared_input or {"image_url": sequence.input_url}]
+                timings = _GPUStageTiming(stage_started_at=time.perf_counter())
                 try:
                     self._logger.info(
                         "gpu.slot_acquired",
@@ -100,12 +92,13 @@ class GPUStage(BaseStage):
                                 sequence,
                                 progress,
                                 on_update,
+                                timings,
                             ),
                         )
                     except ModelProviderExecutionError as exc:
                         raise StageExecutionError(exc.stage_name, str(exc)) from exc
                 finally:
-                    await self._scheduler.release(slot.device_id)
+                    await runtime.scheduler.release(slot.device_id)
 
                 sequence.generation_result = results[0]
                 duration_seconds = time.perf_counter() - started_at
@@ -137,12 +130,20 @@ class GPUStage(BaseStage):
         sequence: RequestSequence,
         progress: StageProgress,
         on_update: StageUpdateHandler | None,
+        timings: _GPUStageTiming,
     ) -> None:
         status = {
             "ss": TaskStatus.GPU_SS,
             "shape": TaskStatus.GPU_SHAPE,
             "material": TaskStatus.GPU_MATERIAL,
         }[progress.stage_name]
+        now = time.perf_counter()
+        await self._task_store.update_stage_stats(
+            model=sequence.model,
+            stage=status.value,
+            duration_seconds=now - timings.stage_started_at,
+        )
+        timings.stage_started_at = now
         sequence.transition_to(
             status,
             current_stage=status.value,

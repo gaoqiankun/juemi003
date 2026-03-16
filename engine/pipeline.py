@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import inspect
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
@@ -9,11 +8,7 @@ import structlog
 from structlog.contextvars import bound_contextvars
 
 from gen3d.engine.sequence import RequestSequence, TaskStatus, utcnow
-from gen3d.observability.metrics import (
-    increment_task_total,
-    observe_task_duration,
-    set_queue_depth,
-)
+from gen3d.observability.metrics import increment_task_total, observe_task_duration
 from gen3d.stages.base import BaseStage, StageExecutionError
 from gen3d.storage.task_store import TaskStore
 
@@ -53,21 +48,18 @@ class PipelineCoordinator:
     ) -> None:
         self._task_store = task_store
         self._stages = stages
-        self._queue: asyncio.Queue[str | None] = asyncio.Queue()
-        self._worker_tasks: list[asyncio.Task[None]] = []
         self._listeners: list[PipelineListener] = []
         self._logger = structlog.get_logger(__name__)
         self._task_timeout_seconds = max(int(task_timeout_seconds), 1)
         self._worker_count = max(int(worker_count), 1)
         self._queue_max_size = max(int(queue_max_size), 0)
-        self._queue_capacity = self._worker_count + self._queue_max_size
-        self._active_tasks = 0
+        self._started = False
 
     def add_listener(self, listener: PipelineListener) -> None:
         self._listeners.append(listener)
 
     async def start(self) -> None:
-        if self._worker_tasks:
+        if self._started:
             return
         await self._run_stage_lifecycle("start")
         recovery_summary = await self._recover_incomplete_tasks()
@@ -80,38 +72,21 @@ class PipelineCoordinator:
             task_timeout_seconds=self._task_timeout_seconds,
             worker_count=self._worker_count,
         )
-        self._worker_tasks = [
-            asyncio.create_task(
-                self._run(worker_index),
-                name=f"gen3d-pipeline-{worker_index}",
-            )
-            for worker_index in range(self._worker_count)
-        ]
+        self._started = True
 
     async def stop(self) -> None:
-        if not self._worker_tasks:
+        if not self._started:
             return
-        for _ in range(self._worker_count):
-            await self._queue.put(None)
-        await asyncio.gather(*self._worker_tasks)
-        self._worker_tasks.clear()
         await self._run_stage_lifecycle("stop")
-
-    async def enqueue(self, task_id: str, *, enforce_limit: bool = True) -> None:
-        if enforce_limit:
-            if self.queue_size() + self._active_tasks >= self._queue_capacity:
-                raise PipelineQueueFullError("pipeline queue is full")
-            self._queue.put_nowait(task_id)
-        else:
-            await self._queue.put(task_id)
-        set_queue_depth(self.queue_size())
-
-    def queue_size(self) -> int:
-        return self._queue.qsize()
+        self._started = False
 
     @property
     def worker_count(self) -> int:
         return self._worker_count
+
+    @property
+    def queue_capacity(self) -> int:
+        return self._worker_count + self._queue_max_size
 
     async def cancel_task(self, task_id: str) -> CancelRequestResult:
         sequence = await self._task_store.get_task(task_id)
@@ -135,7 +110,7 @@ class PipelineCoordinator:
                 "task.cancelled",
                 requested_from_status=TaskStatus.GPU_QUEUED.value,
             )
-        await self._publish_update(
+        await self.publish_update(
             sequence,
             "cancelled",
             {
@@ -145,177 +120,69 @@ class PipelineCoordinator:
         )
         return CancelRequestResult(outcome="cancelled", sequence=sequence)
 
-    async def _recover_incomplete_tasks(self) -> RecoverySummary:
-        summary = RecoverySummary()
-        for sequence in await self._task_store.list_incomplete_tasks():
-            summary.scanned += 1
-            age_seconds = max(
-                (utcnow() - sequence.created_at).total_seconds(),
-                0.0,
+    async def run_sequence(self, sequence: RequestSequence) -> RequestSequence:
+        with bound_contextvars(task_id=sequence.task_id):
+            self._logger.info(
+                "task.processing_started",
+                current_stage=sequence.current_stage,
+                model=sequence.model,
             )
-            with bound_contextvars(task_id=sequence.task_id):
-                if age_seconds > self._task_timeout_seconds:
-                    summary.failed_timeout += 1
+            for stage in self._stages:
+                try:
+                    sequence = await stage.run(sequence, on_update=self.publish_update)
+                except StageExecutionError as exc:
                     self._logger.warning(
-                        "task.recovered_as_failed",
-                        recovery_action="timeout",
-                        previous_status=sequence.status.value,
-                        current_stage=sequence.current_stage,
-                        task_age_seconds=round(age_seconds, 6),
+                        "task.processing_failed",
+                        stage=exc.stage_name,
+                        error=str(exc),
                     )
-                    await self._fail_recovered_task(
+                    sequence.transition_to(
+                        TaskStatus.FAILED,
+                        current_stage=exc.stage_name,
+                        error_message=str(exc),
+                        failed_stage=exc.stage_name,
+                    )
+                    await self.publish_update(
                         sequence,
-                        message=(
-                            "task exceeded TASK_TIMEOUT_SECONDS before service recovery"
-                        ),
-                        recovery_action="timeout",
+                        "failed",
+                        {
+                            "status": sequence.status.value,
+                            "stage": exc.stage_name,
+                            "message": str(exc),
+                        },
                     )
-                    continue
-                if sequence.status in {TaskStatus.SUBMITTED, TaskStatus.PREPROCESSING}:
-                    summary.requeued += 1
-                    self._logger.info(
-                        "task.requeued_after_restart",
-                        previous_status=sequence.status.value,
-                        current_stage=sequence.current_stage,
-                        task_age_seconds=round(age_seconds, 6),
+                    break
+                except Exception as exc:  # pragma: no cover - defensive fallback
+                    self._logger.exception(
+                        "task.processing_failed_unexpected",
+                        stage=stage.name,
+                        error=str(exc),
                     )
-                    await self.enqueue(sequence.task_id, enforce_limit=False)
-                    continue
-
-                summary.failed_interrupted += 1
-                self._logger.warning(
-                    "task.recovered_as_failed",
-                    recovery_action="interrupted",
-                    previous_status=sequence.status.value,
-                    current_stage=sequence.current_stage,
-                    task_age_seconds=round(age_seconds, 6),
-                )
-                await self._fail_recovered_task(
-                    sequence,
-                    message="服务重启，任务中断",
-                    recovery_action="interrupted",
-                )
-        return summary
-
-    async def _fail_recovered_task(
-        self,
-        sequence: RequestSequence,
-        *,
-        message: str,
-        recovery_action: str,
-    ) -> None:
-        failed_stage = sequence.current_stage or sequence.status.value
-        sequence.transition_to(
-            TaskStatus.FAILED,
-            current_stage=failed_stage,
-            error_message=message,
-            failed_stage=failed_stage,
-        )
-        await self._publish_update(
-            sequence,
-            "failed",
-            {
-                "status": sequence.status.value,
-                "stage": failed_stage,
-                "message": message,
-                "recovery_action": recovery_action,
-            },
-        )
-
-    async def _run(self, worker_index: int) -> None:
-        while True:
-            task_id = await self._queue.get()
-            set_queue_depth(self.queue_size())
-            if task_id is None:
-                self._queue.task_done()
-                break
-
-            processing_started = False
-            try:
-                sequence = await self._task_store.get_task(task_id)
-                if sequence is None or sequence.status in {
+                    sequence.transition_to(
+                        TaskStatus.FAILED,
+                        current_stage=stage.name,
+                        error_message=str(exc),
+                        failed_stage=stage.name,
+                    )
+                    await self.publish_update(
+                        sequence,
+                        "failed",
+                        {
+                            "status": sequence.status.value,
+                            "stage": stage.name,
+                            "message": str(exc),
+                        },
+                    )
+                    break
+                if sequence.status in {
                     TaskStatus.SUCCEEDED,
                     TaskStatus.FAILED,
                     TaskStatus.CANCELLED,
                 }:
-                    continue
-                self._active_tasks += 1
-                processing_started = True
-                with bound_contextvars(task_id=sequence.task_id):
-                    self._logger.info(
-                        "task.processing_started",
-                        pipeline_worker_index=worker_index,
-                        current_stage=sequence.current_stage,
-                        queue_depth=self.queue_size(),
-                    )
-                    for stage in self._stages:
-                        try:
-                            sequence = await stage.run(sequence, on_update=self._publish_update)
-                        except StageExecutionError as exc:
-                            self._logger.warning(
-                                "task.processing_failed",
-                                stage=exc.stage_name,
-                                error=str(exc),
-                            )
-                            sequence.transition_to(
-                                TaskStatus.FAILED,
-                                current_stage=exc.stage_name,
-                                error_message=str(exc),
-                                failed_stage=exc.stage_name,
-                            )
-                            await self._publish_update(
-                                sequence,
-                                "failed",
-                                {
-                                    "status": sequence.status.value,
-                                    "stage": exc.stage_name,
-                                    "message": str(exc),
-                                },
-                            )
-                            break
-                        except Exception as exc:  # pragma: no cover - defensive fallback
-                            self._logger.exception(
-                                "task.processing_failed_unexpected",
-                                stage=stage.name,
-                                error=str(exc),
-                            )
-                            sequence.transition_to(
-                                TaskStatus.FAILED,
-                                current_stage=stage.name,
-                                error_message=str(exc),
-                                failed_stage=stage.name,
-                            )
-                            await self._publish_update(
-                                sequence,
-                                "failed",
-                                {
-                                    "status": sequence.status.value,
-                                    "stage": stage.name,
-                                    "message": str(exc),
-                                },
-                            )
-                            break
-                        if sequence.status in {
-                            TaskStatus.SUCCEEDED,
-                            TaskStatus.FAILED,
-                            TaskStatus.CANCELLED,
-                        }:
-                            break
-            finally:
-                if processing_started:
-                    self._active_tasks = max(self._active_tasks - 1, 0)
-                self._queue.task_done()
+                    break
+        return sequence
 
-    async def _run_stage_lifecycle(self, method_name: str) -> None:
-        for stage in self._stages:
-            method = getattr(stage, method_name, None)
-            if method is None:
-                continue
-            maybe_awaitable = method()
-            if inspect.isawaitable(maybe_awaitable):
-                await maybe_awaitable
-
-    async def _publish_update(
+    async def publish_update(
         self,
         sequence: RequestSequence,
         event: str,
@@ -351,5 +218,91 @@ class PipelineCoordinator:
                 )
         for listener in self._listeners:
             maybe_awaitable = listener(sequence, event, payload)
+            if inspect.isawaitable(maybe_awaitable):
+                await maybe_awaitable
+
+    async def _recover_incomplete_tasks(self) -> RecoverySummary:
+        summary = RecoverySummary()
+        for sequence in await self._task_store.list_incomplete_tasks():
+            summary.scanned += 1
+            age_seconds = max(
+                (utcnow() - sequence.created_at).total_seconds(),
+                0.0,
+            )
+            with bound_contextvars(task_id=sequence.task_id):
+                if age_seconds > self._task_timeout_seconds:
+                    summary.failed_timeout += 1
+                    self._logger.warning(
+                        "task.recovered_as_failed",
+                        recovery_action="timeout",
+                        previous_status=sequence.status.value,
+                        current_stage=sequence.current_stage,
+                        task_age_seconds=round(age_seconds, 6),
+                    )
+                    await self._fail_recovered_task(
+                        sequence,
+                        message=(
+                            "task exceeded TASK_TIMEOUT_SECONDS before service recovery"
+                        ),
+                        recovery_action="timeout",
+                    )
+                    continue
+                if sequence.status in {TaskStatus.QUEUED, TaskStatus.PREPROCESSING}:
+                    summary.requeued += 1
+                    self._logger.info(
+                        "task.requeued_after_restart",
+                        previous_status=sequence.status.value,
+                        current_stage=sequence.current_stage,
+                        task_age_seconds=round(age_seconds, 6),
+                    )
+                    await self._task_store.requeue_task(sequence.task_id)
+                    continue
+
+                summary.failed_interrupted += 1
+                self._logger.warning(
+                    "task.recovered_as_failed",
+                    recovery_action="interrupted",
+                    previous_status=sequence.status.value,
+                    current_stage=sequence.current_stage,
+                    task_age_seconds=round(age_seconds, 6),
+                )
+                await self._fail_recovered_task(
+                    sequence,
+                    message="服务重启，任务中断",
+                    recovery_action="interrupted",
+                )
+        return summary
+
+    async def _fail_recovered_task(
+        self,
+        sequence: RequestSequence,
+        *,
+        message: str,
+        recovery_action: str,
+    ) -> None:
+        failed_stage = sequence.current_stage or sequence.status.value
+        sequence.transition_to(
+            TaskStatus.FAILED,
+            current_stage=failed_stage,
+            error_message=message,
+            failed_stage=failed_stage,
+        )
+        await self.publish_update(
+            sequence,
+            "failed",
+            {
+                "status": sequence.status.value,
+                "stage": failed_stage,
+                "message": message,
+                "recovery_action": recovery_action,
+            },
+        )
+
+    async def _run_stage_lifecycle(self, method_name: str) -> None:
+        for stage in self._stages:
+            method = getattr(stage, method_name, None)
+            if method is None:
+                continue
+            maybe_awaitable = method()
             if inspect.isawaitable(maybe_awaitable):
                 await maybe_awaitable

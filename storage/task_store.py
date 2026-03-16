@@ -28,6 +28,13 @@ def _deserialize_datetime(value: str | None) -> datetime | None:
     return datetime.fromisoformat(value) if value else None
 
 
+def _deserialize_status(value: str) -> TaskStatus:
+    normalized = str(value).strip().lower()
+    if normalized == "submitted":
+        normalized = TaskStatus.QUEUED.value
+    return TaskStatus(normalized)
+
+
 class TaskStore:
     def __init__(self, database_path: Path) -> None:
         self._database_path = Path(database_path)
@@ -44,6 +51,7 @@ class TaskStore:
                 id TEXT PRIMARY KEY,
                 status TEXT NOT NULL,
                 type TEXT NOT NULL DEFAULT 'image_to_3d',
+                model TEXT NOT NULL DEFAULT 'trellis',
                 input_url TEXT NOT NULL,
                 options_json TEXT NOT NULL,
                 idempotency_key TEXT UNIQUE,
@@ -69,9 +77,13 @@ class TaskStore:
             )
             """
         )
+        await self._ensure_task_column("model", "TEXT NOT NULL DEFAULT 'trellis'")
         await self._ensure_task_column("key_id", "TEXT")
         await self._ensure_task_column("deleted_at", "TEXT")
         await self._ensure_task_column("cleanup_done", "INTEGER NOT NULL DEFAULT 0")
+        await self._db.execute(
+            "UPDATE tasks SET model = 'trellis' WHERE model IS NULL OR TRIM(model) = ''"
+        )
         await self._db.execute(
             """
             CREATE TABLE IF NOT EXISTS task_events (
@@ -80,6 +92,18 @@ class TaskStore:
                 event TEXT NOT NULL,
                 metadata_json TEXT NOT NULL DEFAULT '{}',
                 created_at TEXT NOT NULL
+            )
+            """
+        )
+        await self._db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS stage_stats (
+                model_name TEXT NOT NULL,
+                stage_name TEXT NOT NULL,
+                count INTEGER NOT NULL,
+                mean_seconds REAL NOT NULL,
+                m2_seconds REAL NOT NULL,
+                PRIMARY KEY (model_name, stage_name)
             )
             """
         )
@@ -97,17 +121,18 @@ class TaskStore:
                 await db.execute(
                     """
                     INSERT INTO tasks (
-                        id, status, type, input_url, options_json, idempotency_key, key_id,
+                        id, status, type, model, input_url, options_json, idempotency_key, key_id,
                         callback_url, output_artifacts_json, error_message, failed_stage,
                         retry_count, assigned_worker_id, current_stage, progress,
                         queue_position, estimated_wait_seconds, estimated_finish_at,
                         created_at, queued_at, started_at, completed_at, updated_at, deleted_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         sequence.task_id,
                         sequence.status.value,
                         sequence.task_type.value,
+                        sequence.model,
                         sequence.input_url,
                         json.dumps(sequence.options),
                         sequence.idempotency_key,
@@ -170,6 +195,7 @@ class TaskStore:
                 UPDATE tasks SET
                     status = ?,
                     type = ?,
+                    model = ?,
                     input_url = ?,
                     options_json = ?,
                     idempotency_key = ?,
@@ -196,6 +222,7 @@ class TaskStore:
                 (
                     sequence.status.value,
                     sequence.task_type.value,
+                    sequence.model,
                     sequence.input_url,
                     json.dumps(sequence.options),
                     sequence.idempotency_key,
@@ -248,6 +275,116 @@ class TaskStore:
                 created_at=created_at,
             )
             await db.commit()
+
+    async def count_incomplete_tasks(self) -> int:
+        db = self._require_db()
+        cursor = await db.execute(
+            """
+            SELECT COUNT(*) AS c
+            FROM tasks
+            WHERE deleted_at IS NULL
+              AND status NOT IN (?, ?, ?)
+            """,
+            (
+                TaskStatus.SUCCEEDED.value,
+                TaskStatus.FAILED.value,
+                TaskStatus.CANCELLED.value,
+            ),
+        )
+        row = await cursor.fetchone()
+        return int(row["c"] if row else 0)
+
+    async def count_queued_tasks(self) -> int:
+        db = self._require_db()
+        cursor = await db.execute(
+            """
+            SELECT COUNT(*) AS c
+            FROM tasks
+            WHERE deleted_at IS NULL
+              AND status = ?
+              AND assigned_worker_id IS NULL
+            """,
+            (TaskStatus.QUEUED.value,),
+        )
+        row = await cursor.fetchone()
+        return int(row["c"] if row else 0)
+
+    async def claim_next_queued_task(self, worker_id: str) -> RequestSequence | None:
+        db = self._require_db()
+        while True:
+            cursor = await db.execute(
+                """
+                SELECT id
+                FROM tasks
+                WHERE deleted_at IS NULL
+                  AND status = ?
+                  AND assigned_worker_id IS NULL
+                ORDER BY queued_at ASC, id ASC
+                LIMIT 1
+                """,
+                (TaskStatus.QUEUED.value,),
+            )
+            row = await cursor.fetchone()
+            if row is None:
+                return None
+
+            now = _serialize_datetime(utcnow())
+            async with self._lock:
+                update_cursor = await db.execute(
+                    """
+                    UPDATE tasks
+                    SET assigned_worker_id = ?,
+                        started_at = COALESCE(started_at, ?),
+                        updated_at = ?
+                    WHERE id = ?
+                      AND deleted_at IS NULL
+                      AND status = ?
+                      AND assigned_worker_id IS NULL
+                    """,
+                    (
+                        worker_id,
+                        now,
+                        now,
+                        row["id"],
+                        TaskStatus.QUEUED.value,
+                    ),
+                )
+                await db.commit()
+                if update_cursor.rowcount == 0:
+                    continue
+            return await self.get_task(str(row["id"]))
+
+    async def requeue_task(self, task_id: str) -> bool:
+        db = self._require_db()
+        async with self._lock:
+            now = _serialize_datetime(utcnow())
+            cursor = await db.execute(
+                """
+                UPDATE tasks
+                SET status = ?,
+                    current_stage = ?,
+                    progress = ?,
+                    assigned_worker_id = NULL,
+                    started_at = NULL,
+                    queue_position = NULL,
+                    estimated_wait_seconds = NULL,
+                    estimated_finish_at = NULL,
+                    error_message = NULL,
+                    failed_stage = NULL,
+                    updated_at = ?
+                WHERE id = ?
+                  AND deleted_at IS NULL
+                """,
+                (
+                    TaskStatus.QUEUED.value,
+                    TaskStatus.QUEUED.value,
+                    0,
+                    now,
+                    task_id,
+                ),
+            )
+            await db.commit()
+            return cursor.rowcount > 0
 
     async def delete_task(self, task_id: str) -> None:
         db = self._require_db()
@@ -379,6 +516,48 @@ class TaskStore:
             next_cursor=next_cursor,
         )
 
+    async def get_queue_position(self, task_id: str) -> int:
+        db = self._require_db()
+        cursor = await db.execute(
+            """
+            SELECT queued_at, id
+            FROM tasks
+            WHERE id = ?
+              AND deleted_at IS NULL
+              AND status = ?
+              AND assigned_worker_id IS NULL
+            """,
+            (
+                task_id,
+                TaskStatus.QUEUED.value,
+            ),
+        )
+        row = await cursor.fetchone()
+        if row is None:
+            return 0
+
+        count_cursor = await db.execute(
+            """
+            SELECT COUNT(*) AS c
+            FROM tasks
+            WHERE deleted_at IS NULL
+              AND status = ?
+              AND assigned_worker_id IS NULL
+              AND (
+                queued_at < ?
+                OR (queued_at = ? AND id <= ?)
+              )
+            """,
+            (
+                TaskStatus.QUEUED.value,
+                row["queued_at"],
+                row["queued_at"],
+                row["id"],
+            ),
+        )
+        count_row = await count_cursor.fetchone()
+        return int(count_row["c"] if count_row else 0)
+
     async def soft_delete_task(
         self,
         task_id: str,
@@ -401,6 +580,93 @@ class TaskStore:
             )
             await db.commit()
             return cursor.rowcount > 0
+
+    async def update_stage_stats(
+        self,
+        *,
+        model: str,
+        stage: str,
+        duration_seconds: float,
+    ) -> None:
+        normalized_model = model.strip() or "trellis"
+        normalized_stage = stage.strip()
+        if not normalized_stage:
+            return
+
+        duration = max(float(duration_seconds), 0.0)
+        db = self._require_db()
+        async with self._lock:
+            cursor = await db.execute(
+                """
+                SELECT count, mean_seconds, m2_seconds
+                FROM stage_stats
+                WHERE model_name = ? AND stage_name = ?
+                """,
+                (normalized_model, normalized_stage),
+            )
+            row = await cursor.fetchone()
+            if row is None:
+                await db.execute(
+                    """
+                    INSERT INTO stage_stats (
+                        model_name,
+                        stage_name,
+                        count,
+                        mean_seconds,
+                        m2_seconds
+                    ) VALUES (?, ?, 1, ?, 0.0)
+                    """,
+                    (
+                        normalized_model,
+                        normalized_stage,
+                        duration,
+                    ),
+                )
+            else:
+                previous_count = int(row["count"])
+                previous_mean = float(row["mean_seconds"])
+                previous_m2 = float(row["m2_seconds"])
+                new_count = previous_count + 1
+                delta = duration - previous_mean
+                new_mean = previous_mean + (delta / new_count)
+                delta2 = duration - new_mean
+                new_m2 = previous_m2 + (delta * delta2)
+                await db.execute(
+                    """
+                    UPDATE stage_stats
+                    SET count = ?, mean_seconds = ?, m2_seconds = ?
+                    WHERE model_name = ? AND stage_name = ?
+                    """,
+                    (
+                        new_count,
+                        new_mean,
+                        new_m2,
+                        normalized_model,
+                        normalized_stage,
+                    ),
+                )
+            await db.commit()
+
+    async def get_stage_stats(self, model: str) -> dict[str, dict[str, float | int]]:
+        normalized_model = model.strip() or "trellis"
+        db = self._require_db()
+        cursor = await db.execute(
+            """
+            SELECT stage_name, count, mean_seconds, m2_seconds
+            FROM stage_stats
+            WHERE model_name = ?
+            """,
+            (normalized_model,),
+        )
+        rows = await cursor.fetchall()
+        return {
+            str(row["stage_name"]): {
+                "count": int(row["count"]),
+                "mean_seconds": float(row["mean_seconds"]),
+                "m2_seconds": float(row["m2_seconds"]),
+            }
+            for row in rows
+        }
 
     async def list_pending_cleanups(self, *, limit: int = 20) -> list[str]:
         db = self._require_db()
@@ -477,26 +743,27 @@ class TaskStore:
         return RequestSequence(
             task_id=row["id"],
             task_type=TaskType(row["type"]),
+            model=(str(row["model"]).strip() if row["model"] else "trellis") or "trellis",
             input_url=row["input_url"],
             options=json.loads(row["options_json"]),
             callback_url=row["callback_url"],
             idempotency_key=row["idempotency_key"],
             key_id=row["key_id"],
-            status=TaskStatus(row["status"]),
-            progress=row["progress"],
-            current_stage=row["current_stage"] or row["status"],
+            status=_deserialize_status(row["status"]),
+            progress=int(row["progress"]),
+            current_stage=row["current_stage"] or _deserialize_status(row["status"]).value,
             queue_position=row["queue_position"],
             estimated_wait_seconds=row["estimated_wait_seconds"],
             estimated_finish_at=_deserialize_datetime(row["estimated_finish_at"]),
             artifacts=json.loads(row["output_artifacts_json"]),
             error_message=row["error_message"],
             failed_stage=row["failed_stage"],
-            retry_count=row["retry_count"],
+            retry_count=int(row["retry_count"]),
             assigned_worker_id=row["assigned_worker_id"],
-            created_at=_deserialize_datetime(row["created_at"]) or datetime.utcnow(),
-            queued_at=_deserialize_datetime(row["queued_at"]) or datetime.utcnow(),
+            created_at=_deserialize_datetime(row["created_at"]) or utcnow(),
+            queued_at=_deserialize_datetime(row["queued_at"]) or utcnow(),
             started_at=_deserialize_datetime(row["started_at"]),
             completed_at=_deserialize_datetime(row["completed_at"]),
-            updated_at=_deserialize_datetime(row["updated_at"]) or datetime.utcnow(),
+            updated_at=_deserialize_datetime(row["updated_at"]) or utcnow(),
             deleted_at=_deserialize_datetime(row["deleted_at"]),
         )

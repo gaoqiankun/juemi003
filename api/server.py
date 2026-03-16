@@ -14,7 +14,7 @@ from typing import Any
 from datetime import datetime
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
-from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
 
@@ -39,6 +39,7 @@ from gen3d.api.schemas import (
 )
 from gen3d.config import ServingConfig
 from gen3d.engine.async_engine import AsyncGen3DEngine
+from gen3d.engine.model_registry import ModelRegistry, ModelRuntime
 from gen3d.engine.pipeline import PipelineCoordinator, PipelineQueueFullError
 from gen3d.engine.sequence import TERMINAL_STATUSES, TaskStatus
 from gen3d.model.base import ModelProviderConfigurationError
@@ -50,6 +51,7 @@ from gen3d.security import (
     TokenRateLimiter,
 )
 from gen3d.stages.export.stage import ExportStage
+from gen3d.stages.gpu.scheduler import GPUSlotScheduler
 from gen3d.stages.gpu.stage import GPUStage
 from gen3d.stages.gpu.worker import build_gpu_workers
 from gen3d.stages.preprocess.stage import PreprocessStage
@@ -82,6 +84,7 @@ class AppContainer:
     task_store: TaskStore
     api_key_store: ApiKeyStore
     artifact_store: ArtifactStore
+    model_registry: ModelRegistry
     pipeline: PipelineCoordinator
     engine: AsyncGen3DEngine
 
@@ -143,6 +146,27 @@ def build_artifact_store(config: ServingConfig) -> ArtifactStore:
     )
 
 
+def build_model_runtime(config: ServingConfig, model_name: str) -> ModelRuntime:
+    normalized_model_name = model_name.strip().lower()
+    if normalized_model_name != "trellis":
+        raise ModelProviderConfigurationError(f"unsupported model: {model_name}")
+
+    provider = build_provider(config)
+    workers = build_gpu_workers(
+        provider=provider,
+        provider_mode=config.provider_mode,
+        provider_name=config.model_provider,
+        model_path=config.model_path,
+        device_ids=config.gpu_device_ids,
+    )
+    return ModelRuntime(
+        model_name=normalized_model_name,
+        provider=provider,
+        workers=workers,
+        scheduler=GPUSlotScheduler(workers),
+    )
+
+
 async def run_real_mode_preflight(config: ServingConfig) -> dict[str, Any]:
     provider_mode = config.provider_mode.strip().lower()
     if provider_mode != "real":
@@ -196,21 +220,14 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
     task_store = TaskStore(config.database_path)
     api_key_store = ApiKeyStore(config.database_path)
     artifact_store = build_artifact_store(config)
-    provider = build_provider(config)
+    model_registry = ModelRegistry(lambda model_name: build_model_runtime(config, model_name))
     rate_limiter = TokenRateLimiter(
         max_concurrent=config.rate_limit_concurrent,
         max_requests_per_hour=config.rate_limit_per_hour,
     )
-    gpu_workers = build_gpu_workers(
-        provider=provider,
-        provider_mode=config.provider_mode,
-        provider_name=config.model_provider,
-        model_path=config.model_path,
-        device_ids=config.gpu_device_ids,
-    )
     gpu_stage = GPUStage(
         delay_ms=config.queue_delay_ms,
-        workers=gpu_workers,
+        model_registry=model_registry,
         task_store=task_store,
     )
     pipeline = PipelineCoordinator(
@@ -222,21 +239,24 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
                 max_image_bytes=config.preprocess_max_image_bytes,
                 allow_local_inputs=config.is_mock_provider,
                 uploads_dir=config.uploads_dir,
+                task_store=task_store,
             ),
             gpu_stage,
             ExportStage(
-                provider=provider,
+                model_registry=model_registry,
                 artifact_store=artifact_store,
+                task_store=task_store,
                 delay_ms=config.mock_export_delay_ms,
             ),
         ],
         task_timeout_seconds=config.task_timeout_seconds,
         queue_max_size=config.queue_max_size,
-        worker_count=gpu_stage.slot_count,
+        worker_count=len(config.gpu_device_ids),
     )
     engine = AsyncGen3DEngine(
         task_store=task_store,
         pipeline=pipeline,
+        model_registry=model_registry,
         artifact_store=artifact_store,
         webhook_sender=webhook_sender,
         webhook_timeout_seconds=config.webhook_timeout_seconds,
@@ -244,12 +264,16 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
         provider_mode=config.provider_mode,
         allowed_callback_domains=config.allowed_callback_domains,
         rate_limiter=rate_limiter,
+        parallel_slots=len(config.gpu_device_ids),
+        queue_max_size=config.queue_max_size,
+        uploads_dir=config.uploads_dir,
     )
     container = AppContainer(
         config=config,
         task_store=task_store,
         api_key_store=api_key_store,
         artifact_store=artifact_store,
+        model_registry=model_registry,
         pipeline=pipeline,
         engine=engine,
     )
@@ -340,10 +364,23 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
     async def health(app_container: AppContainer = Depends(get_container)) -> HealthResponse:
         return HealthResponse(status="ok", service=app_container.config.service_name)
 
-    @app.get("/ready", response_model=HealthResponse)
+    @app.get("/readiness", response_model=HealthResponse)
+    async def readiness(
+        app_container: AppContainer = Depends(get_container),
+    ) -> HealthResponse:
+        if app_container.engine.ready:
+            return HealthResponse(status="ready", service=app_container.config.service_name)
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content=HealthResponse(
+                status="not_ready",
+                service=app_container.config.service_name,
+            ).model_dump(),
+        )
+
+    @app.get("/ready", response_model=HealthResponse, include_in_schema=False)
     async def ready(app_container: AppContainer = Depends(get_container)) -> HealthResponse:
-        readiness = "ready" if app_container.engine.ready else "ok"
-        return HealthResponse(status=readiness, service=app_container.config.service_name)
+        return await readiness(app_container)
 
     @app.get(
         "/metrics",
@@ -506,14 +543,20 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
         key_id: str = Depends(require_bearer_token),
         app_container: AppContainer = Depends(get_container),
     ) -> TaskCreateResponse:
+        if not payload.input_url.startswith("upload://"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="input_url must start with upload://",
+            )
         try:
             sequence, created = await app_container.engine.submit_task(
                 task_type=task_type_from_request(payload.type),
-                image_url=payload.image_url,
+                image_url=payload.input_url,
                 options=payload.options.model_dump(exclude_none=True),
                 callback_url=payload.callback_url,
                 idempotency_key=payload.idempotency_key,
                 key_id=key_id,
+                model=payload.model,
             )
         except TaskSubmissionValidationError as exc:
             raise HTTPException(
