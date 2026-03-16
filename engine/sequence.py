@@ -105,6 +105,7 @@ class RequestSequence:
     options: dict[str, Any]
     callback_url: str | None = None
     idempotency_key: str | None = None
+    key_id: str | None = None
     status: TaskStatus = TaskStatus.SUBMITTED
     progress: int = 0
     current_stage: str = TaskStatus.SUBMITTED.value
@@ -132,6 +133,7 @@ class RequestSequence:
         options: dict[str, Any],
         callback_url: str | None = None,
         idempotency_key: str | None = None,
+        key_id: str | None = None,
         task_type: TaskType = TaskType.IMAGE_TO_3D,
     ) -> "RequestSequence":
         now = utcnow()
@@ -142,6 +144,7 @@ class RequestSequence:
             options=options,
             callback_url=callback_url,
             idempotency_key=idempotency_key,
+            key_id=key_id,
             progress=DEFAULT_PROGRESS_BY_STATUS[TaskStatus.SUBMITTED],
             current_stage=TaskStatus.SUBMITTED.value,
             created_at=now,

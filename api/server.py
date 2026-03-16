@@ -22,6 +22,8 @@ from gen3d.api.schemas import (
     AdminApiKeyListItem,
     AdminApiKeySetActiveRequest,
     HealthResponse,
+    TaskListResponse,
+    TaskSummary,
     TaskArtifactsResponse,
     TaskCreateRequest,
     TaskCreateResponse,
@@ -277,10 +279,14 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
         if credentials is None and _allows_mock_anonymous_access(app_container.config):
             return None
         provided_token = _extract_bearer_token(credentials)
-        if provided_token and await app_container.api_key_store.validate_token(provided_token):
-            return provided_token
+        if provided_token:
+            managed_key_id = await app_container.api_key_store.validate_token(
+                provided_token
+            )
+            if managed_key_id is not None:
+                return managed_key_id
         if _is_valid_token(provided_token, app_container.config.api_token):
-            return provided_token
+            return None
         if _allows_mock_anonymous_access(app_container.config) and credentials is None:
             return None
         raise HTTPException(
@@ -408,10 +414,10 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
     )
     async def upload_image(
         request: Request,
-        api_token: str | None = Depends(require_bearer_token),
+        key_id: str | None = Depends(require_bearer_token),
         app_container: AppContainer = Depends(get_container),
     ) -> UploadImageResponse:
-        del api_token
+        del key_id
         _, content_type, payload = await _extract_uploaded_file(request)
         content_type = content_type.strip().lower()
         extension = ALLOWED_UPLOAD_CONTENT_TYPES.get(content_type)
@@ -449,7 +455,7 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
     async def create_task(
         payload: TaskCreateRequest,
         response: Response,
-        api_token: str | None = Depends(require_bearer_token),
+        key_id: str | None = Depends(require_bearer_token),
         app_container: AppContainer = Depends(get_container),
     ) -> TaskCreateResponse:
         try:
@@ -459,7 +465,7 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
                 options=payload.options.model_dump(exclude_none=True),
                 callback_url=payload.callback_url,
                 idempotency_key=payload.idempotency_key,
-                api_token=api_token,
+                key_id=key_id,
             )
         except TaskSubmissionValidationError as exc:
             raise HTTPException(
@@ -483,6 +489,19 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
             status.HTTP_201_CREATED if created else status.HTTP_200_OK
         )
         return TaskCreateResponse.from_sequence(sequence)
+
+    @app.get(
+        "/v1/tasks",
+        response_model=TaskListResponse,
+    )
+    async def list_tasks(
+        key_id: str | None = Depends(require_bearer_token),
+        app_container: AppContainer = Depends(get_container),
+    ) -> TaskListResponse:
+        tasks = await app_container.engine.list_tasks(key_id=key_id, limit=50)
+        return TaskListResponse(
+            tasks=[TaskSummary.from_sequence(task) for task in tasks]
+        )
 
     @app.get(
         "/v1/tasks/{task_id}",

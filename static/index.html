@@ -620,18 +620,18 @@
         <div class="task-head">
           <div>
             <h2>历史任务</h2>
-            <p class="hint">刷新页面后会恢复 task_id，并对未终态任务重新订阅进度。</p>
+            <p class="hint">页面会按当前 API Key 从服务端拉取最近任务，并对未终态任务重新订阅进度。</p>
           </div>
           <div class="actions">
             <button type="button" id="resubscribe-all" class="secondary">全部重连</button>
-            <button type="button" id="clear-history" class="ghost">清空历史</button>
+            <button type="button" id="clear-history" class="ghost">刷新列表</button>
           </div>
         </div>
 
         <div class="pill-row">
           <div class="pill">SSE 优先</div>
           <div class="pill">失败后自动轮询</div>
-          <div class="pill">历史任务自动恢复</div>
+          <div class="pill">服务端任务历史</div>
         </div>
 
         <div id="task-list" class="task-list" aria-live="polite"></div>
@@ -649,7 +649,7 @@
       tasks: "gen3d.web.task-history.v1",
     };
     const TERMINAL_STATUSES = new Set(["succeeded", "failed", "cancelled"]);
-    const HISTORY_LIMIT = 20;
+    const HISTORY_LIMIT = 50;
     const POLL_INTERVAL_MS = 3000;
 
     const state = {
@@ -705,56 +705,26 @@
       elements.apiKey.value = state.config.token;
     }
 
-    function saveConfig(statusElement = elements.configStatus, successMessage = "已保存连接配置。") {
+    function persistConfig() {
       state.config.baseUrl = normalizeBaseUrl(elements.baseUrl.value || getDefaultBaseUrl());
       state.config.token = elements.apiKey.value.trim();
       elements.baseUrl.value = state.config.baseUrl;
       elements.apiKey.value = state.config.token;
       localStorage.setItem(STORAGE_KEYS.config, JSON.stringify(state.config));
+    }
+
+    function saveConfig(statusElement = elements.configStatus, successMessage = "已保存连接配置。") {
+      persistConfig();
       setStatus(statusElement, successMessage, "success");
     }
 
     function loadTasks() {
-      try {
-        const saved = JSON.parse(localStorage.getItem(STORAGE_KEYS.tasks) || "[]");
-        if (!Array.isArray(saved)) {
-          return;
-        }
-        saved.forEach((task) => {
-          const taskId = task && typeof task.task_id === "string"
-            ? task.task_id
-            : task && typeof task.taskId === "string"
-              ? task.taskId
-              : "";
-          if (taskId) {
-            state.tasks.set(taskId, normalizeTaskRecord(task));
-          }
-        });
-      } catch (error) {
-        console.warn("Failed to parse saved task history:", error);
-      }
+      state.tasks.clear();
+      localStorage.removeItem(STORAGE_KEYS.tasks);
     }
 
     function persistTasks() {
-      const payload = Array.from(state.tasks.values())
-        .sort((a, b) => (b.lastSeenAt || "").localeCompare(a.lastSeenAt || ""))
-        .slice(0, HISTORY_LIMIT)
-        .map((task) => ({
-          task_id: task.taskId,
-          submitted_at: task.submittedAt,
-          status_label: task.statusLabel,
-          created_at: task.createdAt,
-          last_seen_at: task.lastSeenAt,
-          status: task.status,
-          progress: task.progress,
-          current_stage: task.currentStage,
-          artifacts: task.artifacts,
-          error: task.error,
-          transport: task.transport,
-          note: task.note,
-          resolved_artifact_url: task.resolvedArtifactUrl,
-        }));
-      localStorage.setItem(STORAGE_KEYS.tasks, JSON.stringify(payload));
+      localStorage.removeItem(STORAGE_KEYS.tasks);
     }
 
     function normalizeTaskRecord(task) {
@@ -794,6 +764,80 @@
       persistTasks();
       renderTasks();
       return merged;
+    }
+
+    async function refreshTaskList(options = {}) {
+      const {
+        resubscribe = false,
+        silent = false,
+        statusElement = elements.configStatus,
+        successMessage = "已从服务端刷新任务列表。",
+      } = options;
+      persistConfig();
+      if (!state.config.baseUrl) {
+        throw new Error("请先填写 API Base URL");
+      }
+      const response = await fetch(buildApiUrl("/v1/tasks"), {
+        headers: authHeaders(false),
+        cache: "no-store",
+      });
+      if (!response.ok) {
+        throw new Error(await extractErrorMessage(response));
+      }
+      const payload = await response.json();
+      await replaceTasksFromServer(Array.isArray(payload.tasks) ? payload.tasks : []);
+      if (resubscribe) {
+        await restoreSubscriptions();
+      }
+      if (!silent) {
+        setStatus(statusElement, successMessage, "success");
+      }
+    }
+
+    async function replaceTasksFromServer(taskSummaries) {
+      const nextTasks = new Map();
+      for (const summary of taskSummaries.slice(0, HISTORY_LIMIT)) {
+        const taskId = summary.taskId || summary.task_id;
+        if (!taskId) {
+          continue;
+        }
+        const current = state.tasks.get(taskId);
+        nextTasks.set(
+          taskId,
+          normalizeTaskRecord({
+            ...(current || {}),
+            taskId,
+            submittedAt: summary.createdAt || summary.created_at || current?.submittedAt,
+            createdAt: summary.createdAt || summary.created_at || current?.createdAt,
+            updatedAt: summary.finishedAt || summary.finished_at || current?.updatedAt || null,
+            lastSeenAt: new Date().toISOString(),
+            status: summary.status,
+            statusLabel: summary.status,
+            currentStage: current?.currentStage || summary.status,
+            progress: current?.progress ?? (summary.status === "succeeded" ? 100 : 0),
+            artifacts: summary.artifactUrl || summary.artifact_url
+              ? [{ type: "glb", url: summary.artifactUrl || summary.artifact_url }]
+              : current?.artifacts || [],
+            transport: TERMINAL_STATUSES.has(summary.status)
+              ? "complete"
+              : current?.transport || "idle",
+            note: current?.note || "",
+            resolvedArtifactUrl: current?.resolvedArtifactUrl || "",
+          }),
+        );
+      }
+
+      Array.from(state.subscriptions.keys()).forEach((taskId) => {
+        if (!nextTasks.has(taskId)) {
+          stopSubscription(taskId);
+        }
+      });
+      state.tasks = nextTasks;
+
+      for (const task of state.tasks.values()) {
+        await hydrateArtifact(task);
+      }
+      renderTasks();
     }
 
     function setStatus(element, message, tone = "") {
@@ -962,7 +1006,7 @@
     }
 
     function requireConfig() {
-      saveConfig();
+      persistConfig();
       if (!state.config.baseUrl) {
         throw new Error("请先填写 API Base URL");
       }
@@ -977,7 +1021,7 @@
 
     async function pingReady() {
       try {
-        saveConfig();
+        persistConfig();
         setStatus(elements.configStatus, "检查服务中…");
         const response = await fetch(buildApiUrl("/ready"), {
           headers: authHeaders(false),
@@ -1053,6 +1097,7 @@
           resolvedArtifactUrl: "",
         });
 
+        await refreshTaskList({ silent: true });
         setStatus(elements.submitStatus, "提交成功，task_id: " + taskId, "success");
         await subscribeToTask(taskId, { force: true });
       } catch (error) {
@@ -1485,10 +1530,27 @@
       return "badge running";
     }
 
+    function taskSortValue(task) {
+      const candidates = [task.createdAt, task.submittedAt, task.updatedAt, task.lastSeenAt];
+      for (const value of candidates) {
+        const timestamp = Date.parse(value || "");
+        if (Number.isFinite(timestamp)) {
+          return timestamp;
+        }
+      }
+      return 0;
+    }
+
+    function compareTaskRecords(a, b) {
+      const delta = taskSortValue(b) - taskSortValue(a);
+      if (delta !== 0) {
+        return delta;
+      }
+      return String(b.taskId || "").localeCompare(String(a.taskId || ""));
+    }
+
     function renderTasks() {
-      const tasks = Array.from(state.tasks.values()).sort((a, b) =>
-        (b.lastSeenAt || "").localeCompare(a.lastSeenAt || ""),
-      );
+      const tasks = Array.from(state.tasks.values()).sort(compareTaskRecords);
 
       if (!tasks.length) {
         elements.taskList.innerHTML = '<div class="empty">还没有 task_id。提交第一条任务后会自动记录到这里。</div>';
@@ -1638,10 +1700,11 @@
     }
 
     async function restoreSubscriptions() {
-      const tasks = Array.from(state.tasks.values()).sort((a, b) =>
-        (b.lastSeenAt || "").localeCompare(a.lastSeenAt || ""),
-      );
+      const tasks = Array.from(state.tasks.values()).sort(compareTaskRecords);
       for (const task of tasks) {
+        if (TERMINAL_STATUSES.has(task.status)) {
+          continue;
+        }
         try {
           await subscribeToTask(task.taskId, { force: true });
         } catch (error) {
@@ -1704,21 +1767,26 @@
       }
     }
 
-    function clearHistory() {
-      Array.from(state.subscriptions.keys()).forEach((taskId) => stopSubscription(taskId));
-      state.tasks.clear();
-      persistTasks();
-      renderTasks();
-    }
-
     function registerEventHandlers() {
       elements.apiKeyForm.addEventListener("submit", (event) => {
         event.preventDefault();
-        saveConfig(elements.apiKeyStatus, "已保存 API Key。");
+        refreshTaskList({
+          resubscribe: true,
+          statusElement: elements.apiKeyStatus,
+          successMessage: "API Key 已保存，任务列表已刷新。",
+        }).catch((error) => {
+          setStatus(elements.apiKeyStatus, formatError(error), "error");
+        });
       });
       elements.configForm.addEventListener("submit", (event) => {
         event.preventDefault();
-        saveConfig(elements.configStatus, "已保存 API Base URL。");
+        refreshTaskList({
+          resubscribe: true,
+          statusElement: elements.configStatus,
+          successMessage: "连接配置已保存，任务列表已刷新。",
+        }).catch((error) => {
+          setStatus(elements.configStatus, formatError(error), "error");
+        });
       });
       elements.pingButton.addEventListener("click", pingReady);
       elements.selectImage.addEventListener("click", () => {
@@ -1771,7 +1839,14 @@
           setStatus(elements.configStatus, "批量重连失败：" + formatError(error), "error");
         });
       });
-      elements.clearHistory.addEventListener("click", clearHistory);
+      elements.clearHistory.addEventListener("click", () => {
+        refreshTaskList({
+          resubscribe: false,
+          statusElement: elements.configStatus,
+        }).catch((error) => {
+          setStatus(elements.configStatus, "刷新任务列表失败：" + formatError(error), "error");
+        });
+      });
       elements.taskList.addEventListener("click", handleTaskAction);
       elements.taskList.addEventListener("keydown", (event) => {
         if (event.key !== "Enter" && event.key !== " ") {
@@ -1797,9 +1872,16 @@
       clearUploadState();
       renderTasks();
       registerEventHandlers();
-      if (state.config.token && state.tasks.size > 0) {
-        restoreSubscriptions().catch((error) => {
-          setStatus(elements.configStatus, "恢复历史订阅失败：" + formatError(error), "error");
+      if (state.config.baseUrl) {
+        refreshTaskList({
+          resubscribe: true,
+          silent: true,
+          statusElement: elements.configStatus,
+        }).catch((error) => {
+          if (!state.config.token) {
+            return;
+          }
+          setStatus(elements.configStatus, "加载任务列表失败：" + formatError(error), "error");
         });
       }
     }

@@ -90,7 +90,7 @@ class AsyncGen3DEngine:
         options: dict,
         callback_url: str | None = None,
         idempotency_key: str | None = None,
-        api_token: str | None = None,
+        key_id: str | None = None,
     ) -> tuple[RequestSequence, bool]:
         image_url = validate_image_url(
             image_url,
@@ -100,7 +100,7 @@ class AsyncGen3DEngine:
             callback_url,
             allowed_domains=self._allowed_callback_domains,
         )
-        rate_limit_key = api_token or "anonymous"
+        rate_limit_key = key_id or "anonymous"
         if self._rate_limiter is not None:
             await self._rate_limiter.record_request(rate_limit_key)
         if idempotency_key:
@@ -121,6 +121,7 @@ class AsyncGen3DEngine:
             options=options,
             callback_url=callback_url,
             idempotency_key=idempotency_key,
+            key_id=key_id,
             task_type=task_type,
         )
         try:
@@ -147,8 +148,25 @@ class AsyncGen3DEngine:
                 task_type=task_type.value,
                 callback_enabled=bool(callback_url),
                 idempotency_key=idempotency_key,
+                key_id=key_id,
             )
         return sequence, True
+
+    async def list_tasks(
+        self,
+        *,
+        key_id: str | None,
+        limit: int = 50,
+    ) -> list[RequestSequence]:
+        sequences = await self._task_store.list_tasks(key_id=key_id, limit=limit)
+        if self._artifact_store is None:
+            return sequences
+        for sequence in sequences:
+            if not sequence.artifacts:
+                sequence.artifacts = await self._artifact_store.list_artifacts(
+                    sequence.task_id
+                )
+        return sequences
 
     async def get_task(self, task_id: str) -> RequestSequence | None:
         sequence = await self._task_store.get_task(task_id)

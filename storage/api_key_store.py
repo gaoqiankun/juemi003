@@ -117,20 +117,20 @@ class ApiKeyStore:
             return None
         return self._serialize_row(row)
 
-    async def validate_token(self, token: str) -> bool:
+    async def validate_token(self, token: str) -> str | None:
         normalized_token = token.strip()
         if not normalized_token:
-            return False
+            return None
 
         db = self._require_db()
         cursor = await db.execute(
-            "SELECT token FROM api_keys WHERE is_active = 1"
+            "SELECT key_id, token FROM api_keys WHERE is_active = 1"
         )
         rows = await cursor.fetchall()
-        return any(
-            secrets.compare_digest(normalized_token, str(row["token"]))
-            for row in rows
-        )
+        for row in rows:
+            if secrets.compare_digest(normalized_token, str(row["token"])):
+                return str(row["key_id"])
+        return None
 
     def _require_db(self) -> aiosqlite.Connection:
         if self._db is None:

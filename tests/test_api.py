@@ -4,8 +4,10 @@ import asyncio
 import io
 import importlib
 import json
+import sqlite3
 import sys
 import time
+from datetime import timedelta
 from pathlib import Path
 from typing import Awaitable, Callable
 
@@ -21,6 +23,7 @@ from gen3d.api import server as server_module
 from gen3d.api.server import create_app, run_real_mode_preflight
 from gen3d.config import ServingConfig, ServingConfigurationError
 from gen3d.engine import async_engine as async_engine_module
+from gen3d.engine.sequence import RequestSequence, TaskStatus, TaskType, utcnow
 from gen3d.model.base import GenerationResult, ModelProviderConfigurationError
 from gen3d.model.trellis2.provider import MockTrellis2Provider, Trellis2Provider
 from gen3d.storage.artifact_store import ArtifactStoreConfigurationError
@@ -269,6 +272,19 @@ def read_task_events(database_path: Path, task_id: str) -> list[dict]:
     return asyncio.run(scenario())
 
 
+def seed_tasks(database_path: Path, sequences: list[RequestSequence]) -> None:
+    async def scenario() -> None:
+        task_store = TaskStore(database_path)
+        await task_store.initialize()
+        try:
+            for sequence in sequences:
+                await task_store.create_task(sequence)
+        finally:
+            await task_store.close()
+
+    asyncio.run(scenario())
+
+
 def test_health_and_ready_endpoints(tmp_path: Path) -> None:
     with make_client(tmp_path) as client:
         health_response = client.get("/health")
@@ -425,6 +441,212 @@ def test_inactive_managed_api_key_is_rejected(tmp_path: Path) -> None:
     assert deactivate_response.json()["isActive"] is False
     assert create_response.status_code == 401
     assert create_response.json()["detail"] == "invalid bearer token"
+
+
+def test_task_list_is_scoped_to_managed_api_keys_and_legacy_token_sees_all(
+    tmp_path: Path,
+) -> None:
+    with make_client(tmp_path, admin_token="admin-token") as client:
+        managed_key_a = create_managed_api_key(client, label="Tester A")
+        managed_key_b = create_managed_api_key(client, label="Tester B")
+
+        key_a_create_response = client.post(
+            "/v1/tasks",
+            headers=auth_headers(managed_key_a["token"]),
+            json={
+                "type": "image_to_3d",
+                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "options": {"resolution": 1024},
+            },
+        )
+        time.sleep(0.01)
+        key_b_create_response = client.post(
+            "/v1/tasks",
+            headers=auth_headers(managed_key_b["token"]),
+            json={
+                "type": "image_to_3d",
+                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "options": {"resolution": 1024},
+            },
+        )
+        time.sleep(0.01)
+        legacy_create_response = client.post(
+            "/v1/tasks",
+            headers=auth_headers(),
+            json={
+                "type": "image_to_3d",
+                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "options": {"resolution": 1024},
+            },
+        )
+
+        key_a_list_response = client.get(
+            "/v1/tasks",
+            headers=auth_headers(managed_key_a["token"]),
+        )
+        key_b_list_response = client.get(
+            "/v1/tasks",
+            headers=auth_headers(managed_key_b["token"]),
+        )
+        legacy_list_response = client.get("/v1/tasks", headers=auth_headers())
+
+    assert key_a_create_response.status_code == 201
+    assert key_b_create_response.status_code == 201
+    assert legacy_create_response.status_code == 201
+
+    assert key_a_list_response.status_code == 200
+    assert [task["taskId"] for task in key_a_list_response.json()["tasks"]] == [
+        key_a_create_response.json()["taskId"]
+    ]
+
+    assert key_b_list_response.status_code == 200
+    assert [task["taskId"] for task in key_b_list_response.json()["tasks"]] == [
+        key_b_create_response.json()["taskId"]
+    ]
+
+    assert legacy_list_response.status_code == 200
+    assert [task["taskId"] for task in legacy_list_response.json()["tasks"]] == [
+        legacy_create_response.json()["taskId"],
+        key_b_create_response.json()["taskId"],
+        key_a_create_response.json()["taskId"],
+    ]
+
+
+def test_task_list_returns_latest_50_tasks_in_created_at_desc_order(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "gen3d.sqlite3"
+    base_time = utcnow()
+    seed_tasks(
+        database_path,
+        [
+            RequestSequence(
+                task_id=f"task-{index:02d}",
+                task_type=TaskType.IMAGE_TO_3D,
+                input_url=SAMPLE_IMAGE_DATA_URL,
+                options={"resolution": 1024},
+                status=TaskStatus.SUBMITTED,
+                progress=0,
+                current_stage=TaskStatus.SUBMITTED.value,
+                created_at=base_time - timedelta(seconds=54 - index),
+                queued_at=base_time - timedelta(seconds=54 - index),
+                updated_at=base_time - timedelta(seconds=54 - index),
+            )
+            for index in range(55)
+        ],
+    )
+
+    with make_client(tmp_path, database_path=database_path) as client:
+        response = client.get("/v1/tasks", headers=auth_headers())
+
+    assert response.status_code == 200
+    tasks = response.json()["tasks"]
+    assert len(tasks) == 50
+    assert tasks[0]["taskId"] == "task-54"
+    assert tasks[-1]["taskId"] == "task-05"
+
+
+def test_service_startup_migrates_existing_tasks_table_and_preserves_rows(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "legacy.sqlite3"
+    created_at = utcnow().isoformat()
+
+    connection = sqlite3.connect(database_path)
+    try:
+        connection.execute(
+            """
+            CREATE TABLE tasks (
+                id TEXT PRIMARY KEY,
+                status TEXT NOT NULL,
+                type TEXT NOT NULL DEFAULT 'image_to_3d',
+                input_url TEXT NOT NULL,
+                options_json TEXT NOT NULL,
+                idempotency_key TEXT UNIQUE,
+                callback_url TEXT,
+                output_artifacts_json TEXT NOT NULL DEFAULT '[]',
+                error_message TEXT,
+                failed_stage TEXT,
+                retry_count INTEGER NOT NULL DEFAULT 0,
+                assigned_worker_id TEXT,
+                current_stage TEXT,
+                progress INTEGER NOT NULL DEFAULT 0,
+                queue_position INTEGER,
+                estimated_wait_seconds INTEGER,
+                estimated_finish_at TEXT,
+                created_at TEXT NOT NULL,
+                queued_at TEXT,
+                started_at TEXT,
+                completed_at TEXT,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE task_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id TEXT NOT NULL,
+                event TEXT NOT NULL,
+                metadata_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO tasks (
+                id, status, type, input_url, options_json, idempotency_key,
+                callback_url, output_artifacts_json, error_message, failed_stage,
+                retry_count, assigned_worker_id, current_stage, progress,
+                queue_position, estimated_wait_seconds, estimated_finish_at,
+                created_at, queued_at, started_at, completed_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "legacy-task",
+                "submitted",
+                "image_to_3d",
+                SAMPLE_IMAGE_DATA_URL,
+                json.dumps({"resolution": 1024}),
+                None,
+                None,
+                "[]",
+                None,
+                None,
+                0,
+                None,
+                "submitted",
+                0,
+                None,
+                None,
+                None,
+                created_at,
+                created_at,
+                None,
+                None,
+                created_at,
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    with make_client(tmp_path, database_path=database_path) as client:
+        response = client.get("/v1/tasks", headers=auth_headers())
+
+    migrated_connection = sqlite3.connect(database_path)
+    try:
+        columns = {
+            row[1]
+            for row in migrated_connection.execute("PRAGMA table_info(tasks)").fetchall()
+        }
+    finally:
+        migrated_connection.close()
+
+    assert response.status_code == 200
+    assert response.json()["tasks"][0]["taskId"] == "legacy-task"
+    assert "key_id" in columns
 
 
 def test_upload_endpoint_accepts_png_and_jpg_and_uploaded_url_can_run_task(

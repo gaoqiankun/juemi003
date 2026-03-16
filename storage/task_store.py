@@ -46,6 +46,7 @@ class TaskStore:
                 input_url TEXT NOT NULL,
                 options_json TEXT NOT NULL,
                 idempotency_key TEXT UNIQUE,
+                key_id TEXT,
                 callback_url TEXT,
                 output_artifacts_json TEXT NOT NULL DEFAULT '[]',
                 error_message TEXT,
@@ -65,6 +66,7 @@ class TaskStore:
             )
             """
         )
+        await self._ensure_task_column("key_id", "TEXT")
         await self._db.execute(
             """
             CREATE TABLE IF NOT EXISTS task_events (
@@ -90,12 +92,12 @@ class TaskStore:
                 await db.execute(
                     """
                     INSERT INTO tasks (
-                        id, status, type, input_url, options_json, idempotency_key,
+                        id, status, type, input_url, options_json, idempotency_key, key_id,
                         callback_url, output_artifacts_json, error_message, failed_stage,
                         retry_count, assigned_worker_id, current_stage, progress,
                         queue_position, estimated_wait_seconds, estimated_finish_at,
                         created_at, queued_at, started_at, completed_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         sequence.task_id,
@@ -104,6 +106,7 @@ class TaskStore:
                         sequence.input_url,
                         json.dumps(sequence.options),
                         sequence.idempotency_key,
+                        sequence.key_id,
                         sequence.callback_url,
                         json.dumps(sequence.artifacts),
                         sequence.error_message,
@@ -164,6 +167,7 @@ class TaskStore:
                     input_url = ?,
                     options_json = ?,
                     idempotency_key = ?,
+                    key_id = ?,
                     callback_url = ?,
                     output_artifacts_json = ?,
                     error_message = ?,
@@ -188,6 +192,7 @@ class TaskStore:
                     sequence.input_url,
                     json.dumps(sequence.options),
                     sequence.idempotency_key,
+                    sequence.key_id,
                     sequence.callback_url,
                     json.dumps(sequence.artifacts),
                     sequence.error_message,
@@ -301,6 +306,36 @@ class TaskStore:
         rows = await cursor.fetchall()
         return [self._row_to_sequence(row) for row in rows]
 
+    async def list_tasks(
+        self,
+        *,
+        key_id: str | None,
+        limit: int = 50,
+    ) -> list[RequestSequence]:
+        db = self._require_db()
+        normalized_limit = max(1, min(int(limit), 50))
+        if key_id is None:
+            cursor = await db.execute(
+                """
+                SELECT * FROM tasks
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (normalized_limit,),
+            )
+        else:
+            cursor = await db.execute(
+                """
+                SELECT * FROM tasks
+                WHERE key_id = ?
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (key_id, normalized_limit),
+            )
+        rows = await cursor.fetchall()
+        return [self._row_to_sequence(row) for row in rows]
+
     def _require_db(self) -> aiosqlite.Connection:
         if self._db is None:
             raise RuntimeError("TaskStore is not initialized")
@@ -328,6 +363,17 @@ class TaskStore:
             ),
         )
 
+    async def _ensure_task_column(self, column_name: str, definition_sql: str) -> None:
+        db = self._require_db()
+        cursor = await db.execute("PRAGMA table_info(tasks)")
+        rows = await cursor.fetchall()
+        existing_columns = {str(row["name"]) for row in rows}
+        if column_name in existing_columns:
+            return
+        await db.execute(
+            f"ALTER TABLE tasks ADD COLUMN {column_name} {definition_sql}"
+        )
+
     def _row_to_sequence(self, row: aiosqlite.Row) -> RequestSequence:
         return RequestSequence(
             task_id=row["id"],
@@ -336,6 +382,7 @@ class TaskStore:
             options=json.loads(row["options_json"]),
             callback_url=row["callback_url"],
             idempotency_key=row["idempotency_key"],
+            key_id=row["key_id"],
             status=TaskStatus(row["status"]),
             progress=row["progress"],
             current_stage=row["current_stage"] or row["status"],

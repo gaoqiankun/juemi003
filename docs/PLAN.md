@@ -451,6 +451,13 @@ POST   /v1/tasks
   }
   Returns: { taskId, status, queuePosition, estimatedWaitSeconds, estimatedFinishAt }
 
+GET    /v1/tasks
+  Returns: { tasks: [{ taskId, status, createdAt, finishedAt, artifactUrl }] }
+  Notes:
+    - managed API key 只返回该 key 自己提交的任务
+    - 兼容单一 API_TOKEN 的 legacy token 返回全量任务
+    - 按 createdAt 倒序，最多 50 条
+
 GET    /v1/tasks/{id}
   Returns: {
     taskId, status, progress, currentStage,

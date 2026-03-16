@@ -154,6 +154,37 @@ class TaskCreateResponse(BaseModel):
         )
 
 
+class TaskSummary(BaseModel):
+    task_id: str = Field(serialization_alias="taskId")
+    status: TaskStatus
+    created_at: datetime = Field(serialization_alias="createdAt")
+    finished_at: datetime | None = Field(default=None, serialization_alias="finishedAt")
+    artifact_url: str | None = Field(default=None, serialization_alias="artifactUrl")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    @classmethod
+    def from_sequence(cls, sequence: RequestSequence) -> "TaskSummary":
+        artifact_url = None
+        if sequence.artifacts:
+            glb_artifact = next(
+                (artifact for artifact in sequence.artifacts if artifact.get("type") == "glb"),
+                sequence.artifacts[0],
+            )
+            artifact_url = glb_artifact.get("url")
+        return cls(
+            task_id=sequence.task_id,
+            status=sequence.status,
+            created_at=sequence.created_at,
+            finished_at=sequence.completed_at,
+            artifact_url=artifact_url,
+        )
+
+
+class TaskListResponse(BaseModel):
+    tasks: list[TaskSummary] = Field(default_factory=list)
+
+
 class HealthResponse(BaseModel):
     status: Literal["ok", "ready"]
     service: str
