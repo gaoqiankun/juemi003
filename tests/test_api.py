@@ -46,7 +46,7 @@ def make_client(
     queue_delay_ms: int = 200,
     webhook_sender: WebhookSender | None = None,
     api_token: str | None = "test-token",
-    admin_token: str | None = None,
+    admin_token: str | None = "admin-token",
     rate_limit_concurrent: int = 5,
     rate_limit_per_hour: int = 100,
     webhook_max_retries: int = 3,
@@ -87,7 +87,7 @@ def make_real_mode_client(
     monkeypatch: pytest.MonkeyPatch,
     *,
     allowed_callback_domains: tuple[str, ...] = (),
-    admin_token: str | None = None,
+    admin_token: str | None = "admin-token",
     uploads_dir: Path | None = None,
 ) -> TestClient:
     monkeypatch.setattr(
@@ -119,6 +119,22 @@ def admin_headers(token: str = "admin-token") -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
+def task_auth_headers(
+    client: TestClient,
+    *,
+    admin_token: str = "admin-token",
+) -> dict[str, str]:
+    token = getattr(client, "_default_task_token", None)
+    if token is None:
+        token = create_managed_api_key(
+            client,
+            label="Default Task Key",
+            admin_token=admin_token,
+        )["token"]
+        setattr(client, "_default_task_token", token)
+    return auth_headers(token)
+
+
 def create_managed_api_key(
     client: TestClient,
     *,
@@ -148,13 +164,14 @@ def collect_task_snapshots(
     task_id: str,
     *,
     terminal_status: str,
-    token: str = "test-token",
+    token: str | None = None,
     timeout_seconds: float = 4.0,
 ) -> list[dict]:
     snapshots: list[dict] = []
     deadline = time.time() + timeout_seconds
     while time.time() < deadline:
-        response = client.get(f"/v1/tasks/{task_id}", headers=auth_headers(token))
+        headers = auth_headers(token) if token is not None else task_auth_headers(client)
+        response = client.get(f"/v1/tasks/{task_id}", headers=headers)
         assert response.status_code == 200
         payload = response.json()
         snapshots.append(payload)
@@ -169,12 +186,13 @@ def wait_for_status(
     task_id: str,
     status: str,
     *,
-    token: str = "test-token",
+    token: str | None = None,
     timeout_seconds: float = 3.0,
 ) -> dict:
     deadline = time.time() + timeout_seconds
     while time.time() < deadline:
-        response = client.get(f"/v1/tasks/{task_id}", headers=auth_headers(token))
+        headers = auth_headers(token) if token is not None else task_auth_headers(client)
+        response = client.get(f"/v1/tasks/{task_id}", headers=headers)
         assert response.status_code == 200
         payload = response.json()
         if payload["status"] == status:
@@ -187,13 +205,14 @@ def collect_sse_events(
     client: TestClient,
     task_id: str,
     *,
-    token: str = "test-token",
+    token: str | None = None,
 ) -> list[dict]:
     events: list[dict] = []
+    headers = auth_headers(token) if token is not None else task_auth_headers(client)
     with client.stream(
         "GET",
         f"/v1/tasks/{task_id}/events",
-        headers=auth_headers(token),
+        headers=headers,
     ) as response:
         assert response.status_code == 200
         current_event: str | None = None
@@ -332,12 +351,12 @@ def test_bearer_auth_is_required_for_task_routes(tmp_path: Path) -> None:
     assert metrics_authorized_response.status_code == 200
 
 
-def test_admin_key_routes_return_503_when_admin_token_is_unset(tmp_path: Path) -> None:
+def test_admin_key_routes_return_401_when_admin_token_is_unset(tmp_path: Path) -> None:
     with make_client(tmp_path, admin_token=None) as client:
         response = client.get("/admin/keys", headers=admin_headers())
 
-    assert response.status_code == 503
-    assert "not configured" in response.json()["detail"]
+    assert response.status_code == 401
+    assert response.json()["detail"] == "invalid admin token"
 
 
 def test_admin_key_crud_flow_returns_token_once_and_list_hides_token(tmp_path: Path) -> None:
@@ -380,7 +399,7 @@ def test_admin_key_crud_flow_returns_token_once_and_list_hides_token(tmp_path: P
     assert missing_response.json()["detail"] == "api key not found"
 
 
-def test_managed_api_key_auth_supports_valid_invalid_and_fallback_tokens(
+def test_managed_api_key_auth_supports_valid_invalid_and_api_tokens_are_rejected(
     tmp_path: Path,
 ) -> None:
     with make_client(tmp_path, admin_token="admin-token") as client:
@@ -404,28 +423,34 @@ def test_managed_api_key_auth_supports_valid_invalid_and_fallback_tokens(
                 "options": {"resolution": 1024},
             },
         )
-        fallback_response = client.post(
+        api_token_create_response = client.post(
             "/v1/tasks",
-            headers=auth_headers(),
+            headers=auth_headers("test-token"),
             json={
                 "type": "image_to_3d",
                 "image_url": SAMPLE_IMAGE_DATA_URL,
                 "options": {"resolution": 1024},
             },
         )
+        api_token_list_response = client.get(
+            "/v1/tasks",
+            headers=auth_headers("test-token"),
+        )
 
         assert managed_response.status_code == 201
-        assert fallback_response.status_code == 201
         wait_for_status(
             client,
             managed_response.json()["taskId"],
             "succeeded",
             token=managed_key["token"],
         )
-        wait_for_status(client, fallback_response.json()["taskId"], "succeeded")
 
     assert invalid_response.status_code == 401
     assert invalid_response.json()["detail"] == "invalid bearer token"
+    assert api_token_create_response.status_code == 401
+    assert api_token_create_response.json()["detail"] == "invalid bearer token"
+    assert api_token_list_response.status_code == 401
+    assert api_token_list_response.json()["detail"] == "invalid bearer token"
 
 
 def test_inactive_managed_api_key_is_rejected(tmp_path: Path) -> None:
@@ -452,7 +477,7 @@ def test_inactive_managed_api_key_is_rejected(tmp_path: Path) -> None:
     assert create_response.json()["detail"] == "invalid bearer token"
 
 
-def test_task_list_is_scoped_to_managed_api_keys_and_legacy_token_sees_all(
+def test_task_list_is_scoped_to_managed_api_keys(
     tmp_path: Path,
 ) -> None:
     with make_client(tmp_path, admin_token="admin-token") as client:
@@ -478,16 +503,6 @@ def test_task_list_is_scoped_to_managed_api_keys_and_legacy_token_sees_all(
                 "options": {"resolution": 1024},
             },
         )
-        time.sleep(0.01)
-        legacy_create_response = client.post(
-            "/v1/tasks",
-            headers=auth_headers(),
-            json={
-                "type": "image_to_3d",
-                "image_url": SAMPLE_IMAGE_DATA_URL,
-                "options": {"resolution": 1024},
-            },
-        )
 
         key_a_list_response = client.get(
             "/v1/tasks",
@@ -497,11 +512,9 @@ def test_task_list_is_scoped_to_managed_api_keys_and_legacy_token_sees_all(
             "/v1/tasks",
             headers=auth_headers(managed_key_b["token"]),
         )
-        legacy_list_response = client.get("/v1/tasks", headers=auth_headers())
 
     assert key_a_create_response.status_code == 201
     assert key_b_create_response.status_code == 201
-    assert legacy_create_response.status_code == 201
 
     assert key_a_list_response.status_code == 200
     assert [task["taskId"] for task in task_page_items(key_a_list_response)] == [
@@ -515,12 +528,75 @@ def test_task_list_is_scoped_to_managed_api_keys_and_legacy_token_sees_all(
         key_b_create_response.json()["taskId"]
     ]
 
-    assert legacy_list_response.status_code == 200
-    assert [task["taskId"] for task in task_page_items(legacy_list_response)] == [
-        legacy_create_response.json()["taskId"],
+
+def test_admin_tasks_returns_all_tasks_and_supports_key_filter(tmp_path: Path) -> None:
+    with make_client(tmp_path, admin_token="admin-token") as client:
+        managed_key_a = create_managed_api_key(client, label="Tester A")
+        managed_key_b = create_managed_api_key(client, label="Tester B")
+
+        key_a_create_response = client.post(
+            "/v1/tasks",
+            headers=auth_headers(managed_key_a["token"]),
+            json={
+                "type": "image_to_3d",
+                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "options": {"resolution": 1024},
+            },
+        )
+        time.sleep(0.01)
+        key_b_create_response = client.post(
+            "/v1/tasks",
+            headers=auth_headers(managed_key_b["token"]),
+            json={
+                "type": "image_to_3d",
+                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "options": {"resolution": 1024},
+            },
+        )
+
+        all_response = client.get(
+            "/admin/tasks",
+            headers=admin_headers(),
+        )
+        key_a_response = client.get(
+            f"/admin/tasks?key_id={managed_key_a['keyId']}",
+            headers=admin_headers(),
+        )
+
+    assert key_a_create_response.status_code == 201
+    assert key_b_create_response.status_code == 201
+
+    assert all_response.status_code == 200
+    assert [task["taskId"] for task in task_page_items(all_response)] == [
         key_b_create_response.json()["taskId"],
         key_a_create_response.json()["taskId"],
     ]
+
+    assert key_a_response.status_code == 200
+    assert [task["taskId"] for task in task_page_items(key_a_response)] == [
+        key_a_create_response.json()["taskId"]
+    ]
+
+
+def test_admin_tasks_requires_valid_admin_token(tmp_path: Path) -> None:
+    with make_client(tmp_path, admin_token="admin-token") as client:
+        missing_token_response = client.get("/admin/tasks")
+        invalid_token_response = client.get(
+            "/admin/tasks",
+            headers=admin_headers("wrong-token"),
+        )
+    with make_client(tmp_path / "no-admin", admin_token=None) as no_admin_client:
+        missing_admin_config_response = no_admin_client.get(
+            "/admin/tasks",
+            headers=admin_headers(),
+        )
+
+    assert missing_token_response.status_code == 401
+    assert missing_token_response.json()["detail"] == "invalid admin token"
+    assert invalid_token_response.status_code == 401
+    assert invalid_token_response.json()["detail"] == "invalid admin token"
+    assert missing_admin_config_response.status_code == 401
+    assert missing_admin_config_response.json()["detail"] == "invalid admin token"
 
 
 def test_task_list_returns_requested_page_and_cursor_metadata(
@@ -548,7 +624,7 @@ def test_task_list_returns_requested_page_and_cursor_metadata(
     )
 
     with make_client(tmp_path, database_path=database_path) as client:
-        response = client.get("/v1/tasks?limit=50", headers=auth_headers())
+        response = client.get("/admin/tasks?limit=50", headers=admin_headers())
 
     assert response.status_code == 200
     tasks = task_page_items(response)
@@ -646,7 +722,7 @@ def test_service_startup_migrates_existing_tasks_table_and_preserves_rows(
         connection.close()
 
     with make_client(tmp_path, database_path=database_path) as client:
-        response = client.get("/v1/tasks", headers=auth_headers())
+        response = client.get("/admin/tasks", headers=admin_headers())
 
     migrated_connection = sqlite3.connect(database_path)
     try:
@@ -988,13 +1064,13 @@ def test_task_list_cursor_pagination_is_stable_when_newer_task_arrives(
     )
 
     with make_client(tmp_path, database_path=database_path) as client:
-        first_page_response = client.get("/v1/tasks?limit=2", headers=auth_headers())
+        first_page_response = client.get("/admin/tasks?limit=2", headers=admin_headers())
         assert first_page_response.status_code == 200
         first_page_items = task_page_items(first_page_response)
 
         create_response = client.post(
             "/v1/tasks",
-            headers=auth_headers(),
+            headers=task_auth_headers(client),
             json={
                 "type": "image_to_3d",
                 "image_url": SAMPLE_IMAGE_DATA_URL,
@@ -1004,12 +1080,12 @@ def test_task_list_cursor_pagination_is_stable_when_newer_task_arrives(
         assert create_response.status_code == 201
 
         second_page_response = client.get(
-            "/v1/tasks",
+            "/admin/tasks",
             params={
                 "limit": 2,
                 "before": first_page_response.json()["nextCursor"],
             },
-            headers=auth_headers(),
+            headers=admin_headers(),
         )
 
     assert [task["taskId"] for task in first_page_items] == ["seed-4", "seed-3"]
@@ -1027,7 +1103,7 @@ def test_upload_endpoint_accepts_png_and_jpg_and_uploaded_url_can_run_task(
     with make_client(tmp_path, uploads_dir=uploads_dir) as client:
         png_response = client.post(
             "/v1/upload",
-            headers=auth_headers(),
+            headers=task_auth_headers(client),
             files={
                 "file": (
                     "pixel.png",
@@ -1038,7 +1114,7 @@ def test_upload_endpoint_accepts_png_and_jpg_and_uploaded_url_can_run_task(
         )
         jpg_response = client.post(
             "/v1/upload",
-            headers=auth_headers(),
+            headers=task_auth_headers(client),
             files={
                 "file": (
                     "pixel.jpg",
@@ -1058,7 +1134,7 @@ def test_upload_endpoint_accepts_png_and_jpg_and_uploaded_url_can_run_task(
 
         create_response = client.post(
             "/v1/tasks",
-            headers=auth_headers(),
+            headers=task_auth_headers(client),
             json={
                 "type": "image_to_3d",
                 "image_url": png_payload["url"],
@@ -1076,7 +1152,7 @@ def test_upload_endpoint_rejects_unsupported_file_type(tmp_path: Path) -> None:
     with make_client(tmp_path) as client:
         response = client.post(
             "/v1/upload",
-            headers=auth_headers(),
+            headers=task_auth_headers(client),
             files={
                 "file": (
                     "note.txt",
@@ -1094,7 +1170,7 @@ def test_upload_endpoint_rejects_oversized_file(tmp_path: Path) -> None:
     with make_client(tmp_path, preprocess_max_image_bytes=8) as client:
         response = client.post(
             "/v1/upload",
-            headers=auth_headers(),
+            headers=task_auth_headers(client),
             files={
                 "file": (
                     "huge.png",
@@ -1112,7 +1188,7 @@ def test_sse_stream_replays_full_task_lifecycle(tmp_path: Path) -> None:
     with make_client(tmp_path) as client:
         create_response = client.post(
             "/v1/tasks",
-            headers=auth_headers(),
+            headers=task_auth_headers(client),
             json={
                 "type": "image_to_3d",
                 "image_url": SAMPLE_IMAGE_DATA_URL,
@@ -1143,7 +1219,7 @@ def test_create_task_runs_full_mock_pipeline_and_exposes_artifact_metadata(tmp_p
     with make_client(tmp_path) as client:
         create_response = client.post(
             "/v1/tasks",
-            headers=auth_headers(),
+            headers=task_auth_headers(client),
             json={
                 "type": "image_to_3d",
                 "image_url": SAMPLE_IMAGE_DATA_URL,
@@ -1161,11 +1237,11 @@ def test_create_task_runs_full_mock_pipeline_and_exposes_artifact_metadata(tmp_p
         )
         artifacts_response = client.get(
             f"/v1/tasks/{payload['taskId']}/artifacts",
-            headers=auth_headers(),
+            headers=task_auth_headers(client),
         )
         download_response = client.get(
             f"/v1/tasks/{payload['taskId']}/artifacts/model.glb",
-            headers=auth_headers(),
+            headers=task_auth_headers(client),
         )
         metrics_response = client.get("/metrics", headers=auth_headers())
 
@@ -1233,7 +1309,7 @@ def test_metrics_track_successful_task(tmp_path: Path) -> None:
 
         create_response = client.post(
             "/v1/tasks",
-            headers=auth_headers(),
+            headers=task_auth_headers(client),
             json={
                 "type": "image_to_3d",
                 "image_url": SAMPLE_IMAGE_DATA_URL,
@@ -1301,7 +1377,7 @@ def test_metrics_track_failed_task(tmp_path: Path) -> None:
 
         create_response = client.post(
             "/v1/tasks",
-            headers=auth_headers(),
+            headers=task_auth_headers(client),
             json={
                 "type": "image_to_3d",
                 "image_url": SAMPLE_IMAGE_DATA_URL,
@@ -1342,7 +1418,7 @@ def test_metrics_track_webhook(tmp_path: Path) -> None:
 
         create_response = client.post(
             "/v1/tasks",
-            headers=auth_headers(),
+            headers=task_auth_headers(client),
             json={
                 "type": "image_to_3d",
                 "image_url": SAMPLE_IMAGE_DATA_URL,
@@ -1353,7 +1429,7 @@ def test_metrics_track_webhook(tmp_path: Path) -> None:
         assert create_response.status_code == 201
         wait_for_status(client, create_response.json()["taskId"], "succeeded")
 
-        assert len(webhook_calls) == 1
+        wait_for_condition(lambda: len(webhook_calls) == 1, timeout_seconds=2.0)
         assert (
             wait_for_metric_sample(
                 client,
@@ -1369,7 +1445,7 @@ def test_create_task_with_existing_idempotency_key_returns_http_200(tmp_path: Pa
     with make_client(tmp_path, queue_delay_ms=300) as client:
         first_response = client.post(
             "/v1/tasks",
-            headers=auth_headers(),
+            headers=task_auth_headers(client),
             json={
                 "type": "image_to_3d",
                 "image_url": SAMPLE_IMAGE_DATA_URL,
@@ -1379,7 +1455,7 @@ def test_create_task_with_existing_idempotency_key_returns_http_200(tmp_path: Pa
         )
         second_response = client.post(
             "/v1/tasks",
-            headers=auth_headers(),
+            headers=task_auth_headers(client),
             json={
                 "type": "image_to_3d",
                 "image_url": SAMPLE_IMAGE_DATA_URL,
@@ -1431,7 +1507,7 @@ def test_webhook_failures_are_retried_and_recorded(
 
         create_response = client.post(
             "/v1/tasks",
-            headers=auth_headers(),
+            headers=task_auth_headers(client),
             json={
                 "type": "image_to_3d",
                 "image_url": SAMPLE_IMAGE_DATA_URL,
@@ -1487,7 +1563,7 @@ def test_create_task_returns_503_when_queue_is_full(tmp_path: Path) -> None:
     ) as client:
         first_response = client.post(
             "/v1/tasks",
-            headers=auth_headers(),
+            headers=task_auth_headers(client),
             json={
                 "type": "image_to_3d",
                 "image_url": SAMPLE_IMAGE_DATA_URL,
@@ -1496,7 +1572,7 @@ def test_create_task_returns_503_when_queue_is_full(tmp_path: Path) -> None:
         )
         second_response = client.post(
             "/v1/tasks",
-            headers=auth_headers(),
+            headers=task_auth_headers(client),
             json={
                 "type": "image_to_3d",
                 "image_url": SAMPLE_IMAGE_DATA_URL,
@@ -1505,7 +1581,7 @@ def test_create_task_returns_503_when_queue_is_full(tmp_path: Path) -> None:
         )
         third_response = client.post(
             "/v1/tasks",
-            headers=auth_headers(),
+            headers=task_auth_headers(client),
             json={
                 "type": "image_to_3d",
                 "image_url": SAMPLE_IMAGE_DATA_URL,
@@ -1526,7 +1602,7 @@ def test_single_gpu_default_configuration_exposes_slot_metric(tmp_path: Path) ->
     with make_client(tmp_path) as client:
         create_response = client.post(
             "/v1/tasks",
-            headers=auth_headers(),
+            headers=task_auth_headers(client),
             json={
                 "type": "image_to_3d",
                 "image_url": SAMPLE_IMAGE_DATA_URL,
@@ -1551,7 +1627,7 @@ def test_gpu_queued_task_can_be_cancelled_and_repeat_cancel_is_rejected(tmp_path
     ) as client:
         create_response = client.post(
             "/v1/tasks",
-            headers=auth_headers(),
+            headers=task_auth_headers(client),
             json={
                 "type": "image_to_3d",
                 "image_url": SAMPLE_IMAGE_DATA_URL,
@@ -1566,29 +1642,29 @@ def test_gpu_queued_task_can_be_cancelled_and_repeat_cancel_is_rejected(tmp_path
 
         concurrent_limit_response = client.post(
             "/v1/tasks",
-            headers=auth_headers(),
+            headers=task_auth_headers(client),
             json={
                 "type": "image_to_3d",
                 "image_url": SAMPLE_IMAGE_DATA_URL,
                 "options": {"resolution": 1024},
             },
         )
-        cancel_response = client.post(f"/v1/tasks/{task_id}/cancel", headers=auth_headers())
+        cancel_response = client.post(f"/v1/tasks/{task_id}/cancel", headers=task_auth_headers(client))
         assert cancel_response.status_code == 200
         assert cancel_response.json()["status"] == "cancelled"
 
         second_cancel_response = client.post(
             f"/v1/tasks/{task_id}/cancel",
-            headers=auth_headers(),
+            headers=task_auth_headers(client),
         )
-        final_task_response = client.get(f"/v1/tasks/{task_id}", headers=auth_headers())
+        final_task_response = client.get(f"/v1/tasks/{task_id}", headers=task_auth_headers(client))
         artifacts_response = client.get(
             f"/v1/tasks/{task_id}/artifacts",
-            headers=auth_headers(),
+            headers=task_auth_headers(client),
         )
         after_cancel_create_response = client.post(
             "/v1/tasks",
-            headers=auth_headers(),
+            headers=task_auth_headers(client),
             json={
                 "type": "image_to_3d",
                 "image_url": SAMPLE_IMAGE_DATA_URL,
@@ -1599,7 +1675,7 @@ def test_gpu_queued_task_can_be_cancelled_and_repeat_cancel_is_rejected(tmp_path
         wait_for_status(client, after_cancel_create_response.json()["taskId"], "succeeded")
         hourly_limit_response = client.post(
             "/v1/tasks",
-            headers=auth_headers(),
+            headers=task_auth_headers(client),
             json={
                 "type": "image_to_3d",
                 "image_url": SAMPLE_IMAGE_DATA_URL,
@@ -1622,7 +1698,7 @@ def test_failed_task_returns_error_details_and_failed_stage(tmp_path: Path) -> N
     with make_client(tmp_path) as client:
         create_response = client.post(
             "/v1/tasks",
-            headers=auth_headers(),
+            headers=task_auth_headers(client),
             json={
                 "type": "image_to_3d",
                 "image_url": SAMPLE_IMAGE_DATA_URL,
@@ -1642,7 +1718,7 @@ def test_failed_task_returns_error_details_and_failed_stage(tmp_path: Path) -> N
         )
         artifacts_response = client.get(
             f"/v1/tasks/{payload['taskId']}/artifacts",
-            headers=auth_headers(),
+            headers=task_auth_headers(client),
         )
 
     statuses = [snapshot["status"] for snapshot in snapshots]
@@ -1665,7 +1741,7 @@ def test_uploading_failure_returns_error_details_and_failed_stage(tmp_path: Path
     with make_client(tmp_path) as client:
         create_response = client.post(
             "/v1/tasks",
-            headers=auth_headers(),
+            headers=task_auth_headers(client),
             json={
                 "type": "image_to_3d",
                 "image_url": SAMPLE_IMAGE_DATA_URL,
@@ -1681,7 +1757,7 @@ def test_uploading_failure_returns_error_details_and_failed_stage(tmp_path: Path
         events = collect_sse_events(client, payload["taskId"])
         final_task_response = client.get(
             f"/v1/tasks/{payload['taskId']}",
-            headers=auth_headers(),
+            headers=task_auth_headers(client),
         )
 
     statuses = [event["status"] for event in events]
@@ -1706,7 +1782,7 @@ def test_success_and_failure_terminal_states_trigger_webhooks(tmp_path: Path) ->
     with make_client(tmp_path, webhook_sender=webhook_sender) as client:
         success_response = client.post(
             "/v1/tasks",
-            headers=auth_headers(),
+            headers=task_auth_headers(client),
             json={
                 "type": "image_to_3d",
                 "image_url": SAMPLE_IMAGE_DATA_URL,
@@ -1716,7 +1792,7 @@ def test_success_and_failure_terminal_states_trigger_webhooks(tmp_path: Path) ->
         )
         failed_response = client.post(
             "/v1/tasks",
-            headers=auth_headers(),
+            headers=task_auth_headers(client),
             json={
                 "type": "image_to_3d",
                 "image_url": SAMPLE_IMAGE_DATA_URL,
@@ -1759,7 +1835,7 @@ def test_invalid_image_input_fails_during_preprocessing(
     with make_client(tmp_path) as client:
         create_response = client.post(
             "/v1/tasks",
-            headers=auth_headers(),
+            headers=task_auth_headers(client),
             json={
                 "type": "image_to_3d",
                 "image_url": "data:text/plain;base64,Zm9v",
@@ -1786,7 +1862,7 @@ def test_invalid_image_input_fails_during_preprocessing(
     ) as real_client:
         file_url_response = real_client.post(
             "/v1/tasks",
-            headers=auth_headers(),
+            headers=task_auth_headers(real_client),
             json={
                 "type": "image_to_3d",
                 "image_url": "file:///tmp/input.png",
@@ -1795,7 +1871,7 @@ def test_invalid_image_input_fails_during_preprocessing(
         )
         invalid_callback_response = real_client.post(
             "/v1/tasks",
-            headers=auth_headers(),
+            headers=task_auth_headers(real_client),
             json={
                 "type": "image_to_3d",
                 "image_url": "http://127.0.0.1:9/input.png",
@@ -1805,7 +1881,7 @@ def test_invalid_image_input_fails_during_preprocessing(
         )
         disallowed_callback_response = real_client.post(
             "/v1/tasks",
-            headers=auth_headers(),
+            headers=task_auth_headers(real_client),
             json={
                 "type": "image_to_3d",
                 "image_url": "http://127.0.0.1:9/input.png",
@@ -1815,7 +1891,7 @@ def test_invalid_image_input_fails_during_preprocessing(
         )
         allowed_callback_response = real_client.post(
             "/v1/tasks",
-            headers=auth_headers(),
+            headers=task_auth_headers(real_client),
             json={
                 "type": "image_to_3d",
                 "image_url": "http://127.0.0.1:9/input.png",

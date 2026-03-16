@@ -294,8 +294,6 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
             )
             if managed_key_id is not None:
                 return managed_key_id
-        if _is_valid_token(provided_token, app_container.config.api_token):
-            return None
         if _allows_mock_anonymous_access(app_container.config) and credentials is None:
             return None
         raise HTTPException(
@@ -309,11 +307,6 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
         app_container: AppContainer = Depends(get_container),
     ) -> None:
         configured_token = app_container.config.admin_token
-        if not configured_token:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="admin token is not configured",
-            )
         if _is_valid_token(_extract_bearer_token(credentials), configured_token):
             return
         raise HTTPException(
@@ -505,6 +498,27 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
     )
     async def list_tasks(
         key_id: str | None = Depends(require_bearer_token),
+        pagination: CursorPaginationParams = Depends(get_cursor_pagination_params),
+        app_container: AppContainer = Depends(get_container),
+    ) -> TaskListResponse:
+        page = await app_container.engine.list_tasks(
+            key_id=key_id,
+            limit=pagination.limit,
+            before=pagination.before,
+        )
+        return TaskListResponse(
+            items=[TaskSummary.from_sequence(task) for task in page.items],
+            has_more=page.has_more,
+            next_cursor=page.next_cursor,
+        )
+
+    @app.get(
+        "/admin/tasks",
+        response_model=TaskListResponse,
+        dependencies=[Depends(require_admin_token)],
+    )
+    async def list_admin_tasks(
+        key_id: str | None = Query(default=None),
         pagination: CursorPaginationParams = Depends(get_cursor_pagination_params),
         app_container: AppContainer = Depends(get_container),
     ) -> TaskListResponse:
