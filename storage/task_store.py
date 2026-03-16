@@ -9,6 +9,7 @@ from typing import Any
 import aiosqlite
 
 from gen3d.engine.sequence import RequestSequence, TaskStatus, TaskType, utcnow
+from gen3d.pagination import CursorPageResult, normalize_cursor_page_limit
 
 
 class TaskIdempotencyConflictError(RuntimeError):
@@ -62,11 +63,13 @@ class TaskStore:
                 queued_at TEXT,
                 started_at TEXT,
                 completed_at TEXT,
-                updated_at TEXT NOT NULL
+                updated_at TEXT NOT NULL,
+                deleted_at TEXT
             )
             """
         )
         await self._ensure_task_column("key_id", "TEXT")
+        await self._ensure_task_column("deleted_at", "TEXT")
         await self._db.execute(
             """
             CREATE TABLE IF NOT EXISTS task_events (
@@ -96,8 +99,8 @@ class TaskStore:
                         callback_url, output_artifacts_json, error_message, failed_stage,
                         retry_count, assigned_worker_id, current_stage, progress,
                         queue_position, estimated_wait_seconds, estimated_finish_at,
-                        created_at, queued_at, started_at, completed_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        created_at, queued_at, started_at, completed_at, updated_at, deleted_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         sequence.task_id,
@@ -123,6 +126,7 @@ class TaskStore:
                         _serialize_datetime(sequence.started_at),
                         _serialize_datetime(sequence.completed_at),
                         _serialize_datetime(sequence.updated_at),
+                        _serialize_datetime(sequence.deleted_at),
                     ),
                 )
             except aiosqlite.IntegrityError as exc:
@@ -183,7 +187,8 @@ class TaskStore:
                     queued_at = ?,
                     started_at = ?,
                     completed_at = ?,
-                    updated_at = ?
+                    updated_at = ?,
+                    deleted_at = ?
                 WHERE id = ?
                 """,
                 (
@@ -209,6 +214,7 @@ class TaskStore:
                     _serialize_datetime(sequence.started_at),
                     _serialize_datetime(sequence.completed_at),
                     _serialize_datetime(sequence.updated_at),
+                    _serialize_datetime(sequence.deleted_at),
                     sequence.task_id,
                 ),
             )
@@ -248,9 +254,20 @@ class TaskStore:
             await db.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
             await db.commit()
 
-    async def get_task(self, task_id: str) -> RequestSequence | None:
+    async def get_task(
+        self,
+        task_id: str,
+        *,
+        include_deleted: bool = False,
+    ) -> RequestSequence | None:
         db = self._require_db()
-        cursor = await db.execute("SELECT * FROM tasks WHERE id = ?", (task_id,))
+        if include_deleted:
+            cursor = await db.execute("SELECT * FROM tasks WHERE id = ?", (task_id,))
+        else:
+            cursor = await db.execute(
+                "SELECT * FROM tasks WHERE id = ? AND deleted_at IS NULL",
+                (task_id,),
+            )
         row = await cursor.fetchone()
         return self._row_to_sequence(row) if row is not None else None
 
@@ -280,12 +297,23 @@ class TaskStore:
     async def get_task_by_idempotency_key(
         self,
         idempotency_key: str,
+        *,
+        include_deleted: bool = False,
     ) -> RequestSequence | None:
         db = self._require_db()
-        cursor = await db.execute(
-            "SELECT * FROM tasks WHERE idempotency_key = ?",
-            (idempotency_key,),
-        )
+        if include_deleted:
+            cursor = await db.execute(
+                "SELECT * FROM tasks WHERE idempotency_key = ?",
+                (idempotency_key,),
+            )
+        else:
+            cursor = await db.execute(
+                """
+                SELECT * FROM tasks
+                WHERE idempotency_key = ? AND deleted_at IS NULL
+                """,
+                (idempotency_key,),
+            )
         row = await cursor.fetchone()
         return self._row_to_sequence(row) if row is not None else None
 
@@ -294,8 +322,9 @@ class TaskStore:
         cursor = await db.execute(
             """
             SELECT * FROM tasks
-            WHERE status NOT IN (?, ?, ?)
-            ORDER BY created_at ASC
+            WHERE deleted_at IS NULL
+              AND status NOT IN (?, ?, ?)
+            ORDER BY created_at ASC, id ASC
             """,
             (
                 TaskStatus.SUCCEEDED.value,
@@ -310,31 +339,66 @@ class TaskStore:
         self,
         *,
         key_id: str | None,
-        limit: int = 50,
-    ) -> list[RequestSequence]:
+        limit: int = 20,
+        before: datetime | None = None,
+    ) -> CursorPageResult[RequestSequence]:
         db = self._require_db()
-        normalized_limit = max(1, min(int(limit), 50))
-        if key_id is None:
-            cursor = await db.execute(
-                """
-                SELECT * FROM tasks
-                ORDER BY created_at DESC
-                LIMIT ?
-                """,
-                (normalized_limit,),
-            )
-        else:
-            cursor = await db.execute(
-                """
-                SELECT * FROM tasks
-                WHERE key_id = ?
-                ORDER BY created_at DESC
-                LIMIT ?
-                """,
-                (key_id, normalized_limit),
-            )
+        normalized_limit = normalize_cursor_page_limit(limit)
+        where_parts = ["deleted_at IS NULL"]
+        parameters: list[Any] = []
+        if key_id is not None:
+            where_parts.append("key_id = ?")
+            parameters.append(key_id)
+        if before is not None:
+            where_parts.append("created_at < ?")
+            parameters.append(_serialize_datetime(before))
+        where_sql = " AND ".join(where_parts)
+        cursor = await db.execute(
+            f"""
+            SELECT * FROM tasks
+            WHERE {where_sql}
+            ORDER BY created_at DESC, id DESC
+            LIMIT ?
+            """,
+            (*parameters, normalized_limit + 1),
+        )
         rows = await cursor.fetchall()
-        return [self._row_to_sequence(row) for row in rows]
+        page_rows = rows[:normalized_limit]
+        items = [self._row_to_sequence(row) for row in page_rows]
+        has_more = len(rows) > normalized_limit
+        next_cursor = (
+            _deserialize_datetime(page_rows[-1]["created_at"])
+            if has_more and page_rows
+            else None
+        )
+        return CursorPageResult(
+            items=items,
+            has_more=has_more,
+            next_cursor=next_cursor,
+        )
+
+    async def soft_delete_task(
+        self,
+        task_id: str,
+        *,
+        deleted_at: datetime | None = None,
+    ) -> bool:
+        db = self._require_db()
+        async with self._lock:
+            cursor = await db.execute(
+                """
+                UPDATE tasks
+                SET deleted_at = ?, updated_at = ?
+                WHERE id = ? AND deleted_at IS NULL
+                """,
+                (
+                    _serialize_datetime(deleted_at or utcnow()),
+                    _serialize_datetime(utcnow()),
+                    task_id,
+                ),
+            )
+            await db.commit()
+            return cursor.rowcount > 0
 
     def _require_db(self) -> aiosqlite.Connection:
         if self._db is None:
@@ -399,4 +463,5 @@ class TaskStore:
             started_at=_deserialize_datetime(row["started_at"]),
             completed_at=_deserialize_datetime(row["completed_at"]),
             updated_at=_deserialize_datetime(row["updated_at"]) or datetime.utcnow(),
+            deleted_at=_deserialize_datetime(row["deleted_at"]),
         )

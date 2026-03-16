@@ -124,6 +124,7 @@ class RequestSequence:
     started_at: datetime | None = None
     completed_at: datetime | None = None
     updated_at: datetime = field(default_factory=utcnow)
+    deleted_at: datetime | None = None
 
     @classmethod
     def new_task(

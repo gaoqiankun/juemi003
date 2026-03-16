@@ -11,7 +11,9 @@ from email.policy import default as default_email_policy
 from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
+from datetime import datetime
+
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.responses import FileResponse, PlainTextResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
@@ -21,6 +23,7 @@ from gen3d.api.schemas import (
     AdminApiKeyCreateResponse,
     AdminApiKeyListItem,
     AdminApiKeySetActiveRequest,
+    CursorPaginationParams,
     HealthResponse,
     TaskListResponse,
     TaskSummary,
@@ -34,7 +37,7 @@ from gen3d.api.schemas import (
 from gen3d.config import ServingConfig, ServingConfigurationError
 from gen3d.engine.async_engine import AsyncGen3DEngine
 from gen3d.engine.pipeline import PipelineCoordinator, PipelineQueueFullError
-from gen3d.engine.sequence import TaskStatus
+from gen3d.engine.sequence import TERMINAL_STATUSES, TaskStatus
 from gen3d.model.base import ModelProviderConfigurationError
 from gen3d.model.trellis2.provider import MockTrellis2Provider, Trellis2Provider
 from gen3d.observability.metrics import render_metrics
@@ -272,6 +275,12 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
     def get_container() -> AppContainer:
         return container
 
+    def get_cursor_pagination_params(
+        limit: int = Query(default=20, ge=1, le=50),
+        before: datetime | None = Query(default=None),
+    ) -> CursorPaginationParams:
+        return CursorPaginationParams(limit=limit, before=before)
+
     async def require_bearer_token(
         credentials: HTTPAuthorizationCredentials | None = Depends(auth_scheme),
         app_container: AppContainer = Depends(get_container),
@@ -496,12 +505,53 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
     )
     async def list_tasks(
         key_id: str | None = Depends(require_bearer_token),
+        pagination: CursorPaginationParams = Depends(get_cursor_pagination_params),
         app_container: AppContainer = Depends(get_container),
     ) -> TaskListResponse:
-        tasks = await app_container.engine.list_tasks(key_id=key_id, limit=50)
-        return TaskListResponse(
-            tasks=[TaskSummary.from_sequence(task) for task in tasks]
+        page = await app_container.engine.list_tasks(
+            key_id=key_id,
+            limit=pagination.limit,
+            before=pagination.before,
         )
+        return TaskListResponse(
+            items=[TaskSummary.from_sequence(task) for task in page.items],
+            has_more=page.has_more,
+            next_cursor=page.next_cursor,
+        )
+
+    @app.delete(
+        "/v1/tasks/{task_id}",
+        status_code=status.HTTP_204_NO_CONTENT,
+    )
+    async def delete_task(
+        task_id: str,
+        key_id: str | None = Depends(require_bearer_token),
+        app_container: AppContainer = Depends(get_container),
+    ) -> Response:
+        sequence = await app_container.engine.get_task(task_id)
+        if sequence is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="task not found",
+            )
+        if key_id is not None and sequence.key_id != key_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="forbidden",
+            )
+        if sequence.status not in TERMINAL_STATUSES:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="task is not terminal and cannot be deleted",
+            )
+
+        deleted = await app_container.engine.delete_task(task_id)
+        if deleted is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="task not found",
+            )
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     @app.get(
         "/v1/tasks/{task_id}",

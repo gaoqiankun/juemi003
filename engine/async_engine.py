@@ -20,14 +20,16 @@ from gen3d.engine.sequence import (
     TERMINAL_STATUSES,
     TaskStatus,
     TaskType,
+    utcnow,
 )
 from gen3d.observability.metrics import increment_webhook_total
+from gen3d.pagination import CursorPageResult
 from gen3d.security import (
     TokenRateLimiter,
     validate_callback_url,
     validate_image_url,
 )
-from gen3d.storage.artifact_store import ArtifactStore
+from gen3d.storage.artifact_store import ArtifactStore, ArtifactStoreOperationError
 from gen3d.storage.task_store import (
     TaskIdempotencyConflictError,
     TaskStore,
@@ -156,17 +158,53 @@ class AsyncGen3DEngine:
         self,
         *,
         key_id: str | None,
-        limit: int = 50,
-    ) -> list[RequestSequence]:
-        sequences = await self._task_store.list_tasks(key_id=key_id, limit=limit)
+        limit: int = 20,
+        before=None,
+    ) -> CursorPageResult[RequestSequence]:
+        page = await self._task_store.list_tasks(
+            key_id=key_id,
+            limit=limit,
+            before=before,
+        )
         if self._artifact_store is None:
-            return sequences
-        for sequence in sequences:
+            return page
+        for sequence in page.items:
             if not sequence.artifacts:
                 sequence.artifacts = await self._artifact_store.list_artifacts(
                     sequence.task_id
                 )
-        return sequences
+        return page
+
+    async def delete_task(self, task_id: str) -> RequestSequence | None:
+        sequence = await self._task_store.get_task(task_id)
+        if sequence is None:
+            return None
+
+        deleted = await self._task_store.soft_delete_task(
+            task_id,
+            deleted_at=utcnow(),
+        )
+        if not deleted:
+            return None
+
+        if self._artifact_store is not None:
+            try:
+                await self._artifact_store.delete_artifacts(task_id)
+            except ArtifactStoreOperationError as exc:
+                with bound_contextvars(task_id=task_id):
+                    self._logger.warning(
+                        "task.artifact_cleanup_failed",
+                        stage=exc.stage_name,
+                        error=str(exc),
+                    )
+            except Exception as exc:  # pragma: no cover - defensive guard
+                with bound_contextvars(task_id=task_id):
+                    self._logger.warning(
+                        "task.artifact_cleanup_failed",
+                        stage="cleanup",
+                        error=str(exc),
+                    )
+        return sequence
 
     async def get_task(self, task_id: str) -> RequestSequence | None:
         sequence = await self._task_store.get_task(task_id)

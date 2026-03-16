@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import mimetypes
+import shutil
 from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
@@ -44,6 +45,20 @@ class ObjectStorageClient(Protocol):
         key: str,
         expires_in_seconds: int,
     ) -> str: ...
+
+    def list_object_keys(
+        self,
+        *,
+        bucket: str,
+        prefix: str,
+    ) -> list[str]: ...
+
+    def delete_objects(
+        self,
+        *,
+        bucket: str,
+        keys: list[str],
+    ) -> None: ...
 
 
 @dataclass(slots=True)
@@ -134,6 +149,36 @@ class Boto3ObjectStorageClient:
             Params={"Bucket": bucket, "Key": key},
             ExpiresIn=expires_in_seconds,
         )
+
+    def list_object_keys(
+        self,
+        *,
+        bucket: str,
+        prefix: str,
+    ) -> list[str]:
+        paginator = self._upload_client.get_paginator("list_objects_v2")
+        keys: list[str] = []
+        for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+            for item in page.get("Contents", []):
+                key = item.get("Key")
+                if key:
+                    keys.append(str(key))
+        return keys
+
+    def delete_objects(
+        self,
+        *,
+        bucket: str,
+        keys: list[str],
+    ) -> None:
+        if not keys:
+            return
+        for index in range(0, len(keys), 1000):
+            chunk = keys[index:index + 1000]
+            self._upload_client.delete_objects(
+                Bucket=bucket,
+                Delete={"Objects": [{"Key": key} for key in chunk]},
+            )
 
 
 def build_boto3_object_storage_client(
@@ -299,6 +344,40 @@ class ArtifactStore:
             return None
         return artifact_path
 
+    async def delete_artifacts(self, task_id: str) -> None:
+        manifest_path = self._manifest_dir / f"{task_id}.json"
+        staging_dir = self._staging_dir / task_id
+
+        try:
+            if self._mode == "local":
+                task_dir = self._resolve_local_task_dir(task_id)
+                if task_dir is not None and task_dir.exists():
+                    await asyncio.to_thread(shutil.rmtree, task_dir)
+            else:
+                prefix = f"{self._object_store_prefix}/{task_id}/"
+                client = self._require_object_store_client()
+                bucket = self._require_object_store_bucket()
+                keys = await asyncio.to_thread(
+                    client.list_object_keys,
+                    bucket=bucket,
+                    prefix=prefix,
+                )
+                if keys:
+                    await asyncio.to_thread(
+                        client.delete_objects,
+                        bucket=bucket,
+                        keys=keys,
+                    )
+        except Exception as exc:
+            raise ArtifactStoreOperationError(
+                "cleanup",
+                f"failed to delete artifacts for task {task_id}: {exc}",
+            ) from exc
+
+        await asyncio.to_thread(self._delete_if_exists, manifest_path)
+        if staging_dir.exists():
+            await asyncio.to_thread(shutil.rmtree, staging_dir, True)
+
     async def _publish_local_artifact(
         self,
         *,
@@ -431,6 +510,13 @@ class ArtifactStore:
         try:
             path.rmdir()
         except OSError:
+            return
+
+    @staticmethod
+    def _delete_if_exists(path: Path) -> None:
+        try:
+            path.unlink()
+        except FileNotFoundError:
             return
 
     def _build_local_artifact_record(

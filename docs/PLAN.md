@@ -452,11 +452,23 @@ POST   /v1/tasks
   Returns: { taskId, status, queuePosition, estimatedWaitSeconds, estimatedFinishAt }
 
 GET    /v1/tasks
-  Returns: { tasks: [{ taskId, status, createdAt, finishedAt, artifactUrl }] }
+  Query: ?limit=20&before=<createdAt ISO cursor>
+  Returns: {
+    items: [{ taskId, status, createdAt, finishedAt, artifactUrl }],
+    hasMore,
+    nextCursor
+  }
   Notes:
     - managed API key 只返回该 key 自己提交的任务
     - 兼容单一 API_TOKEN 的 legacy token 返回全量任务
-    - 按 createdAt 倒序，最多 50 条
+    - 按 createdAt 倒序，默认 20 条，最多 50 条
+    - `before` 用上一页返回的 `nextCursor`
+
+DELETE /v1/tasks/{id}
+  Notes:
+    - 仅允许删除终态任务
+    - managed API key 只能删除自己的任务
+    - 软删除记录，并 best-effort 清理 artifact 文件
 
 GET    /v1/tasks/{id}
   Returns: {

@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any, Generic, Literal, TypeVar
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 from gen3d.engine.sequence import RequestSequence, TaskStatus, TaskType
+from gen3d.pagination import DEFAULT_CURSOR_PAGE_LIMIT, MAX_CURSOR_PAGE_LIMIT
+
+T = TypeVar("T")
 
 
 class TaskOptions(BaseModel):
@@ -181,8 +184,28 @@ class TaskSummary(BaseModel):
         )
 
 
-class TaskListResponse(BaseModel):
-    tasks: list[TaskSummary] = Field(default_factory=list)
+class CursorPage(BaseModel, Generic[T]):
+    items: list[T] = Field(default_factory=list)
+    has_more: bool = Field(serialization_alias="hasMore")
+    next_cursor: datetime | None = Field(
+        default=None,
+        serialization_alias="nextCursor",
+    )
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class CursorPaginationParams(BaseModel):
+    limit: int = Field(
+        default=DEFAULT_CURSOR_PAGE_LIMIT,
+        ge=1,
+        le=MAX_CURSOR_PAGE_LIMIT,
+    )
+    before: datetime | None = None
+
+
+class TaskListResponse(CursorPage[TaskSummary]):
+    pass
 
 
 class HealthResponse(BaseModel):

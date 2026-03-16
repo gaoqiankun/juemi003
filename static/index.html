@@ -635,6 +635,10 @@
         </div>
 
         <div id="task-list" class="task-list" aria-live="polite"></div>
+        <div class="actions" style="margin-top: 16px;">
+          <button type="button" id="load-more-tasks" class="ghost" hidden>加载更多</button>
+        </div>
+        <div id="task-page-status" class="status-text" aria-live="polite"></div>
         <div class="footer-note">
           说明：如果 artifact 返回的是 `file://...` 本地路径，浏览器通常无法直接内联加载。
           页面会优先尝试同源 HTTP 候选地址；若仍不可访问，会保留原始 URL 并给出提示。
@@ -649,7 +653,7 @@
       tasks: "gen3d.web.task-history.v1",
     };
     const TERMINAL_STATUSES = new Set(["succeeded", "failed", "cancelled"]);
-    const HISTORY_LIMIT = 50;
+    const TASK_PAGE_LIMIT = 20;
     const POLL_INTERVAL_MS = 3000;
 
     const state = {
@@ -659,6 +663,12 @@
       },
       tasks: new Map(),
       subscriptions: new Map(),
+      taskPage: {
+        limit: TASK_PAGE_LIMIT,
+        nextCursor: "",
+        hasMore: false,
+        isLoadingMore: false,
+      },
       upload: {
         previewDataUrl: "",
         uploadedUrl: "",
@@ -690,6 +700,8 @@
       taskList: document.getElementById("task-list"),
       resubscribeAll: document.getElementById("resubscribe-all"),
       clearHistory: document.getElementById("clear-history"),
+      loadMoreTasks: document.getElementById("load-more-tasks"),
+      taskPageStatus: document.getElementById("task-page-status"),
     };
 
     function loadConfig() {
@@ -720,6 +732,9 @@
 
     function loadTasks() {
       state.tasks.clear();
+      state.taskPage.nextCursor = "";
+      state.taskPage.hasMore = false;
+      state.taskPage.isLoadingMore = false;
       localStorage.removeItem(STORAGE_KEYS.tasks);
     }
 
@@ -766,6 +781,27 @@
       return merged;
     }
 
+    function buildTaskListUrl(before = "") {
+      const url = new URL(buildApiUrl("/v1/tasks"));
+      url.searchParams.set("limit", String(state.taskPage.limit));
+      if (before) {
+        url.searchParams.set("before", before);
+      }
+      return url.toString();
+    }
+
+    function applyTaskPage(payload) {
+      state.taskPage.nextCursor = payload.nextCursor || payload.next_cursor || "";
+      state.taskPage.hasMore = Boolean(payload.hasMore ?? payload.has_more);
+      state.taskPage.isLoadingMore = false;
+      syncTaskPageControls();
+    }
+
+    function syncTaskPageControls() {
+      elements.loadMoreTasks.hidden = !state.taskPage.hasMore;
+      elements.loadMoreTasks.disabled = state.taskPage.isLoadingMore;
+    }
+
     async function refreshTaskList(options = {}) {
       const {
         resubscribe = false,
@@ -777,7 +813,7 @@
       if (!state.config.baseUrl) {
         throw new Error("请先填写 API Base URL");
       }
-      const response = await fetch(buildApiUrl("/v1/tasks"), {
+      const response = await fetch(buildTaskListUrl(), {
         headers: authHeaders(false),
         cache: "no-store",
       });
@@ -785,7 +821,8 @@
         throw new Error(await extractErrorMessage(response));
       }
       const payload = await response.json();
-      await replaceTasksFromServer(Array.isArray(payload.tasks) ? payload.tasks : []);
+      await replaceTasksFromServer(Array.isArray(payload.items) ? payload.items : []);
+      applyTaskPage(payload);
       if (resubscribe) {
         await restoreSubscriptions();
       }
@@ -794,9 +831,10 @@
       }
     }
 
-    async function replaceTasksFromServer(taskSummaries) {
-      const nextTasks = new Map();
-      for (const summary of taskSummaries.slice(0, HISTORY_LIMIT)) {
+    async function replaceTasksFromServer(taskSummaries, options = {}) {
+      const { append = false } = options;
+      const nextTasks = append ? new Map(state.tasks) : new Map();
+      for (const summary of taskSummaries) {
         const taskId = summary.taskId || summary.task_id;
         if (!taskId) {
           continue;
@@ -827,17 +865,61 @@
         );
       }
 
-      Array.from(state.subscriptions.keys()).forEach((taskId) => {
-        if (!nextTasks.has(taskId)) {
-          stopSubscription(taskId);
-        }
-      });
+      if (!append) {
+        Array.from(state.subscriptions.keys()).forEach((taskId) => {
+          if (!nextTasks.has(taskId)) {
+            stopSubscription(taskId);
+          }
+        });
+      }
       state.tasks = nextTasks;
 
       for (const task of state.tasks.values()) {
         await hydrateArtifact(task);
       }
       renderTasks();
+      syncTaskPageControls();
+    }
+
+    async function loadMoreTaskPage() {
+      if (!state.taskPage.hasMore || !state.taskPage.nextCursor) {
+        return;
+      }
+      state.taskPage.isLoadingMore = true;
+      syncTaskPageControls();
+      try {
+        const response = await fetch(buildTaskListUrl(state.taskPage.nextCursor), {
+          headers: authHeaders(false),
+          cache: "no-store",
+        });
+        if (!response.ok) {
+          throw new Error(await extractErrorMessage(response));
+        }
+        const payload = await response.json();
+        await replaceTasksFromServer(Array.isArray(payload.items) ? payload.items : [], {
+          append: true,
+        });
+        applyTaskPage(payload);
+        setStatus(elements.taskPageStatus, "已加载更多任务。", "success");
+      } catch (error) {
+        state.taskPage.isLoadingMore = false;
+        syncTaskPageControls();
+        setStatus(elements.taskPageStatus, "加载更多失败：" + formatError(error), "error");
+      }
+    }
+
+    async function deleteTask(taskId) {
+      const response = await fetch(buildApiUrl("/v1/tasks/" + encodeURIComponent(taskId)), {
+        method: "DELETE",
+        headers: authHeaders(false),
+      });
+      if (!response.ok) {
+        throw new Error(await extractErrorMessage(response));
+      }
+      stopSubscription(taskId);
+      state.tasks.delete(taskId);
+      renderTasks();
+      syncTaskPageControls();
     }
 
     function setStatus(element, message, tone = "") {
@@ -1554,6 +1636,7 @@
 
       if (!tasks.length) {
         elements.taskList.innerHTML = '<div class="empty">还没有 task_id。提交第一条任务后会自动记录到这里。</div>';
+        syncTaskPageControls();
         return;
       }
 
@@ -1588,6 +1671,7 @@
             <button type="button" class="secondary" data-action="resubscribe" data-task-id="${escapeHtml(task.taskId)}">重连</button>
             <button type="button" class="ghost" data-action="refresh" data-task-id="${escapeHtml(task.taskId)}">刷新</button>
             <button type="button" class="ghost" data-action="copy" data-task-id="${escapeHtml(task.taskId)}">复制 task_id</button>
+            <button type="button" class="ghost" data-action="delete" data-task-id="${escapeHtml(task.taskId)}">删除</button>
           </div>
           <div class="progress-wrap">
             <div class="progress-meta">
@@ -1697,6 +1781,7 @@
 
       elements.taskList.innerHTML = "";
       elements.taskList.appendChild(fragment);
+      syncTaskPageControls();
     }
 
     async function restoreSubscriptions() {
@@ -1763,6 +1848,20 @@
           await subscribeToTask(taskId, { force: true });
         } catch (error) {
           ensureTask(taskId, { note: "重连失败：" + formatError(error) });
+        }
+        return;
+      }
+
+      if (action === "delete") {
+        if (!window.confirm("确认删除任务 " + taskId.slice(0, 8) + " 吗？")) {
+          return;
+        }
+        try {
+          await deleteTask(taskId);
+          setStatus(elements.taskPageStatus, "任务已删除。", "success");
+        } catch (error) {
+          ensureTask(taskId, { note: "删除失败：" + formatError(error) });
+          setStatus(elements.taskPageStatus, "删除失败：" + formatError(error), "error");
         }
       }
     }
@@ -1847,6 +1946,9 @@
           setStatus(elements.configStatus, "刷新任务列表失败：" + formatError(error), "error");
         });
       });
+      elements.loadMoreTasks.addEventListener("click", () => {
+        loadMoreTaskPage();
+      });
       elements.taskList.addEventListener("click", handleTaskAction);
       elements.taskList.addEventListener("keydown", (event) => {
         if (event.key !== "Enter" && event.key !== " ") {
@@ -1871,6 +1973,7 @@
       loadTasks();
       clearUploadState();
       renderTasks();
+      syncTaskPageControls();
       registerEventHandlers();
       if (state.config.baseUrl) {
         refreshTaskList({

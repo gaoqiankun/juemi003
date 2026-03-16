@@ -214,6 +214,11 @@ def fetch_metrics_payload(client: TestClient, *, token: str = "test-token") -> s
     return response.text
 
 
+def task_page_items(response: Any) -> list[dict]:
+    payload = response.json()
+    return payload["items"]
+
+
 def metric_sample_value(
     metrics_payload: str,
     sample_name: str,
@@ -495,24 +500,26 @@ def test_task_list_is_scoped_to_managed_api_keys_and_legacy_token_sees_all(
     assert legacy_create_response.status_code == 201
 
     assert key_a_list_response.status_code == 200
-    assert [task["taskId"] for task in key_a_list_response.json()["tasks"]] == [
+    assert [task["taskId"] for task in task_page_items(key_a_list_response)] == [
         key_a_create_response.json()["taskId"]
     ]
+    assert key_a_list_response.json()["hasMore"] is False
+    assert key_a_list_response.json()["nextCursor"] is None
 
     assert key_b_list_response.status_code == 200
-    assert [task["taskId"] for task in key_b_list_response.json()["tasks"]] == [
+    assert [task["taskId"] for task in task_page_items(key_b_list_response)] == [
         key_b_create_response.json()["taskId"]
     ]
 
     assert legacy_list_response.status_code == 200
-    assert [task["taskId"] for task in legacy_list_response.json()["tasks"]] == [
+    assert [task["taskId"] for task in task_page_items(legacy_list_response)] == [
         legacy_create_response.json()["taskId"],
         key_b_create_response.json()["taskId"],
         key_a_create_response.json()["taskId"],
     ]
 
 
-def test_task_list_returns_latest_50_tasks_in_created_at_desc_order(
+def test_task_list_returns_requested_page_and_cursor_metadata(
     tmp_path: Path,
 ) -> None:
     database_path = tmp_path / "gen3d.sqlite3"
@@ -537,13 +544,15 @@ def test_task_list_returns_latest_50_tasks_in_created_at_desc_order(
     )
 
     with make_client(tmp_path, database_path=database_path) as client:
-        response = client.get("/v1/tasks", headers=auth_headers())
+        response = client.get("/v1/tasks?limit=50", headers=auth_headers())
 
     assert response.status_code == 200
-    tasks = response.json()["tasks"]
+    tasks = task_page_items(response)
     assert len(tasks) == 50
     assert tasks[0]["taskId"] == "task-54"
     assert tasks[-1]["taskId"] == "task-05"
+    assert response.json()["hasMore"] is True
+    assert response.json()["nextCursor"] == tasks[-1]["createdAt"]
 
 
 def test_service_startup_migrates_existing_tasks_table_and_preserves_rows(
@@ -645,8 +654,175 @@ def test_service_startup_migrates_existing_tasks_table_and_preserves_rows(
         migrated_connection.close()
 
     assert response.status_code == 200
-    assert response.json()["tasks"][0]["taskId"] == "legacy-task"
+    assert task_page_items(response)[0]["taskId"] == "legacy-task"
     assert "key_id" in columns
+    assert "deleted_at" in columns
+
+
+def test_delete_task_soft_deletes_own_terminal_task_and_removes_artifacts(
+    tmp_path: Path,
+) -> None:
+    artifacts_dir = tmp_path / "artifacts"
+    with make_client(
+        tmp_path,
+        admin_token="admin-token",
+        artifacts_dir=artifacts_dir,
+    ) as client:
+        managed_key = create_managed_api_key(client, label="Owner")
+        create_response = client.post(
+            "/v1/tasks",
+            headers=auth_headers(managed_key["token"]),
+            json={
+                "type": "image_to_3d",
+                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "options": {"resolution": 1024},
+            },
+        )
+        assert create_response.status_code == 201
+        task_id = create_response.json()["taskId"]
+
+        wait_for_status(
+            client,
+            task_id,
+            "succeeded",
+            token=managed_key["token"],
+        )
+        assert artifacts_dir.joinpath(task_id).exists()
+
+        delete_response = client.delete(
+            f"/v1/tasks/{task_id}",
+            headers=auth_headers(managed_key["token"]),
+        )
+        list_response = client.get(
+            "/v1/tasks",
+            headers=auth_headers(managed_key["token"]),
+        )
+        artifact_response = client.get(
+            f"/v1/tasks/{task_id}/artifacts",
+            headers=auth_headers(managed_key["token"]),
+        )
+
+    assert delete_response.status_code == 204
+    assert artifacts_dir.joinpath(task_id).exists() is False
+    assert [task["taskId"] for task in task_page_items(list_response)] == []
+    assert artifact_response.status_code == 404
+
+
+def test_delete_non_terminal_task_returns_409(tmp_path: Path) -> None:
+    with make_client(
+        tmp_path,
+        admin_token="admin-token",
+        queue_delay_ms=1000,
+    ) as client:
+        managed_key = create_managed_api_key(client, label="Owner")
+        create_response = client.post(
+            "/v1/tasks",
+            headers=auth_headers(managed_key["token"]),
+            json={
+                "type": "image_to_3d",
+                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "options": {"resolution": 1024},
+            },
+        )
+        assert create_response.status_code == 201
+        task_id = create_response.json()["taskId"]
+
+        delete_response = client.delete(
+            f"/v1/tasks/{task_id}",
+            headers=auth_headers(managed_key["token"]),
+        )
+
+    assert delete_response.status_code == 409
+    assert "cannot be deleted" in delete_response.json()["detail"]
+
+
+def test_delete_other_keys_task_returns_403(tmp_path: Path) -> None:
+    with make_client(tmp_path, admin_token="admin-token") as client:
+        managed_key_a = create_managed_api_key(client, label="Owner")
+        managed_key_b = create_managed_api_key(client, label="Other")
+        create_response = client.post(
+            "/v1/tasks",
+            headers=auth_headers(managed_key_a["token"]),
+            json={
+                "type": "image_to_3d",
+                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "options": {"resolution": 1024},
+            },
+        )
+        assert create_response.status_code == 201
+        task_id = create_response.json()["taskId"]
+
+        wait_for_status(
+            client,
+            task_id,
+            "succeeded",
+            token=managed_key_a["token"],
+        )
+        delete_response = client.delete(
+            f"/v1/tasks/{task_id}",
+            headers=auth_headers(managed_key_b["token"]),
+        )
+
+    assert delete_response.status_code == 403
+    assert delete_response.json()["detail"] == "forbidden"
+
+
+def test_task_list_cursor_pagination_is_stable_when_newer_task_arrives(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "gen3d.sqlite3"
+    base_time = utcnow()
+    seed_tasks(
+        database_path,
+        [
+            RequestSequence(
+                task_id=f"seed-{index}",
+                task_type=TaskType.IMAGE_TO_3D,
+                input_url=SAMPLE_IMAGE_DATA_URL,
+                options={"resolution": 1024},
+                status=TaskStatus.SUCCEEDED,
+                progress=100,
+                current_stage=TaskStatus.SUCCEEDED.value,
+                created_at=base_time - timedelta(seconds=4 - index),
+                queued_at=base_time - timedelta(seconds=4 - index),
+                completed_at=base_time - timedelta(seconds=4 - index),
+                updated_at=base_time - timedelta(seconds=4 - index),
+            )
+            for index in range(5)
+        ],
+    )
+
+    with make_client(tmp_path, database_path=database_path) as client:
+        first_page_response = client.get("/v1/tasks?limit=2", headers=auth_headers())
+        assert first_page_response.status_code == 200
+        first_page_items = task_page_items(first_page_response)
+
+        create_response = client.post(
+            "/v1/tasks",
+            headers=auth_headers(),
+            json={
+                "type": "image_to_3d",
+                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "options": {"resolution": 1024},
+            },
+        )
+        assert create_response.status_code == 201
+
+        second_page_response = client.get(
+            "/v1/tasks",
+            params={
+                "limit": 2,
+                "before": first_page_response.json()["nextCursor"],
+            },
+            headers=auth_headers(),
+        )
+
+    assert [task["taskId"] for task in first_page_items] == ["seed-4", "seed-3"]
+    assert second_page_response.status_code == 200
+    assert [task["taskId"] for task in task_page_items(second_page_response)] == [
+        "seed-2",
+        "seed-1",
+    ]
 
 
 def test_upload_endpoint_accepts_png_and_jpg_and_uploaded_url_can_run_task(

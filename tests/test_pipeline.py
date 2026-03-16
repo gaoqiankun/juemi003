@@ -41,6 +41,8 @@ class FakeObjectStorageClient:
         self.fail_on_presign = fail_on_presign
         self.validated_bucket: str | None = None
         self.uploads: list[dict[str, object]] = []
+        self.objects: dict[tuple[str, str], bytes] = {}
+        self.deleted_keys: list[tuple[str, str]] = []
 
     def ensure_bucket_exists(self, bucket: str) -> None:
         self.validated_bucket = bucket
@@ -61,6 +63,7 @@ class FakeObjectStorageClient:
                 "body": source_path.read_bytes(),
             }
         )
+        self.objects[(bucket, key)] = source_path.read_bytes()
 
     def generate_presigned_get_url(
         self,
@@ -75,6 +78,28 @@ class FakeObjectStorageClient:
             f"http://minio.test/{bucket}/{key}"
             f"?X-Amz-Expires={expires_in_seconds}&X-Amz-Signature=fake"
         )
+
+    def list_object_keys(
+        self,
+        *,
+        bucket: str,
+        prefix: str,
+    ) -> list[str]:
+        return [
+            key
+            for (stored_bucket, key), _ in self.objects.items()
+            if stored_bucket == bucket and key.startswith(prefix)
+        ]
+
+    def delete_objects(
+        self,
+        *,
+        bucket: str,
+        keys: list[str],
+    ) -> None:
+        for key in keys:
+            self.deleted_keys.append((bucket, key))
+            self.objects.pop((bucket, key), None)
 
 
 def build_engine(
@@ -628,5 +653,41 @@ def test_minio_artifact_store_surfaces_presign_failures_as_uploading_errors(
                 )
 
         assert exc_info.value.stage_name == "uploading"
+
+    asyncio.run(scenario())
+
+
+def test_minio_artifact_store_delete_artifacts_removes_objects_and_manifest(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> None:
+        fake_client = FakeObjectStorageClient()
+        artifact_store = ArtifactStore(
+            tmp_path / "artifacts",
+            mode="minio",
+            object_store_client=fake_client,
+            object_store_bucket="gen3d-artifacts",
+        )
+        await artifact_store.initialize()
+
+        async with artifact_store.create_staging_path("task-3", "model.glb") as staging_path:
+            staging_path.write_bytes(b"GLB")
+            await artifact_store.publish_artifact(
+                task_id="task-3",
+                artifact_type="glb",
+                file_name="model.glb",
+                staging_path=staging_path,
+            )
+
+        manifest_path = (tmp_path / "artifacts" / "_manifests" / "task-3.json")
+        assert manifest_path.exists()
+
+        await artifact_store.delete_artifacts("task-3")
+
+        assert fake_client.deleted_keys == [
+            ("gen3d-artifacts", "artifacts/task-3/model.glb")
+        ]
+        assert fake_client.objects == {}
+        assert manifest_path.exists() is False
 
     asyncio.run(scenario())
