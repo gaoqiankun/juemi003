@@ -1563,6 +1563,22 @@ def test_create_task_rejects_http_input_url(tmp_path: Path) -> None:
     assert response.json()["detail"] == "input_url must start with upload://"
 
 
+def test_create_task_defaults_type_and_model_when_omitted(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        response = client.post(
+            "/v1/tasks",
+            headers=task_auth_headers(client),
+            json={
+                "input_url": upload_input_url(client),
+                "options": {"resolution": 1024},
+            },
+        )
+
+    assert response.status_code == 201
+    assert response.json()["status"] == "queued"
+    assert response.json()["model"] == "trellis"
+
+
 def test_task_detail_includes_input_url_and_dynamic_eta_after_stage_history(
     tmp_path: Path,
 ) -> None:
@@ -2271,6 +2287,7 @@ def test_success_and_failure_terminal_states_trigger_webhooks(tmp_path: Path) ->
 
         wait_for_status(client, success_task_id, "succeeded")
         wait_for_status(client, failed_task_id, "failed")
+        wait_for_condition(lambda: len(webhook_calls) == 2, timeout_seconds=2.0)
 
     assert len(webhook_calls) == 2
     payload_by_url = {url: payload for url, payload in webhook_calls}

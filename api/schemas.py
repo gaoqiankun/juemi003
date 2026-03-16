@@ -59,11 +59,11 @@ class TaskOptions(BaseModel):
 
 
 class TaskCreateRequest(BaseModel):
-    type: Literal["image_to_3d"]
+    type: Literal["image_to_3d"] = "image_to_3d"
     input_url: str = Field(
         validation_alias=AliasChoices("input_url", "image_url"),
     )
-    model: str = "trellis"
+    model: str = Field(default="trellis")
     callback_url: str | None = None
     idempotency_key: str | None = None
     options: TaskOptions = Field(default_factory=TaskOptions)
