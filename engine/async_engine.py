@@ -63,6 +63,7 @@ class AsyncGen3DEngine:
         self._artifact_store = artifact_store
         self._started = False
         self._event_queues: dict[str, set[asyncio.Queue[dict[str, Any]]]] = defaultdict(set)
+        self._background_tasks: set[asyncio.Task[None]] = set()
         self._webhook_sender = webhook_sender or self._default_webhook_sender
         self._webhook_timeout_seconds = webhook_timeout_seconds
         self._webhook_max_retries = max(int(webhook_max_retries), 0)
@@ -81,6 +82,8 @@ class AsyncGen3DEngine:
     async def stop(self) -> None:
         if not self._started:
             return
+        if self._background_tasks:
+            await asyncio.gather(*self._background_tasks, return_exceptions=True)
         await self._pipeline.stop()
         self._started = False
 
@@ -187,24 +190,35 @@ class AsyncGen3DEngine:
         if not deleted:
             return None
 
-        if self._artifact_store is not None:
-            try:
-                await self._artifact_store.delete_artifacts(task_id)
-            except ArtifactStoreOperationError as exc:
-                with bound_contextvars(task_id=task_id):
-                    self._logger.warning(
-                        "task.artifact_cleanup_failed",
-                        stage=exc.stage_name,
-                        error=str(exc),
-                    )
-            except Exception as exc:  # pragma: no cover - defensive guard
-                with bound_contextvars(task_id=task_id):
-                    self._logger.warning(
-                        "task.artifact_cleanup_failed",
-                        stage="cleanup",
-                        error=str(exc),
-                    )
+        self._schedule_artifact_cleanup(task_id)
         return sequence
+
+    def _schedule_artifact_cleanup(self, task_id: str) -> None:
+        if self._artifact_store is None:
+            return
+        task = asyncio.create_task(self._cleanup_artifacts(task_id))
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+
+    async def _cleanup_artifacts(self, task_id: str) -> None:
+        if self._artifact_store is None:
+            return
+        try:
+            await self._artifact_store.delete_artifacts(task_id)
+        except ArtifactStoreOperationError as exc:
+            with bound_contextvars(task_id=task_id):
+                self._logger.warning(
+                    "task.artifact_cleanup_failed",
+                    stage=exc.stage_name,
+                    error=str(exc),
+                )
+        except Exception as exc:  # pragma: no cover - defensive guard
+            with bound_contextvars(task_id=task_id):
+                self._logger.warning(
+                    "task.artifact_cleanup_failed",
+                    stage="cleanup",
+                    error=str(exc),
+                )
 
     async def get_task(self, task_id: str) -> RequestSequence | None:
         sequence = await self._task_store.get_task(task_id)

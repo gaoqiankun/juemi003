@@ -41,6 +41,7 @@ Date / Status: 2026-03-16 / done / Commits: uncommitted
 - `engine/async_engine.py`
   - `list_tasks` 改返回分页结果
   - 新增 `delete_task`，软删除后 best-effort 清理 artifact，失败只记 warning
+  - 跟进修复：artifact 清理改为后台 fire-and-forget，`DELETE /v1/tasks/{task_id}` 不再等待清理完成
 - `api/schemas.py`
   - 抽出通用 `CursorPage[T]`、`CursorPaginationParams`
   - `TaskListResponse` 复用通用 cursor 分页 schema
@@ -54,6 +55,8 @@ Date / Status: 2026-03-16 / done / Commits: uncommitted
 - `tests/test_api.py`
   - 更新任务列表测试到 cursor 分页结构
   - 新增软删除、409、403、稳定翻页测试
+  - 跟进补充：覆盖删除接口“先返回 204、后台再清理 artifact”的行为
+  - 跟进补充：覆盖 artifact 清理异常仅 warning、不影响 204 响应
 - `tests/test_pipeline.py`
   - 新增 minio artifact 删除测试
 - `docs/PLAN.md`
