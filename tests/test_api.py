@@ -661,6 +661,7 @@ def test_service_startup_migrates_existing_tasks_table_and_preserves_rows(
     assert task_page_items(response)[0]["taskId"] == "legacy-task"
     assert "key_id" in columns
     assert "deleted_at" in columns
+    assert "cleanup_done" in columns
 
 
 def test_delete_task_soft_deletes_own_terminal_task_and_removes_artifacts(
@@ -833,6 +834,73 @@ def test_delete_task_artifact_cleanup_failure_only_logs_warning(
     assert event == "task.artifact_cleanup_failed"
     assert metadata["stage"] == "cleanup"
     assert "boom" in metadata["error"]
+
+
+def test_cleanup_worker_recovers_pending_cleanup_after_restart(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database_path = tmp_path / "gen3d.sqlite3"
+    artifacts_dir = tmp_path / "artifacts"
+    cleanup_started = threading.Event()
+    allow_cleanup = threading.Event()
+
+    with make_client(
+        tmp_path,
+        admin_token="admin-token",
+        database_path=database_path,
+        artifacts_dir=artifacts_dir,
+    ) as client:
+        managed_key = create_managed_api_key(client, label="Owner")
+        create_response = client.post(
+            "/v1/tasks",
+            headers=auth_headers(managed_key["token"]),
+            json={
+                "type": "image_to_3d",
+                "image_url": SAMPLE_IMAGE_DATA_URL,
+                "options": {"resolution": 1024},
+            },
+        )
+        assert create_response.status_code == 201
+        task_id = create_response.json()["taskId"]
+        wait_for_status(
+            client,
+            task_id,
+            "succeeded",
+            token=managed_key["token"],
+        )
+        assert artifacts_dir.joinpath(task_id).exists()
+
+        artifact_store = client.app.state.container.artifact_store
+        original_delete_artifacts = artifact_store.delete_artifacts
+
+        async def slow_delete_artifacts(task_id: str) -> None:
+            cleanup_started.set()
+            await asyncio.to_thread(allow_cleanup.wait, 2.0)
+            await original_delete_artifacts(task_id)
+
+        monkeypatch.setattr(artifact_store, "delete_artifacts", slow_delete_artifacts)
+
+        delete_response = client.delete(
+            f"/v1/tasks/{task_id}",
+            headers=auth_headers(managed_key["token"]),
+        )
+        assert delete_response.status_code == 204
+        assert cleanup_started.wait(timeout=0.5)
+
+    assert artifacts_dir.joinpath(task_id).exists()
+
+    allow_cleanup.set()
+    with make_client(
+        tmp_path,
+        admin_token="admin-token",
+        database_path=database_path,
+        artifacts_dir=artifacts_dir,
+    ):
+        wait_for_condition(
+            lambda: artifacts_dir.joinpath(task_id).exists() is False,
+            timeout_seconds=2.0,
+        )
 
 
 def test_delete_non_terminal_task_returns_409(tmp_path: Path) -> None:

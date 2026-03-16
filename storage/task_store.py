@@ -64,12 +64,14 @@ class TaskStore:
                 started_at TEXT,
                 completed_at TEXT,
                 updated_at TEXT NOT NULL,
-                deleted_at TEXT
+                deleted_at TEXT,
+                cleanup_done INTEGER NOT NULL DEFAULT 0
             )
             """
         )
         await self._ensure_task_column("key_id", "TEXT")
         await self._ensure_task_column("deleted_at", "TEXT")
+        await self._ensure_task_column("cleanup_done", "INTEGER NOT NULL DEFAULT 0")
         await self._db.execute(
             """
             CREATE TABLE IF NOT EXISTS task_events (
@@ -388,7 +390,7 @@ class TaskStore:
             cursor = await db.execute(
                 """
                 UPDATE tasks
-                SET deleted_at = ?, updated_at = ?
+                SET deleted_at = ?, cleanup_done = 0, updated_at = ?
                 WHERE id = ? AND deleted_at IS NULL
                 """,
                 (
@@ -396,6 +398,39 @@ class TaskStore:
                     _serialize_datetime(utcnow()),
                     task_id,
                 ),
+            )
+            await db.commit()
+            return cursor.rowcount > 0
+
+    async def list_pending_cleanups(self, *, limit: int = 20) -> list[str]:
+        db = self._require_db()
+        normalized_limit = max(int(limit), 1)
+        cursor = await db.execute(
+            """
+            SELECT id
+            FROM tasks
+            WHERE deleted_at IS NOT NULL
+              AND COALESCE(cleanup_done, 0) = 0
+            ORDER BY deleted_at ASC, id ASC
+            LIMIT ?
+            """,
+            (normalized_limit,),
+        )
+        rows = await cursor.fetchall()
+        return [str(row["id"]) for row in rows]
+
+    async def mark_cleanup_done(self, task_id: str) -> bool:
+        db = self._require_db()
+        async with self._lock:
+            cursor = await db.execute(
+                """
+                UPDATE tasks
+                SET cleanup_done = 1, updated_at = ?
+                WHERE id = ?
+                  AND deleted_at IS NOT NULL
+                  AND COALESCE(cleanup_done, 0) = 0
+                """,
+                (_serialize_datetime(utcnow()), task_id),
             )
             await db.commit()
             return cursor.rowcount > 0

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from collections import defaultdict
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
@@ -45,6 +46,9 @@ class TaskCancelResult:
 
 
 class AsyncGen3DEngine:
+    _CLEANUP_CONCURRENCY = 5
+    _CLEANUP_BATCH_SIZE = 20
+
     def __init__(
         self,
         *,
@@ -63,7 +67,9 @@ class AsyncGen3DEngine:
         self._artifact_store = artifact_store
         self._started = False
         self._event_queues: dict[str, set[asyncio.Queue[dict[str, Any]]]] = defaultdict(set)
-        self._background_tasks: set[asyncio.Task[None]] = set()
+        self._cleanup_event = asyncio.Event()
+        self._cleanup_semaphore = asyncio.Semaphore(self._CLEANUP_CONCURRENCY)
+        self._cleanup_worker_task: asyncio.Task[None] | None = None
         self._webhook_sender = webhook_sender or self._default_webhook_sender
         self._webhook_timeout_seconds = webhook_timeout_seconds
         self._webhook_max_retries = max(int(webhook_max_retries), 0)
@@ -77,13 +83,19 @@ class AsyncGen3DEngine:
         if self._started:
             return
         await self._pipeline.start()
+        if await self._has_pending_cleanups():
+            self._cleanup_event.set()
+        self._cleanup_worker_task = asyncio.create_task(self._run_cleanup_worker())
         self._started = True
 
     async def stop(self) -> None:
         if not self._started:
             return
-        if self._background_tasks:
-            await asyncio.gather(*self._background_tasks, return_exceptions=True)
+        if self._cleanup_worker_task is not None:
+            self._cleanup_worker_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._cleanup_worker_task
+            self._cleanup_worker_task = None
         await self._pipeline.stop()
         self._started = False
 
@@ -190,35 +202,57 @@ class AsyncGen3DEngine:
         if not deleted:
             return None
 
-        self._schedule_artifact_cleanup(task_id)
+        self._cleanup_event.set()
         return sequence
 
-    def _schedule_artifact_cleanup(self, task_id: str) -> None:
-        if self._artifact_store is None:
-            return
-        task = asyncio.create_task(self._cleanup_artifacts(task_id))
-        self._background_tasks.add(task)
-        task.add_done_callback(self._background_tasks.discard)
+    async def _has_pending_cleanups(self) -> bool:
+        pending = await self._task_store.list_pending_cleanups(limit=1)
+        return bool(pending)
 
-    async def _cleanup_artifacts(self, task_id: str) -> None:
-        if self._artifact_store is None:
-            return
-        try:
-            await self._artifact_store.delete_artifacts(task_id)
-        except ArtifactStoreOperationError as exc:
-            with bound_contextvars(task_id=task_id):
-                self._logger.warning(
-                    "task.artifact_cleanup_failed",
-                    stage=exc.stage_name,
-                    error=str(exc),
+    async def _run_cleanup_worker(self) -> None:
+        while True:
+            await self._cleanup_event.wait()
+            self._cleanup_event.clear()
+            while True:
+                pending_task_ids = await self._task_store.list_pending_cleanups(
+                    limit=self._CLEANUP_BATCH_SIZE
                 )
-        except Exception as exc:  # pragma: no cover - defensive guard
-            with bound_contextvars(task_id=task_id):
-                self._logger.warning(
-                    "task.artifact_cleanup_failed",
-                    stage="cleanup",
-                    error=str(exc),
+                if not pending_task_ids:
+                    break
+                await asyncio.gather(
+                    *(
+                        self._cleanup_single_task(task_id)
+                        for task_id in pending_task_ids
+                    )
                 )
+
+    async def _cleanup_single_task(self, task_id: str) -> None:
+        async with self._cleanup_semaphore:
+            if self._artifact_store is not None:
+                try:
+                    await self._artifact_store.delete_artifacts(task_id)
+                except ArtifactStoreOperationError as exc:
+                    with bound_contextvars(task_id=task_id):
+                        self._logger.warning(
+                            "task.artifact_cleanup_failed",
+                            stage=exc.stage_name,
+                            error=str(exc),
+                        )
+                except Exception as exc:  # pragma: no cover - defensive guard
+                    with bound_contextvars(task_id=task_id):
+                        self._logger.warning(
+                            "task.artifact_cleanup_failed",
+                            stage="cleanup",
+                            error=str(exc),
+                        )
+            try:
+                await self._task_store.mark_cleanup_done(task_id)
+            except Exception as exc:  # pragma: no cover - defensive guard
+                with bound_contextvars(task_id=task_id):
+                    self._logger.warning(
+                        "task.artifact_cleanup_mark_done_failed",
+                        error=str(exc),
+                    )
 
     async def get_task(self, task_id: str) -> RequestSequence | None:
         sequence = await self._task_store.get_task(task_id)
