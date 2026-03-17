@@ -3,7 +3,9 @@ from __future__ import annotations
 import asyncio
 import importlib
 import inspect
+import json
 import os
+import struct
 from pathlib import Path
 from typing import Any
 
@@ -64,7 +66,7 @@ class MockTrellis2Provider:
     ) -> None:
         _ = result
         _ = options
-        Path(output_path).write_bytes(b"MOCK_GLB")
+        Path(output_path).write_bytes(_build_mock_glb_bytes())
 
     @staticmethod
     def _normalize_failure_stage(value: Any) -> str | None:
@@ -352,6 +354,96 @@ class Trellis2Provider:
             )
 
         return "huggingface", raw_value
+
+
+def _build_mock_glb_bytes() -> bytes:
+    # Emit a tiny but valid triangle mesh so the browser UI can preview mock outputs.
+    positions = (
+        -0.6,
+        -0.45,
+        0.0,
+        0.6,
+        -0.45,
+        0.0,
+        0.0,
+        0.75,
+        0.0,
+    )
+    normals = (
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        1.0,
+    )
+    binary_chunk = struct.pack("<18f", *(positions + normals))
+    json_chunk = json.dumps(
+        {
+            "asset": {"version": "2.0"},
+            "scene": 0,
+            "scenes": [{"nodes": [0]}],
+            "nodes": [{"mesh": 0}],
+            "meshes": [
+                {
+                    "primitives": [
+                        {
+                            "attributes": {
+                                "POSITION": 0,
+                                "NORMAL": 1,
+                            }
+                        }
+                    ]
+                }
+            ],
+            "buffers": [{"byteLength": len(binary_chunk)}],
+            "bufferViews": [
+                {
+                    "buffer": 0,
+                    "byteOffset": 0,
+                    "byteLength": 36,
+                },
+                {
+                    "buffer": 0,
+                    "byteOffset": 36,
+                    "byteLength": 36,
+                },
+            ],
+            "accessors": [
+                {
+                    "bufferView": 0,
+                    "componentType": 5126,
+                    "count": 3,
+                    "type": "VEC3",
+                    "min": [-0.6, -0.45, 0.0],
+                    "max": [0.6, 0.75, 0.0],
+                },
+                {
+                    "bufferView": 1,
+                    "componentType": 5126,
+                    "count": 3,
+                    "type": "VEC3",
+                },
+            ],
+        },
+        separators=(",", ":"),
+    ).encode("utf-8")
+    json_padding = (4 - (len(json_chunk) % 4)) % 4
+    json_chunk += b" " * json_padding
+
+    total_length = 12 + 8 + len(json_chunk) + 8 + len(binary_chunk)
+    return b"".join(
+        [
+            struct.pack("<III", 0x46546C67, 2, total_length),
+            struct.pack("<I4s", len(json_chunk), b"JSON"),
+            json_chunk,
+            struct.pack("<I4s", len(binary_chunk), b"BIN\x00"),
+            binary_chunk,
+        ]
+    )
 
 
 async def _emit_progress(progress_cb, stage_name: str) -> None:

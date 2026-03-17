@@ -1,5 +1,6 @@
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -36,6 +37,10 @@ class ServingConfig(BaseSettings):
     uploads_dir: Path = Field(
         default=Path("./data/uploads"),
         alias="UPLOADS_DIR",
+    )
+    dev_proxy_target: str | None = Field(
+        default=None,
+        alias="DEV_PROXY_TARGET",
     )
     object_store_endpoint: str | None = Field(
         default=None,
@@ -157,6 +162,24 @@ class ServingConfig(BaseSettings):
             return None
         normalized = str(value).strip()
         return normalized or None
+
+    @field_validator("dev_proxy_target", mode="before")
+    @classmethod
+    def _normalize_dev_proxy_target(cls, value: Any) -> str | None:
+        if value is None:
+            return None
+        normalized = str(value).strip().rstrip("/")
+        return normalized or None
+
+    @field_validator("dev_proxy_target")
+    @classmethod
+    def _validate_dev_proxy_target(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        parsed = urlsplit(value)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("DEV_PROXY_TARGET must be a valid http(s) URL")
+        return value
 
     @field_validator("allowed_callback_domains", mode="before")
     @classmethod

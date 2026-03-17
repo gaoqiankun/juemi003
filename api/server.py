@@ -10,13 +10,16 @@ from email.parser import BytesParser
 from email.policy import default as default_email_policy
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 from datetime import datetime
 
+import httpx
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
+from starlette.background import BackgroundTask
 
 from gen3d.api.schemas import (
     AdminApiKeyCreateRequest,
@@ -76,6 +79,17 @@ ALLOWED_UPLOAD_CONTENT_TYPES = {
     "image/webp": ".webp",
     "image/gif": ".gif",
 }
+HOP_BY_HOP_HEADERS = {
+    "connection",
+    "keep-alive",
+    "proxy-authenticate",
+    "proxy-authorization",
+    "te",
+    "trailer",
+    "transfer-encoding",
+    "upgrade",
+}
+PROXY_REQUEST_HEADER_EXCLUSIONS = HOP_BY_HOP_HEADERS | {"host", "content-length"}
 
 
 @dataclass(slots=True)
@@ -277,17 +291,26 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
         pipeline=pipeline,
         engine=engine,
     )
+    proxy_client: httpx.AsyncClient | None = None
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        nonlocal proxy_client
         app.state.container = container
         config.uploads_dir.mkdir(parents=True, exist_ok=True)
         await container.task_store.initialize()
         await container.api_key_store.initialize()
         await artifact_store.initialize()
+        if config.dev_proxy_target is not None:
+            proxy_client = httpx.AsyncClient(
+                follow_redirects=False,
+                timeout=httpx.Timeout(connect=10.0, read=None, write=30.0, pool=30.0),
+            )
         await container.engine.start()
         yield
         await container.engine.stop()
+        if proxy_client is not None:
+            await proxy_client.aclose()
         await container.api_key_store.close()
         await container.task_store.close()
 
@@ -298,6 +321,21 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
         name="static",
     )
     auth_scheme = HTTPBearer(auto_error=False)
+
+    @app.middleware("http")
+    async def maybe_proxy_dev_requests(request: Request, call_next):
+        if not _should_proxy_dev_request(request, config):
+            return await call_next(request)
+        if proxy_client is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="dev proxy client is not ready",
+            )
+        return await _forward_dev_proxy_request(
+            request=request,
+            proxy_client=proxy_client,
+            proxy_target=config.dev_proxy_target,
+        )
 
     def get_container() -> AppContainer:
         return container
@@ -790,6 +828,29 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
     async def root() -> Response:
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
+    @app.api_route(
+        "/{proxy_path:path}",
+        methods=["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"],
+        include_in_schema=False,
+    )
+    async def dev_proxy_catch_all(
+        proxy_path: str,
+        request: Request,
+    ) -> Response:
+        _ = proxy_path
+        if not _should_proxy_dev_request(request, config):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="not found")
+        if proxy_client is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="dev proxy client is not ready",
+            )
+        return await _forward_dev_proxy_request(
+            request=request,
+            proxy_client=proxy_client,
+            proxy_target=config.dev_proxy_target,
+        )
+
     return app
 
 
@@ -808,6 +869,78 @@ def _is_valid_token(provided_token: str | None, configured_token: str | None) ->
         and configured_token is not None
         and secrets.compare_digest(provided_token, configured_token)
     )
+
+
+def _should_proxy_dev_request(request: Request, config: ServingConfig) -> bool:
+    return config.dev_proxy_target is not None and not request.url.path.startswith("/static")
+
+
+async def _forward_dev_proxy_request(
+    *,
+    request: Request,
+    proxy_client: httpx.AsyncClient,
+    proxy_target: str | None,
+) -> Response:
+    if proxy_target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="not found")
+
+    upstream_request = proxy_client.build_request(
+        method=request.method,
+        url=_build_dev_proxy_url(proxy_target, request),
+        headers=_build_proxy_request_headers(request),
+        content=await request.body(),
+    )
+    try:
+        upstream_response = await proxy_client.send(upstream_request, stream=True)
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"dev proxy request failed: {exc}",
+        ) from exc
+
+    return StreamingResponse(
+        upstream_response.aiter_raw(),
+        status_code=upstream_response.status_code,
+        headers=_build_proxy_response_headers(upstream_response),
+        background=BackgroundTask(upstream_response.aclose),
+    )
+
+
+def _build_dev_proxy_url(proxy_target: str, request: Request) -> str:
+    target = urlsplit(proxy_target)
+    target_path = target.path.rstrip("/")
+    if not target_path.startswith("/") and target_path:
+        target_path = f"/{target_path}"
+    combined_path = f"{target_path}{request.url.path}" if target_path else request.url.path
+    if not combined_path.startswith("/"):
+        combined_path = f"/{combined_path}"
+    return urlunsplit(
+        (
+            target.scheme,
+            target.netloc,
+            combined_path,
+            request.url.query,
+            "",
+        )
+    )
+
+
+def _build_proxy_request_headers(request: Request) -> list[tuple[str, str]]:
+    headers: list[tuple[str, str]] = []
+    for name, value in request.headers.raw:
+        decoded_name = name.decode("latin-1")
+        if decoded_name.lower() in PROXY_REQUEST_HEADER_EXCLUSIONS:
+            continue
+        headers.append((decoded_name, value.decode("latin-1")))
+    return headers
+
+
+def _build_proxy_response_headers(response: httpx.Response) -> dict[str, str]:
+    return {
+        name: value
+        for name, value in response.headers.items()
+        if name.lower() not in HOP_BY_HOP_HEADERS
+    }
 
 
 async def _extract_uploaded_file(request: Request) -> tuple[str, str, bytes]:

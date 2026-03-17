@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Awaitable, Callable
 
 import pytest
+import httpx
 from fastapi.testclient import TestClient
 from prometheus_client.parser import text_string_to_metric_families
 
@@ -459,6 +460,119 @@ def test_health_and_ready_endpoints(tmp_path: Path) -> None:
         "status": "ready",
         "service": "gen3d",
     }
+
+
+def test_dev_proxy_is_disabled_by_default(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    class UnexpectedProxyClient:
+        def __init__(self, *args, **kwargs) -> None:
+            raise AssertionError("dev proxy client should not be created when unset")
+
+    monkeypatch.setattr(server_module.httpx, "AsyncClient", UnexpectedProxyClient)
+
+    config = ServingConfig(
+        database_path=tmp_path / "gen3d.sqlite3",
+        artifacts_dir=tmp_path / "artifacts",
+        uploads_dir=tmp_path / "uploads",
+    )
+    with TestClient(create_app(config)) as client:
+        ready_response = client.get("/ready")
+        root_response = client.get("/")
+
+    assert ready_response.status_code == 503
+    assert ready_response.json() == {"status": "not_ready", "service": "gen3d"}
+    assert root_response.status_code == 204
+
+
+def test_dev_proxy_forwards_non_static_requests(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    forwarded_requests: list[dict[str, Any]] = []
+    proxy_clients: list[Any] = []
+
+    class FakeProxyClient:
+        def __init__(self, *args, **kwargs) -> None:
+            self.closed = False
+            proxy_clients.append(self)
+
+        def build_request(self, method: str, url: str, headers=None, content=None) -> httpx.Request:
+            return httpx.Request(method, url, headers=headers, content=content)
+
+        async def send(self, request: httpx.Request, stream: bool = False) -> httpx.Response:
+            forwarded_requests.append(
+                {
+                    "method": request.method,
+                    "url": str(request.url),
+                    "headers": {key.lower(): value for key, value in request.headers.items()},
+                    "body": request.content,
+                    "stream": stream,
+                }
+            )
+            payload = {
+                "proxied": True,
+                "path": request.url.path,
+                "query": dict(request.url.params),
+            }
+            return httpx.Response(
+                status_code=200,
+                headers={"content-type": "application/json", "x-dev-proxy": "1"},
+                stream=httpx.ByteStream(json.dumps(payload).encode("utf-8")),
+                request=request,
+            )
+
+        async def aclose(self) -> None:
+            self.closed = True
+
+    monkeypatch.setattr(server_module.httpx, "AsyncClient", FakeProxyClient)
+
+    config = ServingConfig(
+        database_path=tmp_path / "gen3d.sqlite3",
+        artifacts_dir=tmp_path / "artifacts",
+        uploads_dir=tmp_path / "uploads",
+        dev_proxy_target="https://gen3d.frps.zhifouai.com",
+    )
+    with TestClient(create_app(config)) as client:
+        ready_response = client.get(
+            "/ready?check=1",
+            headers={"Authorization": "Bearer upstream-token", "X-Debug": "true"},
+        )
+        static_response = client.get("/static/index.html")
+        tasks_response = client.post(
+            "/v1/tasks?debug=1",
+            headers={
+                "Authorization": "Bearer upstream-token",
+                "Content-Type": "application/json",
+                "X-Trace": "proxy-test",
+            },
+            content=json.dumps({"type": "image_to_3d", "input_url": "upload://demo"}),
+        )
+
+    assert ready_response.status_code == 200
+    assert ready_response.json() == {
+        "proxied": True,
+        "path": "/ready",
+        "query": {"check": "1"},
+    }
+    assert ready_response.headers["x-dev-proxy"] == "1"
+    assert static_response.status_code == 200
+    assert tasks_response.status_code == 200
+    assert tasks_response.json() == {
+        "proxied": True,
+        "path": "/v1/tasks",
+        "query": {"debug": "1"},
+    }
+    assert len(forwarded_requests) == 2
+    assert forwarded_requests[0]["method"] == "GET"
+    assert forwarded_requests[0]["url"] == "https://gen3d.frps.zhifouai.com/ready?check=1"
+    assert forwarded_requests[0]["headers"]["authorization"] == "Bearer upstream-token"
+    assert forwarded_requests[0]["headers"]["x-debug"] == "true"
+    assert forwarded_requests[0]["stream"] is True
+    assert forwarded_requests[1]["method"] == "POST"
+    assert forwarded_requests[1]["url"] == "https://gen3d.frps.zhifouai.com/v1/tasks?debug=1"
+    assert forwarded_requests[1]["headers"]["authorization"] == "Bearer upstream-token"
+    assert forwarded_requests[1]["headers"]["x-trace"] == "proxy-test"
+    assert json.loads(forwarded_requests[1]["body"].decode("utf-8")) == {
+        "type": "image_to_3d",
+        "input_url": "upload://demo",
+    }
+    assert proxy_clients and proxy_clients[0].closed is True
 
 
 def test_app_startup_does_not_trigger_model_load(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1813,7 +1927,7 @@ def test_create_task_runs_full_mock_pipeline_and_exposes_artifact_metadata(tmp_p
     assert artifacts_response.json()["artifacts"][0]["type"] == "glb"
     assert artifacts_response.json()["artifacts"][0] == final_payload["artifacts"][0]
     assert download_response.status_code == 200
-    assert download_response.content == b"MOCK_GLB"
+    assert download_response.content.startswith(b"glTF")
     assert metrics_response.status_code == 200
     metrics_payload = metrics_response.text
     assert "gen3d_queue_depth" in metrics_payload

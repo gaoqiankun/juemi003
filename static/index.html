@@ -3,1993 +3,747 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>gen3d Web 测试页</title>
-  <script type="module" src="https://cdn.jsdelivr.net/npm/@google/model-viewer/dist/model-viewer.min.js"></script>
+  <meta name="theme-color" content="#050816">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Cdefs%3E%3CradialGradient id='g' cx='28%25' cy='28%25' r='76%25'%3E%3Cstop offset='0%25' stop-color='%23fff7ed'/%3E%3Cstop offset='35%25' stop-color='%23f97316'/%3E%3Cstop offset='100%25' stop-color='%23fb7185'/%3E%3C/radialGradient%3E%3C/defs%3E%3Crect width='48' height='48' rx='14' fill='%23040712'/%3E%3Cpath d='M12 31 24 12l12 19-12 5z' fill='url(%23g)'/%3E%3C/svg%3E">
+  <title>gen3d Studio</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.1.11"></script>
+  <script type="importmap">
+    {
+      "imports": {
+        "lucide": "https://esm.sh/lucide@0.477.0?bundle",
+        "three": "https://cdn.jsdelivr.net/npm/three@0.167.1/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.167.1/examples/jsm/"
+      }
+    }
+  </script>
   <style>
     :root {
-      color-scheme: light;
-      --bg: #f2efe7;
-      --panel: rgba(255, 252, 245, 0.9);
-      --panel-strong: #fffaf1;
-      --text: #1a1f1d;
-      --muted: #61706a;
-      --line: rgba(26, 31, 29, 0.12);
-      --accent: #10634d;
-      --accent-soft: rgba(16, 99, 77, 0.12);
-      --warn: #9c5c0b;
-      --danger: #9e2d2d;
-      --shadow: 0 18px 60px rgba(30, 38, 34, 0.12);
-      --radius: 20px;
+      color-scheme: dark;
+      --bg: #050816;
+      --bg-soft: #0d1223;
+      --surface: rgba(10, 16, 31, 0.86);
+      --surface-strong: rgba(9, 14, 27, 0.96);
+      --surface-muted: rgba(17, 24, 39, 0.78);
+      --border: rgba(255, 255, 255, 0.1);
+      --border-strong: rgba(251, 146, 60, 0.28);
+      --text: #eff6ff;
+      --muted: #95a3be;
+      --brand: #f97316;
+      --brand-2: #fb7185;
+      --success: #34d399;
+      --error: #fb7185;
+      --warning: #f59e0b;
+      --shadow: 0 32px 80px rgba(2, 8, 23, 0.52);
+      --shadow-soft: 0 22px 50px rgba(2, 8, 23, 0.28);
+      --grid: rgba(255, 255, 255, 0.05);
     }
 
     * {
       box-sizing: border-box;
     }
 
+    html,
+    body {
+      min-height: 100%;
+    }
+
     body {
       margin: 0;
-      min-height: 100vh;
-      font-family: "Avenir Next", "SF Pro Display", "PingFang SC", sans-serif;
+      font-family: "Avenir Next", "Segoe UI", sans-serif;
       color: var(--text);
       background:
-        radial-gradient(circle at top left, rgba(16, 99, 77, 0.16), transparent 30%),
-        radial-gradient(circle at top right, rgba(156, 92, 11, 0.14), transparent 24%),
-        linear-gradient(180deg, #ece7dc 0%, var(--bg) 35%, #f7f3ea 100%);
-      line-height: 1.5;
+        radial-gradient(circle at top left, rgba(249, 115, 22, 0.22), transparent 28%),
+        radial-gradient(circle at 82% 16%, rgba(251, 113, 133, 0.16), transparent 26%),
+        radial-gradient(circle at 18% 84%, rgba(56, 189, 248, 0.12), transparent 20%),
+        linear-gradient(180deg, #040712 0%, #070b16 42%, #050816 100%);
+      overflow-x: hidden;
     }
 
-    a {
-      color: inherit;
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(var(--grid) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+      background-size: 140px 140px;
+      mask-image: radial-gradient(circle at center, rgba(0, 0, 0, 0.72), transparent 82%);
+      opacity: 0.2;
+      pointer-events: none;
     }
 
-    .page {
-      width: min(1180px, calc(100% - 32px));
-      margin: 0 auto;
-      padding: 28px 0 56px;
+    body::after {
+      content: "";
+      position: fixed;
+      inset: 0;
+      background: linear-gradient(180deg, rgba(5, 8, 22, 0.1), rgba(5, 8, 22, 0.55));
+      pointer-events: none;
     }
 
-    .hero {
-      margin-bottom: 20px;
-      padding: 28px;
-      border: 1px solid var(--line);
-      border-radius: 28px;
-      background:
-        linear-gradient(135deg, rgba(255, 250, 241, 0.96), rgba(245, 239, 227, 0.92)),
-        var(--panel);
-      box-shadow: var(--shadow);
-    }
-
-    .hero h1 {
-      margin: 0 0 12px;
-      font-size: clamp(2rem, 3.8vw, 3.4rem);
-      line-height: 1;
-      letter-spacing: -0.04em;
-    }
-
-    .hero p {
-      margin: 0;
-      max-width: 760px;
-      color: var(--muted);
-      font-size: 1rem;
-    }
-
-    .hero-tools {
-      display: grid;
-      gap: 14px;
-      margin-top: 22px;
-      padding-top: 18px;
-      border-top: 1px solid var(--line);
-    }
-
-    .hero-form {
-      display: grid;
-      gap: 12px;
-      grid-template-columns: minmax(0, 1fr) auto;
-      align-items: end;
-    }
-
-    .layout {
-      display: grid;
-      gap: 20px;
-      grid-template-columns: minmax(0, 360px) minmax(0, 1fr);
-      align-items: start;
-    }
-
-    .stack {
-      display: grid;
-      gap: 20px;
-    }
-
-    .panel {
-      padding: 22px;
-      border: 1px solid var(--line);
-      border-radius: var(--radius);
-      background: var(--panel);
-      box-shadow: var(--shadow);
-      backdrop-filter: blur(10px);
-    }
-
-    .panel h2,
-    .panel h3 {
-      margin: 0 0 14px;
-      line-height: 1.1;
-      letter-spacing: -0.03em;
-    }
-
-    .hint {
-      margin: 0 0 14px;
-      color: var(--muted);
-      font-size: 0.95rem;
-    }
-
-    .grid {
-      display: grid;
-      gap: 14px;
-    }
-
-    .field {
-      display: grid;
-      gap: 8px;
-    }
-
-    .field label,
-    .field .label {
-      font-size: 0.9rem;
-      font-weight: 600;
-      color: var(--muted);
-    }
-
-    input,
     button,
+    input,
     textarea {
       font: inherit;
     }
 
-    input[type="text"],
-    input[type="url"],
-    input[type="password"],
-    input[type="file"] {
-      width: 100%;
-      padding: 12px 14px;
-      border: 1px solid rgba(26, 31, 29, 0.15);
-      border-radius: 14px;
-      background: rgba(255, 255, 255, 0.76);
-      color: var(--text);
+    a {
+      color: inherit;
+      text-decoration: none;
     }
 
-    input:focus {
-      outline: 2px solid rgba(16, 99, 77, 0.18);
-      border-color: rgba(16, 99, 77, 0.35);
+    [hidden] {
+      display: none !important;
     }
 
-    .actions {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
+    .glass-panel {
+      background: linear-gradient(180deg, rgba(10, 16, 31, 0.9), rgba(10, 16, 31, 0.74));
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow-soft);
+      backdrop-filter: blur(18px);
+    }
+
+    .glass-panel-strong {
+      background: linear-gradient(180deg, rgba(8, 13, 27, 0.98), rgba(10, 16, 31, 0.94));
+      border: 1px solid rgba(249, 115, 22, 0.18);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(22px);
+    }
+
+    .brand-halo {
+      position: relative;
+      isolation: isolate;
+    }
+
+    .brand-halo::before {
+      content: "";
+      position: absolute;
+      inset: -1px;
+      border-radius: inherit;
+      background: linear-gradient(135deg, rgba(249, 115, 22, 0.74), rgba(251, 113, 133, 0.5), rgba(56, 189, 248, 0.18));
+      filter: blur(18px);
+      opacity: 0.5;
+      z-index: -1;
+    }
+
+    .header-shell {
+      position: sticky;
+      top: 0;
+      z-index: 40;
+      backdrop-filter: blur(18px);
+      background: linear-gradient(180deg, rgba(4, 7, 18, 0.82), rgba(4, 7, 18, 0.58));
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .nav-link {
+      display: inline-flex;
       align-items: center;
-    }
-
-    button {
-      cursor: pointer;
-      border: 0;
+      gap: 10px;
+      min-height: 44px;
+      padding: 0 16px;
       border-radius: 999px;
-      padding: 11px 18px;
-      background: var(--text);
-      color: #fffaf1;
-      transition: transform 0.18s ease, opacity 0.18s ease, background 0.18s ease;
+      border: 1px solid transparent;
+      color: var(--muted);
+      transition: color 180ms ease, border-color 180ms ease, background 180ms ease, transform 180ms ease;
     }
 
-    button:hover {
+    .nav-link:hover,
+    .nav-link:focus-visible {
+      color: var(--text);
+      border-color: rgba(255, 255, 255, 0.12);
+      background: rgba(255, 255, 255, 0.04);
+      outline: none;
+    }
+
+    .nav-link.is-active {
+      color: var(--text);
+      border-color: rgba(249, 115, 22, 0.32);
+      background: linear-gradient(135deg, rgba(249, 115, 22, 0.16), rgba(251, 113, 133, 0.08));
+      box-shadow: inset 0 0 0 1px rgba(249, 115, 22, 0.16);
+    }
+
+    .pill-button {
+      transition: transform 180ms ease, border-color 180ms ease, background 180ms ease, box-shadow 180ms ease;
+    }
+
+    .pill-button:hover:not(:disabled),
+    .pill-button:focus-visible:not(:disabled) {
       transform: translateY(-1px);
+      box-shadow: 0 16px 32px rgba(15, 23, 42, 0.2);
+      outline: none;
     }
 
-    button.secondary {
-      background: rgba(26, 31, 29, 0.08);
-      color: var(--text);
-    }
-
-    button.ghost {
-      background: transparent;
-      border: 1px solid var(--line);
-      color: var(--muted);
-    }
-
-    button:disabled {
-      opacity: 0.6;
-      cursor: wait;
+    .pill-button:disabled,
+    .ghost-button:disabled,
+    .card-action:disabled {
+      cursor: not-allowed;
+      opacity: 0.48;
       transform: none;
+      box-shadow: none;
     }
 
-    .status-text {
-      min-height: 1.25rem;
-      color: var(--muted);
-      font-size: 0.92rem;
-    }
-
-    .status-text.error {
-      color: var(--danger);
-    }
-
-    .status-text.success {
-      color: var(--accent);
-    }
-
-    .picker {
-      padding: 14px;
-      border: 1px dashed rgba(16, 99, 77, 0.3);
-      border-radius: 16px;
-      background: var(--accent-soft);
-    }
-
-    .picker.dragover {
-      border-color: rgba(16, 99, 77, 0.72);
-      background: rgba(16, 99, 77, 0.16);
-    }
-
-    .picker strong {
-      display: block;
-      margin-bottom: 6px;
-    }
-
-    .picker input[type="file"] {
-      display: none;
-    }
-
-    .preview-image {
-      display: none;
-      width: 100%;
-      margin-top: 12px;
-      border-radius: 16px;
-      border: 1px solid var(--line);
-      object-fit: cover;
-      max-height: 220px;
-    }
-
-    .preview-image.visible {
-      display: block;
-    }
-
-    .pill-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-    }
-
-    .pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 8px 12px;
-      border-radius: 999px;
-      background: rgba(26, 31, 29, 0.06);
-      color: var(--muted);
-      font-size: 0.9rem;
-    }
-
-    .task-list {
-      display: grid;
-      gap: 18px;
-    }
-
-    .task-card {
-      display: grid;
-      gap: 16px;
-      padding: 20px;
-      border-radius: 22px;
-      border: 1px solid var(--line);
-      background: linear-gradient(180deg, rgba(255, 250, 241, 0.96), rgba(255, 255, 255, 0.82));
-    }
-
-    .task-card[data-action="inspect"] {
-      cursor: pointer;
-    }
-
-    .task-card[data-action="inspect"]:focus-visible {
-      outline: 2px solid rgba(16, 99, 77, 0.26);
-      outline-offset: 2px;
-    }
-
-    .task-head {
-      display: flex;
-      flex-wrap: wrap;
-      justify-content: space-between;
-      gap: 12px;
-      align-items: start;
-    }
-
-    .task-title {
-      min-width: 0;
-    }
-
-    .task-title h3 {
-      margin-bottom: 6px;
-      font-size: 1.05rem;
-    }
-
-    .task-id {
-      word-break: break-all;
-      color: var(--muted);
-      font-size: 0.9rem;
-    }
-
-    .history-summary {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      color: var(--muted);
-      font-size: 0.88rem;
-    }
-
-    .badges {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      justify-content: end;
-    }
-
-    .badge {
-      display: inline-flex;
-      align-items: center;
-      padding: 7px 11px;
-      border-radius: 999px;
-      background: rgba(26, 31, 29, 0.08);
+    .ghost-button,
+    .card-action {
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: rgba(255, 255, 255, 0.04);
       color: var(--text);
-      font-size: 0.85rem;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
     }
 
-    .badge.running {
-      background: rgba(16, 99, 77, 0.12);
-      color: var(--accent);
+    .ghost-button:hover:not(:disabled),
+    .card-action:hover:not(:disabled) {
+      border-color: rgba(255, 255, 255, 0.16);
+      background: rgba(255, 255, 255, 0.08);
     }
 
-    .badge.terminal.success {
-      background: rgba(16, 99, 77, 0.14);
-      color: var(--accent);
+    .card-action.danger {
+      border-color: rgba(251, 113, 133, 0.24);
+      color: #fecdd3;
+      background: rgba(251, 113, 133, 0.1);
     }
 
-    .badge.terminal.failed {
-      background: rgba(158, 45, 45, 0.12);
-      color: var(--danger);
+    .card-action.danger:hover:not(:disabled) {
+      border-color: rgba(251, 113, 133, 0.34);
+      background: rgba(251, 113, 133, 0.16);
     }
 
-    .badge.transport {
-      background: rgba(156, 92, 11, 0.12);
-      color: var(--warn);
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      flex: 0 0 auto;
+      box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.04);
     }
 
-    .progress-wrap {
-      display: grid;
+    .status-dot.ready,
+    .status-dot.success {
+      background: var(--success);
+      box-shadow: 0 0 0 4px rgba(52, 211, 153, 0.14), 0 0 18px rgba(52, 211, 153, 0.46);
+    }
+
+    .status-dot.error,
+    .status-dot.empty {
+      background: var(--error);
+      box-shadow: 0 0 0 4px rgba(251, 113, 133, 0.12), 0 0 18px rgba(251, 113, 133, 0.32);
+    }
+
+    .status-dot.pending {
+      background: var(--warning);
+      box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.12), 0 0 18px rgba(245, 158, 11, 0.32);
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
       gap: 8px;
+      min-height: 34px;
+      border-radius: 999px;
+      padding: 7px 12px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      border: 1px solid transparent;
     }
 
-    .progress-meta {
-      display: flex;
-      justify-content: space-between;
-      gap: 10px;
-      color: var(--muted);
-      font-size: 0.92rem;
+    .status-badge svg {
+      width: 16px;
+      height: 16px;
+    }
+
+    .status-badge.queued {
+      color: #fcd34d;
+      border-color: rgba(245, 158, 11, 0.24);
+      background: rgba(245, 158, 11, 0.12);
+    }
+
+    .status-badge.processing {
+      color: #7dd3fc;
+      border-color: rgba(56, 189, 248, 0.24);
+      background: rgba(56, 189, 248, 0.1);
+    }
+
+    .status-badge.done {
+      color: #86efac;
+      border-color: rgba(52, 211, 153, 0.22);
+      background: rgba(52, 211, 153, 0.1);
+    }
+
+    .status-badge.failed {
+      color: #fecdd3;
+      border-color: rgba(251, 113, 133, 0.24);
+      background: rgba(251, 113, 133, 0.1);
+    }
+
+    .status-badge.processing svg,
+    .spin-icon {
+      animation: spin 1s linear infinite;
+    }
+
+    .progress-track {
+      width: 100%;
+      height: 10px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.08);
+      overflow: hidden;
     }
 
     .progress-bar {
-      overflow: hidden;
-      height: 12px;
-      border-radius: 999px;
-      background: rgba(26, 31, 29, 0.08);
-    }
-
-    .progress-fill {
       height: 100%;
       border-radius: inherit;
-      background: linear-gradient(90deg, #10634d, #4ea07b);
-      transition: width 0.25s ease;
+      background: linear-gradient(90deg, rgba(249, 115, 22, 0.9), rgba(251, 113, 133, 0.95));
+      box-shadow: 0 0 24px rgba(249, 115, 22, 0.34);
+      transition: width 220ms ease;
     }
 
-    .meta-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-      gap: 12px;
+    .dropzone {
+      position: relative;
+      overflow: hidden;
+      border: 1px dashed rgba(251, 146, 60, 0.34);
+      background:
+        linear-gradient(180deg, rgba(15, 23, 42, 0.84), rgba(12, 18, 35, 0.96)),
+        radial-gradient(circle at top, rgba(249, 115, 22, 0.18), transparent 42%);
+      transition: border-color 180ms ease, transform 180ms ease, box-shadow 180ms ease;
     }
 
-    .meta-box {
-      padding: 12px 14px;
-      border-radius: 16px;
-      background: rgba(26, 31, 29, 0.05);
+    .dropzone::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(135deg, rgba(249, 115, 22, 0.14), transparent 40%, rgba(251, 113, 133, 0.12));
+      opacity: 0;
+      transition: opacity 180ms ease;
+      pointer-events: none;
     }
 
-    .meta-box .k {
+    .dropzone:hover,
+    .dropzone:focus-within,
+    .dropzone.dragover {
+      transform: translateY(-2px);
+      border-color: rgba(249, 115, 22, 0.64);
+      box-shadow: 0 24px 44px rgba(249, 115, 22, 0.12);
+    }
+
+    .dropzone:hover::after,
+    .dropzone:focus-within::after,
+    .dropzone.dragover::after {
+      opacity: 1;
+    }
+
+    .thumbnail-frame {
+      position: relative;
+      overflow: hidden;
+      border-radius: 26px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background:
+        radial-gradient(circle at top, rgba(249, 115, 22, 0.18), transparent 38%),
+        linear-gradient(180deg, rgba(12, 18, 35, 0.96), rgba(8, 12, 24, 0.98));
+      aspect-ratio: 1.28 / 1;
+    }
+
+    .thumbnail-frame img,
+    .thumbnail-frame canvas {
+      width: 100%;
+      height: 100%;
       display: block;
-      margin-bottom: 4px;
-      font-size: 0.8rem;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      color: var(--muted);
+      object-fit: cover;
     }
 
-    .meta-box .v {
-      font-weight: 600;
-      word-break: break-word;
-    }
-
-    .task-note {
-      padding: 12px 14px;
-      border-radius: 16px;
-      background: rgba(156, 92, 11, 0.1);
-      color: #6d4309;
-      font-size: 0.92rem;
-    }
-
-    .task-note.error {
-      background: rgba(158, 45, 45, 0.1);
-      color: var(--danger);
-    }
-
-    .artifact-box {
-      display: grid;
-      gap: 14px;
+    .thumbnail-overlay {
+      position: absolute;
+      inset: auto 0 0 0;
       padding: 14px;
-      border-radius: 18px;
-      background: var(--panel-strong);
-      border: 1px solid rgba(16, 99, 77, 0.16);
+      background: linear-gradient(180deg, transparent, rgba(4, 8, 18, 0.88));
+      color: var(--muted);
+      font-size: 0.78rem;
     }
 
-    .artifact-link {
+    .thumbnail-placeholder {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: rgba(239, 246, 255, 0.82);
+      background:
+        radial-gradient(circle at top, rgba(249, 115, 22, 0.18), transparent 32%),
+        radial-gradient(circle at bottom right, rgba(56, 189, 248, 0.12), transparent 24%);
+    }
+
+    .task-card {
+      position: relative;
+      overflow: hidden;
+      border-radius: 28px;
+      transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+    }
+
+    .task-card::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      background: radial-gradient(circle at top right, rgba(249, 115, 22, 0.18), transparent 34%);
+      opacity: 0;
+      transition: opacity 180ms ease;
+      pointer-events: none;
+    }
+
+    .task-card:hover,
+    .task-card:focus-visible,
+    .task-card.is-selected {
+      transform: translateY(-3px);
+      border-color: rgba(249, 115, 22, 0.28);
+      box-shadow: 0 26px 48px rgba(2, 8, 23, 0.42);
+      outline: none;
+    }
+
+    .task-card:hover::before,
+    .task-card:focus-visible::before,
+    .task-card.is-selected::before {
+      opacity: 1;
+    }
+
+    .filter-pill {
       display: inline-flex;
       align-items: center;
-      gap: 10px;
-      width: fit-content;
-      text-decoration: none;
-      font-weight: 700;
-      padding: 10px 14px;
+      justify-content: center;
+      min-height: 42px;
+      padding: 0 16px;
       border-radius: 999px;
-      background: var(--accent-soft);
-      color: var(--accent);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--muted);
+      transition: all 180ms ease;
     }
 
-    model-viewer {
-      width: 100%;
-      height: 360px;
-      border-radius: 18px;
-      background:
-        radial-gradient(circle at top, rgba(16, 99, 77, 0.14), transparent 36%),
-        linear-gradient(180deg, #fbf7ef 0%, #ebe4d7 100%);
+    .filter-pill.is-active {
+      color: var(--text);
+      border-color: rgba(249, 115, 22, 0.28);
+      background: linear-gradient(135deg, rgba(249, 115, 22, 0.16), rgba(251, 113, 133, 0.08));
+      box-shadow: inset 0 0 0 1px rgba(249, 115, 22, 0.16);
     }
 
-    details {
-      border: 1px solid rgba(26, 31, 29, 0.08);
-      border-radius: 16px;
-      background: rgba(255, 255, 255, 0.58);
-      overflow: hidden;
-    }
-
-    summary {
-      cursor: pointer;
-      list-style: none;
-      padding: 12px 14px;
-      font-weight: 700;
-    }
-
-    summary::-webkit-details-marker {
-      display: none;
-    }
-
-    .event-log {
+    .meta-card {
       display: grid;
       gap: 8px;
-      padding: 0 14px 14px;
+      padding: 14px;
+      border-radius: 20px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(255, 255, 255, 0.04);
     }
 
-    .event-item {
-      display: flex;
-      justify-content: space-between;
-      gap: 12px;
-      padding: 10px 12px;
-      border-radius: 14px;
-      background: rgba(26, 31, 29, 0.04);
-      font-size: 0.9rem;
-    }
-
-    .event-item code {
-      color: var(--accent);
-      font-weight: 700;
-    }
-
-    .event-item time {
-      flex: 0 0 auto;
+    .muted-label {
+      font-size: 0.72rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
       color: var(--muted);
-      font-size: 0.82rem;
     }
 
-    .empty {
-      padding: 22px;
+    .log-feed {
+      display: grid;
+      gap: 10px;
+      max-height: 340px;
+      overflow: auto;
+      padding-right: 4px;
+    }
+
+    .log-item {
       border-radius: 18px;
-      background: rgba(26, 31, 29, 0.05);
-      color: var(--muted);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(255, 255, 255, 0.04);
+      padding: 14px 16px;
+    }
+
+    .viewer-stage {
+      position: relative;
+      min-height: 420px;
+      overflow: hidden;
+      border-radius: 30px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background:
+        radial-gradient(circle at top, rgba(249, 115, 22, 0.16), transparent 32%),
+        linear-gradient(180deg, rgba(8, 12, 24, 0.98), rgba(5, 8, 22, 0.98));
+    }
+
+    .viewer-3d-canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    .viewer-3d-overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(180deg, rgba(5, 8, 22, 0.26), rgba(5, 8, 22, 0.56));
+      color: rgba(239, 246, 255, 0.88);
       text-align: center;
+      padding: 24px;
+      transition: opacity 180ms ease;
     }
 
-    .footer-note {
-      margin-top: 16px;
+    .viewer-3d-message {
+      max-width: 260px;
+      font-size: 0.95rem;
+      line-height: 1.6;
+    }
+
+    .viewer-3d-overlay[data-tone="loading"] .viewer-3d-message::before {
+      content: "";
+      display: block;
+      width: 34px;
+      height: 34px;
+      border-radius: 999px;
+      border: 2px solid rgba(255, 255, 255, 0.16);
+      border-top-color: rgba(249, 115, 22, 0.9);
+      margin: 0 auto 14px;
+      animation: spin 0.8s linear infinite;
+    }
+
+    .viewer-3d-overlay[data-tone="error"] {
+      background: linear-gradient(180deg, rgba(127, 29, 29, 0.26), rgba(69, 10, 10, 0.72));
+      color: #fecdd3;
+    }
+
+    .drawer-backdrop,
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 60;
+      background: rgba(2, 6, 23, 0.68);
+      backdrop-filter: blur(14px);
+    }
+
+    .drawer-panel {
+      width: min(560px, 100vw);
+      height: 100vh;
+      margin-left: auto;
+      transform: translateX(0);
+    }
+
+    .drawer-surface,
+    .modal-surface {
+      height: 100%;
+      background: linear-gradient(180deg, rgba(8, 13, 27, 0.98), rgba(10, 16, 31, 0.95));
+      border-left: 1px solid rgba(255, 255, 255, 0.08);
+      box-shadow: -24px 0 48px rgba(2, 8, 23, 0.36);
+    }
+
+    .drawer-scroll,
+    .modal-scroll {
+      max-height: 100%;
+      overflow: auto;
+      padding: 24px;
+    }
+
+    .toast-stack {
+      position: fixed;
+      right: 20px;
+      bottom: 20px;
+      z-index: 90;
+      display: grid;
+      gap: 12px;
+      width: min(360px, calc(100vw - 32px));
+    }
+
+    .toast {
+      border-radius: 22px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 14px 16px;
+      backdrop-filter: blur(18px);
+      box-shadow: 0 22px 48px rgba(2, 8, 23, 0.32);
+      animation: toast-in 220ms ease;
+    }
+
+    .toast.success {
+      background: rgba(6, 78, 59, 0.92);
+      border-color: rgba(52, 211, 153, 0.26);
+    }
+
+    .toast.error {
+      background: rgba(127, 29, 29, 0.92);
+      border-color: rgba(251, 113, 133, 0.28);
+    }
+
+    .toast.info {
+      background: rgba(15, 23, 42, 0.94);
+      border-color: rgba(96, 165, 250, 0.22);
+    }
+
+    .toast-title {
+      font-weight: 700;
+      font-size: 0.94rem;
+      color: white;
+    }
+
+    .toast-copy {
+      margin-top: 4px;
+      font-size: 0.86rem;
+      color: rgba(226, 232, 240, 0.88);
+      line-height: 1.5;
+    }
+
+    .inline-spinner {
+      display: inline-flex;
+      width: 16px;
+      height: 16px;
+      border-radius: 999px;
+      border: 2px solid rgba(255, 255, 255, 0.18);
+      border-top-color: currentColor;
+      animation: spin 0.8s linear infinite;
+    }
+
+    .empty-state {
+      border-radius: 28px;
+      border: 1px dashed rgba(255, 255, 255, 0.12);
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .form-status {
+      min-height: 24px;
+      font-size: 0.9rem;
       color: var(--muted);
-      font-size: 0.88rem;
     }
 
-    @media (max-width: 960px) {
-      .layout {
-        grid-template-columns: 1fr;
+    .form-status.success {
+      color: #86efac;
+    }
+
+    .form-status.error {
+      color: #fecdd3;
+    }
+
+    .form-status.info {
+      color: #93c5fd;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    @keyframes toast-in {
+      from {
+        opacity: 0;
+        transform: translateY(10px) scale(0.98);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+
+    @media (max-width: 1024px) {
+      .drawer-panel {
+        width: min(100vw, 680px);
+      }
+    }
+
+    @media (max-width: 768px) {
+      .drawer-panel {
+        width: 100vw;
       }
 
-      .hero-form {
-        grid-template-columns: 1fr;
-      }
-
-      .page {
-        width: min(100% - 20px, 1180px);
-        padding-top: 18px;
-      }
-
-      .hero,
-      .panel {
+      .drawer-scroll,
+      .modal-scroll {
         padding: 18px;
+      }
+
+      .viewer-stage {
+        min-height: 320px;
       }
     }
   </style>
 </head>
 <body>
-  <main class="page">
-    <section class="hero">
-      <h1>gen3d 浏览器测试台</h1>
-      <p>
-        直接在浏览器里提交 `image_to_3d` 任务，实时消费 `/v1/tasks/{id}/events` 的 SSE 进度，
-        并在任务成功后恢复 artifact、下载 GLB、预览 3D 结果。
-      </p>
-      <div class="hero-tools">
-        <form id="api-key-form" class="hero-form">
-          <div class="field">
-            <label for="api-key">API Key</label>
-            <input id="api-key" name="api-key" type="password" placeholder="输入管理员分发的 API Key" autocomplete="off" required>
+  <div id="app-shell" class="relative z-10 min-h-screen">
+    <header class="header-shell">
+      <div class="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4 md:px-6">
+        <a href="#/" class="brand-halo inline-flex items-center gap-3 rounded-full border border-white/10 bg-white/4 px-3 py-2">
+          <span class="flex h-11 w-11 items-center justify-center rounded-full bg-[linear-gradient(135deg,#f97316,#fb7185)] text-slate-950 shadow-[0_10px_30px_rgba(249,115,22,0.28)]">
+            <i data-lucide="layers-3" class="h-5 w-5"></i>
+          </span>
+          <span>
+            <span class="block text-sm font-semibold tracking-[0.24em] text-slate-300">gen3d</span>
+            <span class="block text-[13px] text-slate-400">Studio Control Surface</span>
+          </span>
+        </a>
+        <div class="flex flex-1 items-center justify-end gap-3 md:gap-4">
+          <nav class="hidden items-center gap-2 md:flex" aria-label="主导航">
+            <a class="nav-link" data-nav-path="/" href="#/">
+              <i data-lucide="sparkles" class="h-4 w-4"></i>
+              生成
+            </a>
+            <a class="nav-link" data-nav-path="/gallery" href="#/gallery">
+              <i data-lucide="gallery-horizontal-end" class="h-4 w-4"></i>
+              图库
+            </a>
+            <a class="nav-link" data-nav-path="/settings" href="#/settings">
+              <i data-lucide="sliders-horizontal" class="h-4 w-4"></i>
+              设置
+            </a>
+          </nav>
+          <div class="glass-panel hidden items-center gap-3 rounded-full px-3 py-2 sm:flex">
+            <span id="connection-dot" class="status-dot error"></span>
+            <div class="text-right">
+              <div id="connection-label" class="text-sm font-medium text-white">连接未检测</div>
+              <div id="connection-caption" class="text-xs text-slate-400">等待 /ready 测试</div>
+            </div>
           </div>
-          <div class="actions">
-            <button type="submit">保存 API Key</button>
-          </div>
-        </form>
-        <div id="api-key-status" class="status-text" aria-live="polite"></div>
+          <button id="mobile-nav-button" type="button" class="pill-button ghost-button inline-flex h-11 w-11 items-center justify-center rounded-full md:hidden" aria-expanded="false" aria-controls="mobile-nav-panel">
+            <i data-lucide="menu" class="h-5 w-5"></i>
+          </button>
+        </div>
       </div>
-    </section>
-
-    <section class="layout">
-      <div class="stack">
-        <section class="panel">
-          <h2>连接配置</h2>
-          <p class="hint">这里只保留 API Base URL；API Key 在顶部保存，刷新后会自动恢复。</p>
-          <form id="config-form" class="grid">
-            <div class="field">
-              <label for="api-base-url">API Base URL</label>
-              <input id="api-base-url" name="api-base-url" type="url" value="" required>
-            </div>
-            <div class="actions">
-              <button type="submit">保存地址</button>
-              <button type="button" id="ping-button" class="secondary">检查 /ready</button>
-            </div>
-            <div id="config-status" class="status-text" aria-live="polite"></div>
-          </form>
-        </section>
-
-        <section class="panel">
-          <h2>提交任务</h2>
-          <p class="hint">优先上传本地图片；页面会自动调用 `/v1/upload`，并在你点「生成」时提交内部 `upload://` URL。</p>
-          <form id="submit-form" class="grid">
-            <div id="upload-dropzone" class="picker" tabindex="0" role="button" aria-controls="image-file">
-              <strong>拖拽图片到这里，或点击选择文件</strong>
-              <div class="hint">支持 JPG / PNG / WebP / GIF。选中后会自动上传并显示缩略图预览。</div>
-              <div class="actions">
-                <button type="button" id="select-image" class="secondary">选择图片</button>
-              </div>
-              <input id="image-file" name="image-file" type="file" accept="image/*">
-              <div id="file-status" class="status-text"></div>
-              <img id="image-preview" class="preview-image" alt="已选择的输入图片预览">
-            </div>
-
-            <details>
-              <summary>使用图片链接</summary>
-              <div class="grid" style="padding: 0 14px 14px;">
-                <div class="field">
-                  <label for="image-url">图片 URL</label>
-                  <input id="image-url" name="image-url" type="url" placeholder="https://example.com/input.png">
-                </div>
-              </div>
-            </details>
-
-            <div class="field">
-              <label for="callback-url">Webhook Callback URL（可选）</label>
-              <input id="callback-url" name="callback-url" type="url" placeholder="https://callback.example.com/gen3d">
-            </div>
-
-            <div class="actions">
-              <button type="submit" id="submit-button">生成</button>
-              <button type="button" id="clear-upload" class="ghost">清空本地图片</button>
-            </div>
-            <div id="submit-status" class="status-text" aria-live="polite"></div>
-          </form>
-        </section>
+      <div id="mobile-nav-panel" class="mx-4 mb-4 hidden rounded-[28px] border border-white/10 bg-[rgba(8,13,27,0.94)] p-2 md:hidden">
+        <nav class="grid gap-2" aria-label="移动主导航">
+          <a class="nav-link" data-nav-path="/" href="#/">
+            <i data-lucide="sparkles" class="h-4 w-4"></i>
+            生成
+          </a>
+          <a class="nav-link" data-nav-path="/gallery" href="#/gallery">
+            <i data-lucide="gallery-horizontal-end" class="h-4 w-4"></i>
+            图库
+          </a>
+          <a class="nav-link" data-nav-path="/settings" href="#/settings">
+            <i data-lucide="sliders-horizontal" class="h-4 w-4"></i>
+            设置
+          </a>
+        </nav>
       </div>
+    </header>
 
-      <section class="panel">
-        <div class="task-head">
-          <div>
-            <h2>历史任务</h2>
-            <p class="hint">页面会按当前 API Key 从服务端拉取最近任务，并对未终态任务重新订阅进度。</p>
-          </div>
-          <div class="actions">
-            <button type="button" id="resubscribe-all" class="secondary">全部重连</button>
-            <button type="button" id="clear-history" class="ghost">刷新列表</button>
-          </div>
+    <main id="route-content" class="mx-auto max-w-7xl px-4 pb-20 pt-6 md:px-6 md:pt-8"></main>
+  </div>
+
+  <div id="drawer-backdrop" class="drawer-backdrop" hidden>
+    <aside class="drawer-panel" role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+      <div id="drawer-surface" class="drawer-surface">
+        <div id="drawer-scroll" class="drawer-scroll"></div>
+      </div>
+    </aside>
+  </div>
+
+  <div id="confirm-modal" class="modal-backdrop" hidden>
+    <div class="flex min-h-full items-center justify-center p-4">
+      <div id="confirm-surface" class="modal-surface glass-panel-strong h-auto w-full max-w-md rounded-[30px] border border-white/10 p-5 shadow-[0_26px_80px_rgba(2,8,23,0.56)] md:p-6" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+        <p class="muted-label">确认操作</p>
+        <h2 id="confirm-title" class="mt-2 text-xl font-semibold tracking-[-0.03em] text-white">确认继续？</h2>
+        <p id="confirm-copy" class="mt-3 text-sm leading-6 text-slate-400"></p>
+        <div class="mt-6 flex flex-wrap justify-end gap-3">
+          <button id="confirm-cancel-button" type="button" class="pill-button ghost-button rounded-full px-4 py-2.5 text-sm font-medium text-slate-200">
+            取消
+          </button>
+          <button id="confirm-accept-button" type="button" class="pill-button rounded-full bg-rose-500 px-4 py-2.5 text-sm font-semibold text-white">
+            确认
+          </button>
         </div>
+      </div>
+    </div>
+  </div>
 
-        <div class="pill-row">
-          <div class="pill">SSE 优先</div>
-          <div class="pill">失败后自动轮询</div>
-          <div class="pill">服务端任务历史</div>
-        </div>
+  <div id="toast-stack" class="toast-stack" aria-live="polite" aria-atomic="true"></div>
 
-        <div id="task-list" class="task-list" aria-live="polite"></div>
-        <div class="actions" style="margin-top: 16px;">
-          <button type="button" id="load-more-tasks" class="ghost" hidden>加载更多</button>
-        </div>
-        <div id="task-page-status" class="status-text" aria-live="polite"></div>
-        <div class="footer-note">
-          说明：如果 artifact 返回的是 `file://...` 本地路径，浏览器通常无法直接内联加载。
-          页面会优先尝试同源 HTTP 候选地址；若仍不可访问，会保留原始 URL 并给出提示。
-        </div>
-      </section>
-    </section>
-  </main>
-
-  <script>
-    const STORAGE_KEYS = {
-      config: "gen3d.web.config.v1",
-      tasks: "gen3d.web.task-history.v1",
-    };
-    const TERMINAL_STATUSES = new Set(["succeeded", "failed", "cancelled"]);
-    const TASK_PAGE_LIMIT = 20;
-    const POLL_INTERVAL_MS = 3000;
-
-    const state = {
-      config: {
-        baseUrl: getDefaultBaseUrl(),
-        token: "",
-      },
-      tasks: new Map(),
-      subscriptions: new Map(),
-      taskPage: {
-        limit: TASK_PAGE_LIMIT,
-        nextCursor: "",
-        hasMore: false,
-        isLoadingMore: false,
-      },
-      upload: {
-        previewDataUrl: "",
-        uploadedUrl: "",
-        uploadId: "",
-        name: "",
-        isUploading: false,
-      },
-    };
-
-    const elements = {
-      apiKeyForm: document.getElementById("api-key-form"),
-      apiKey: document.getElementById("api-key"),
-      apiKeyStatus: document.getElementById("api-key-status"),
-      configForm: document.getElementById("config-form"),
-      baseUrl: document.getElementById("api-base-url"),
-      configStatus: document.getElementById("config-status"),
-      pingButton: document.getElementById("ping-button"),
-      submitForm: document.getElementById("submit-form"),
-      uploadDropzone: document.getElementById("upload-dropzone"),
-      selectImage: document.getElementById("select-image"),
-      imageUrl: document.getElementById("image-url"),
-      imageFile: document.getElementById("image-file"),
-      fileStatus: document.getElementById("file-status"),
-      imagePreview: document.getElementById("image-preview"),
-      callbackUrl: document.getElementById("callback-url"),
-      submitButton: document.getElementById("submit-button"),
-      submitStatus: document.getElementById("submit-status"),
-      clearUpload: document.getElementById("clear-upload"),
-      taskList: document.getElementById("task-list"),
-      resubscribeAll: document.getElementById("resubscribe-all"),
-      clearHistory: document.getElementById("clear-history"),
-      loadMoreTasks: document.getElementById("load-more-tasks"),
-      taskPageStatus: document.getElementById("task-page-status"),
-    };
-
-    function loadConfig() {
-      try {
-        const saved = JSON.parse(localStorage.getItem(STORAGE_KEYS.config) || "{}");
-        state.config.baseUrl = normalizeBaseUrl(saved.baseUrl || getDefaultBaseUrl());
-        state.config.token = saved.token || "";
-      } catch (error) {
-        console.warn("Failed to parse saved config:", error);
-        state.config.baseUrl = getDefaultBaseUrl();
-      }
-      elements.baseUrl.value = state.config.baseUrl;
-      elements.apiKey.value = state.config.token;
-    }
-
-    function persistConfig() {
-      state.config.baseUrl = normalizeBaseUrl(elements.baseUrl.value || getDefaultBaseUrl());
-      state.config.token = elements.apiKey.value.trim();
-      elements.baseUrl.value = state.config.baseUrl;
-      elements.apiKey.value = state.config.token;
-      localStorage.setItem(STORAGE_KEYS.config, JSON.stringify(state.config));
-    }
-
-    function saveConfig(statusElement = elements.configStatus, successMessage = "已保存连接配置。") {
-      persistConfig();
-      setStatus(statusElement, successMessage, "success");
-    }
-
-    function loadTasks() {
-      state.tasks.clear();
-      state.taskPage.nextCursor = "";
-      state.taskPage.hasMore = false;
-      state.taskPage.isLoadingMore = false;
-      localStorage.removeItem(STORAGE_KEYS.tasks);
-    }
-
-    function persistTasks() {
-      localStorage.removeItem(STORAGE_KEYS.tasks);
-    }
-
-    function normalizeTaskRecord(task) {
-      const taskId = task.taskId || task.task_id;
-      const submittedAt = task.submittedAt || task.submitted_at || task.createdAt || task.created_at || new Date().toISOString();
-      const statusLabel = task.statusLabel || task.status_label || task.status || "submitted";
-      return {
-        taskId,
-        submittedAt,
-        createdAt: task.createdAt || task.created_at || submittedAt,
-        lastSeenAt: task.lastSeenAt || task.last_seen_at || submittedAt,
-        status: task.status || statusLabel,
-        statusLabel,
-        progress: Number.isFinite(task.progress) ? task.progress : 0,
-        currentStage: task.currentStage || task.current_stage || task.status || statusLabel,
-        updatedAt: task.updatedAt || null,
-        queuePosition: task.queuePosition ?? null,
-        estimatedWaitSeconds: task.estimatedWaitSeconds ?? null,
-        estimatedFinishAt: task.estimatedFinishAt || null,
-        artifacts: Array.isArray(task.artifacts) ? task.artifacts : [],
-        error: task.error || null,
-        events: Array.isArray(task.events) ? task.events.slice(-20) : [],
-        transport: task.transport || "idle",
-        note: task.note || "",
-        resolvedArtifactUrl: task.resolvedArtifactUrl || task.resolved_artifact_url || "",
-      };
-    }
-
-    function ensureTask(taskId, patch = {}) {
-      const current = state.tasks.get(taskId);
-      const merged = normalizeTaskRecord({
-        ...(current || { taskId, createdAt: new Date().toISOString() }),
-        ...patch,
-        taskId,
-      });
-      state.tasks.set(taskId, merged);
-      persistTasks();
-      renderTasks();
-      return merged;
-    }
-
-    function buildTaskListUrl(before = "") {
-      const url = new URL(buildApiUrl("/v1/tasks"));
-      url.searchParams.set("limit", String(state.taskPage.limit));
-      if (before) {
-        url.searchParams.set("before", before);
-      }
-      return url.toString();
-    }
-
-    function applyTaskPage(payload) {
-      state.taskPage.nextCursor = payload.nextCursor || payload.next_cursor || "";
-      state.taskPage.hasMore = Boolean(payload.hasMore ?? payload.has_more);
-      state.taskPage.isLoadingMore = false;
-      syncTaskPageControls();
-    }
-
-    function syncTaskPageControls() {
-      elements.loadMoreTasks.hidden = !state.taskPage.hasMore;
-      elements.loadMoreTasks.disabled = state.taskPage.isLoadingMore;
-    }
-
-    async function refreshTaskList(options = {}) {
-      const {
-        resubscribe = false,
-        silent = false,
-        statusElement = elements.configStatus,
-        successMessage = "已从服务端刷新任务列表。",
-      } = options;
-      persistConfig();
-      if (!state.config.baseUrl) {
-        throw new Error("请先填写 API Base URL");
-      }
-      const response = await fetch(buildTaskListUrl(), {
-        headers: authHeaders(false),
-        cache: "no-store",
-      });
-      if (!response.ok) {
-        throw new Error(await extractErrorMessage(response));
-      }
-      const payload = await response.json();
-      await replaceTasksFromServer(Array.isArray(payload.items) ? payload.items : []);
-      applyTaskPage(payload);
-      if (resubscribe) {
-        await restoreSubscriptions();
-      }
-      if (!silent) {
-        setStatus(statusElement, successMessage, "success");
-      }
-    }
-
-    async function replaceTasksFromServer(taskSummaries, options = {}) {
-      const { append = false } = options;
-      const nextTasks = append ? new Map(state.tasks) : new Map();
-      for (const summary of taskSummaries) {
-        const taskId = summary.taskId || summary.task_id;
-        if (!taskId) {
-          continue;
-        }
-        const current = state.tasks.get(taskId);
-        nextTasks.set(
-          taskId,
-          normalizeTaskRecord({
-            ...(current || {}),
-            taskId,
-            submittedAt: summary.createdAt || summary.created_at || current?.submittedAt,
-            createdAt: summary.createdAt || summary.created_at || current?.createdAt,
-            updatedAt: summary.finishedAt || summary.finished_at || current?.updatedAt || null,
-            lastSeenAt: new Date().toISOString(),
-            status: summary.status,
-            statusLabel: summary.status,
-            currentStage: current?.currentStage || summary.status,
-            progress: current?.progress ?? (summary.status === "succeeded" ? 100 : 0),
-            artifacts: summary.artifactUrl || summary.artifact_url
-              ? [{ type: "glb", url: summary.artifactUrl || summary.artifact_url }]
-              : current?.artifacts || [],
-            transport: TERMINAL_STATUSES.has(summary.status)
-              ? "complete"
-              : current?.transport || "idle",
-            note: current?.note || "",
-            resolvedArtifactUrl: current?.resolvedArtifactUrl || "",
-          }),
-        );
-      }
-
-      if (!append) {
-        Array.from(state.subscriptions.keys()).forEach((taskId) => {
-          if (!nextTasks.has(taskId)) {
-            stopSubscription(taskId);
-          }
-        });
-      }
-      state.tasks = nextTasks;
-
-      for (const task of state.tasks.values()) {
-        await hydrateArtifact(task);
-      }
-      renderTasks();
-      syncTaskPageControls();
-    }
-
-    async function loadMoreTaskPage() {
-      if (!state.taskPage.hasMore || !state.taskPage.nextCursor) {
-        return;
-      }
-      state.taskPage.isLoadingMore = true;
-      syncTaskPageControls();
-      try {
-        const response = await fetch(buildTaskListUrl(state.taskPage.nextCursor), {
-          headers: authHeaders(false),
-          cache: "no-store",
-        });
-        if (!response.ok) {
-          throw new Error(await extractErrorMessage(response));
-        }
-        const payload = await response.json();
-        await replaceTasksFromServer(Array.isArray(payload.items) ? payload.items : [], {
-          append: true,
-        });
-        applyTaskPage(payload);
-        setStatus(elements.taskPageStatus, "已加载更多任务。", "success");
-      } catch (error) {
-        state.taskPage.isLoadingMore = false;
-        syncTaskPageControls();
-        setStatus(elements.taskPageStatus, "加载更多失败：" + formatError(error), "error");
-      }
-    }
-
-    async function deleteTask(taskId) {
-      const response = await fetch(buildApiUrl("/v1/tasks/" + encodeURIComponent(taskId)), {
-        method: "DELETE",
-        headers: authHeaders(false),
-      });
-      if (!response.ok) {
-        throw new Error(await extractErrorMessage(response));
-      }
-      stopSubscription(taskId);
-      state.tasks.delete(taskId);
-      renderTasks();
-      syncTaskPageControls();
-    }
-
-    function setStatus(element, message, tone = "") {
-      element.textContent = message;
-      element.className = "status-text";
-      if (tone) {
-        element.classList.add(tone);
-      }
-    }
-
-    function normalizeBaseUrl(value) {
-      const trimmed = String(value || "").trim();
-      if (!trimmed) {
-        return getDefaultBaseUrl();
-      }
-      return trimmed.replace(/\/+$/, "");
-    }
-
-    function getDefaultBaseUrl() {
-      return window.location.origin || "http://localhost:8000";
-    }
-
-    function ensureTrailingSlash(url) {
-      return url.endsWith("/") ? url : url + "/";
-    }
-
-    function buildApiUrl(path) {
-      return new URL(String(path).replace(/^\/+/, ""), ensureTrailingSlash(state.config.baseUrl)).toString();
-    }
-
-    function resolveArtifactUrl(url) {
-      const raw = String(url || "").trim();
-      if (!raw) {
-        return "";
-      }
-      if (raw.startsWith("/")) {
-        return buildApiUrl(raw);
-      }
-      return raw;
-    }
-
-    function authHeaders(json = false) {
-      const headers = {};
-      if (state.config.token) {
-        headers.Authorization = "Bearer " + state.config.token;
-      }
-      if (json) {
-        headers["Content-Type"] = "application/json";
-      }
-      return headers;
-    }
-
-    async function readFileAsDataUrl(file) {
-      return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result || ""));
-        reader.onerror = () => reject(reader.error || new Error("failed to read file"));
-        reader.readAsDataURL(file);
-      });
-    }
-
-    function clearUploadState() {
-      state.upload = {
-        previewDataUrl: "",
-        uploadedUrl: "",
-        uploadId: "",
-        name: "",
-        isUploading: false,
-      };
-      elements.uploadDropzone.classList.remove("dragover");
-      elements.imageFile.value = "";
-      elements.imagePreview.src = "";
-      elements.imagePreview.classList.remove("visible");
-      setStatus(elements.fileStatus, "未选择本地图片。");
-    }
-
-    async function handleFileSelection(file) {
-      if (!file) {
-        clearUploadState();
-        return;
-      }
-      try {
-        setStatus(elements.fileStatus, "正在读取本地图片…");
-        const dataUrl = await readFileAsDataUrl(file);
-        state.upload = {
-          previewDataUrl: dataUrl,
-          uploadedUrl: "",
-          uploadId: "",
-          name: file.name,
-          isUploading: true,
-        };
-        elements.imagePreview.src = dataUrl;
-        elements.imagePreview.classList.add("visible");
-        await uploadSelectedFile(file);
-      } catch (error) {
-        console.error(error);
-        state.upload.isUploading = false;
-        setStatus(elements.fileStatus, formatError(error), "error");
-      }
-    }
-
-    async function uploadSelectedFile(file) {
-      requireConfig();
-      setStatus(elements.fileStatus, "正在上传图片：0%");
-      const result = await uploadFile(file);
-      state.upload.uploadedUrl = result.url;
-      state.upload.uploadId = result.uploadId || result.upload_id || "";
-      state.upload.isUploading = false;
-      setStatus(
-        elements.fileStatus,
-        "上传完成：" + file.name + "，点「生成」时会使用已上传图片。",
-        "success",
-      );
-    }
-
-    async function uploadFile(file) {
-      return new Promise((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        xhr.open("POST", buildApiUrl("/v1/upload"));
-        Object.entries(authHeaders(false)).forEach(([key, value]) => {
-          xhr.setRequestHeader(key, value);
-        });
-        xhr.responseType = "json";
-        xhr.upload.addEventListener("progress", (event) => {
-          if (!event.lengthComputable) {
-            setStatus(elements.fileStatus, "正在上传图片…");
-            return;
-          }
-          const percent = Math.max(0, Math.min(100, Math.round((event.loaded / event.total) * 100)));
-          setStatus(elements.fileStatus, "正在上传图片：" + percent + "%");
-        });
-        xhr.addEventListener("load", () => {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            resolve(xhr.response || JSON.parse(xhr.responseText || "{}"));
-            return;
-          }
-          if (xhr.status === 401) {
-            reportInvalidApiKey();
-            reject(new Error("API Key 无效或已停用"));
-            return;
-          }
-          reject(new Error(parseUploadError(xhr)));
-        });
-        xhr.addEventListener("error", () => {
-          reject(new Error("网络错误，上传失败"));
-        });
-        const form = new FormData();
-        form.append("file", file);
-        xhr.send(form);
-      });
-    }
-
-    function parseUploadError(xhr) {
-      try {
-        const payload = xhr.response || JSON.parse(xhr.responseText || "{}");
-        if (typeof payload.detail === "string") {
-          return payload.detail;
-        }
-        if (payload.detail) {
-          return JSON.stringify(payload.detail);
-        }
-      } catch (error) {
-        return "网络错误，上传失败";
-      }
-      return "上传失败（HTTP " + xhr.status + "）";
-    }
-
-    function requireConfig() {
-      persistConfig();
-      if (!state.config.baseUrl) {
-        throw new Error("请先填写 API Base URL");
-      }
-      if (!state.config.token) {
-        throw new Error("请先填写 API Key");
-      }
-    }
-
-    function reportInvalidApiKey() {
-      setStatus(elements.apiKeyStatus, "API Key 无效或已停用", "error");
-    }
-
-    async function pingReady() {
-      try {
-        persistConfig();
-        setStatus(elements.configStatus, "检查服务中…");
-        const response = await fetch(buildApiUrl("/ready"), {
-          headers: authHeaders(false),
-          cache: "no-store",
-        });
-        if (!response.ok) {
-          throw new Error(await extractErrorMessage(response));
-        }
-        const payload = await response.json();
-        setStatus(
-          elements.configStatus,
-          "服务可达：status=" + payload.status + "，service=" + payload.service,
-          "success",
-        );
-      } catch (error) {
-        setStatus(elements.configStatus, formatError(error), "error");
-      }
-    }
-
-    async function submitTask(event) {
-      event.preventDefault();
-      try {
-        requireConfig();
-        const imageUrl = state.upload.uploadedUrl || elements.imageUrl.value.trim();
-        const callbackUrl = elements.callbackUrl.value.trim();
-        if (state.upload.isUploading) {
-          throw new Error("图片仍在上传中，请稍等片刻再生成");
-        }
-        if (state.upload.name && !state.upload.uploadedUrl) {
-          throw new Error("本地图片尚未上传成功，请重新选择图片或改用图片链接");
-        }
-        if (!imageUrl) {
-          throw new Error("请填写图片 URL，或先上传一张本地图片");
-        }
-
-        elements.submitButton.disabled = true;
-        setStatus(elements.submitStatus, "正在提交任务…");
-
-        const payload = {
-          type: "image_to_3d",
-          image_url: imageUrl,
-        };
-        if (callbackUrl) {
-          payload.callback_url = callbackUrl;
-        }
-
-        const response = await fetch(buildApiUrl("/v1/tasks"), {
-          method: "POST",
-          headers: authHeaders(true),
-          body: JSON.stringify(payload),
-        });
-        if (!response.ok) {
-          throw new Error(await extractErrorMessage(response));
-        }
-
-        const result = await response.json();
-        const taskId = result.taskId;
-        ensureTask(taskId, {
-          status: result.status,
-          statusLabel: result.status,
-          currentStage: result.status,
-          progress: 0,
-          queuePosition: result.queuePosition ?? null,
-          estimatedWaitSeconds: result.estimatedWaitSeconds ?? null,
-          estimatedFinishAt: result.estimatedFinishAt ?? null,
-          submittedAt: new Date().toISOString(),
-          createdAt: new Date().toISOString(),
-          lastSeenAt: new Date().toISOString(),
-          transport: "connecting",
-          note: "任务已提交，等待订阅进度…",
-          events: [],
-          artifacts: [],
-          resolvedArtifactUrl: "",
-        });
-
-        await refreshTaskList({ silent: true });
-        setStatus(elements.submitStatus, "提交成功，task_id: " + taskId, "success");
-        await subscribeToTask(taskId, { force: true });
-      } catch (error) {
-        setStatus(elements.submitStatus, formatError(error), "error");
-      } finally {
-        elements.submitButton.disabled = false;
-      }
-    }
-
-    async function extractErrorMessage(response) {
-      if (response.status === 401) {
-        reportInvalidApiKey();
-        return "API Key 无效或已停用";
-      }
-      try {
-        const payload = await response.json();
-        if (typeof payload.detail === "string") {
-          return payload.detail;
-        }
-        if (payload.detail) {
-          return JSON.stringify(payload.detail);
-        }
-        return JSON.stringify(payload);
-      } catch (error) {
-        return response.status + " " + response.statusText;
-      }
-    }
-
-    function appendTaskEvent(taskId, payload, source) {
-      const task = state.tasks.get(taskId);
-      if (!task) {
-        return;
-      }
-      const eventEntry = {
-        event: payload.event || payload.status || source,
-        status: payload.status || task.status,
-        progress: Number.isFinite(payload.progress) ? payload.progress : task.progress,
-        currentStage: payload.currentStage || task.currentStage,
-        timestamp: new Date().toISOString(),
-        source,
-      };
-      const previous = task.events[task.events.length - 1];
-      if (
-        previous &&
-        previous.event === eventEntry.event &&
-        previous.status === eventEntry.status &&
-        previous.progress === eventEntry.progress &&
-        previous.currentStage === eventEntry.currentStage
-      ) {
-        return;
-      }
-      task.events.push(eventEntry);
-      task.events = task.events.slice(-20);
-    }
-
-    // Unified task state application for both SSE payloads and polling snapshots.
-    async function applyTaskSnapshot(taskId, payload, source) {
-      const task = ensureTask(taskId, {
-        status: payload.status,
-        statusLabel: payload.status,
-        progress: Number(payload.progress ?? 0),
-        currentStage: payload.currentStage || payload.status,
-        queuePosition: payload.queuePosition ?? null,
-        estimatedWaitSeconds: payload.estimatedWaitSeconds ?? null,
-        estimatedFinishAt: payload.estimatedFinishAt ?? null,
-        submittedAt: payload.createdAt || state.tasks.get(taskId)?.submittedAt || new Date().toISOString(),
-        createdAt: payload.createdAt || state.tasks.get(taskId)?.createdAt || new Date().toISOString(),
-        updatedAt: payload.updatedAt || null,
-        lastSeenAt: new Date().toISOString(),
-        error: payload.error || null,
-        artifacts: Array.isArray(payload.artifacts) ? payload.artifacts : [],
-      });
-      appendTaskEvent(taskId, payload, source);
-      await hydrateArtifact(task);
-      persistTasks();
-      renderTasks();
-      if (TERMINAL_STATUSES.has(task.status)) {
-        stopSubscription(taskId);
-      }
-    }
-
-    async function applyEventPayload(taskId, payload, source) {
-      const metadata = payload.metadata || {};
-      await applyTaskSnapshot(
-        taskId,
-        {
-          status: payload.status,
-          progress: payload.progress,
-          currentStage: payload.currentStage,
-          error: metadata.error || metadata.failed_stage || metadata.message
-            ? {
-                message: metadata.message || metadata.error || "",
-                failed_stage: metadata.failed_stage || metadata.stage || null,
-              }
-            : state.tasks.get(taskId)?.error || null,
-          artifacts: metadata.artifacts || state.tasks.get(taskId)?.artifacts || [],
-          updatedAt: new Date().toISOString(),
-        },
-        source,
-      );
-    }
-
-    // Try to convert backend artifact metadata into a browser-usable download / preview URL.
-    async function hydrateArtifact(task) {
-      if (task.status !== "succeeded" || !Array.isArray(task.artifacts) || task.artifacts.length === 0) {
-        ensureTask(task.taskId, {
-          resolvedArtifactUrl: "",
-          note: task.note && task.status !== "succeeded" ? task.note : "",
-        });
-        return;
-      }
-
-      const glb = task.artifacts.find((artifact) => artifact.type === "glb") || task.artifacts[0];
-      if (!glb || !glb.url) {
-        ensureTask(task.taskId, {
-          resolvedArtifactUrl: "",
-          note: "任务成功，但未返回可用 artifact URL。",
-        });
-        return;
-      }
-
-      const rawArtifactUrl = String(glb.url || "").trim();
-      const browserArtifactUrl = resolveArtifactUrl(rawArtifactUrl);
-
-      if (task.resolvedArtifactUrl && task.resolvedArtifactUrl === browserArtifactUrl) {
-        return;
-      }
-
-      if (/^https?:\/\//i.test(browserArtifactUrl)) {
-        ensureTask(task.taskId, {
-          resolvedArtifactUrl: browserArtifactUrl,
-          note: rawArtifactUrl.startsWith("/")
-            ? "artifact 使用相对路径返回，页面已按 API Base URL 自动补全。"
-            : glb.expires_at
-              ? "artifact 为临时 URL，过期后请重新刷新任务。"
-              : "",
-        });
-        return;
-      }
-
-      if (!/^file:\/\//i.test(rawArtifactUrl)) {
-        ensureTask(task.taskId, {
-          resolvedArtifactUrl: browserArtifactUrl,
-          note: "artifact URL 已返回，但不是常见的 http(s) / file 协议，请按实际环境确认。",
-        });
-        return;
-      }
-
-      const candidates = buildLocalArtifactCandidates(task.taskId, rawArtifactUrl);
-      for (const candidate of candidates) {
-        const ok = await probeUrl(candidate);
-        if (ok) {
-          ensureTask(task.taskId, {
-            resolvedArtifactUrl: candidate,
-            note: "artifact 原始返回为 file://，页面已自动切换到可访问的同源地址。",
-          });
-          return;
-        }
-      }
-
-      ensureTask(task.taskId, {
-        resolvedArtifactUrl: rawArtifactUrl,
-        note:
-          "artifact 当前是 file:// 本地路径，浏览器通常无法直接预览。若需在线下载/预览，请使用 MinIO presigned URL 或同源 HTTP 代理。",
-      });
-    }
-
-    function buildLocalArtifactCandidates(taskId, fileUrl) {
-      let fileName = "model.glb";
-      try {
-        const path = decodeURIComponent(new URL(fileUrl).pathname);
-        const pieces = path.split("/").filter(Boolean);
-        fileName = pieces[pieces.length - 1] || fileName;
-      } catch (error) {
-        console.warn("Failed to parse local artifact URL:", error);
-      }
-
-      const root = ensureTrailingSlash(state.config.baseUrl);
-      const candidates = [
-        new URL("artifacts/" + encodeURIComponent(taskId) + "/" + encodeURIComponent(fileName), root).toString(),
-        new URL("v1/tasks/" + encodeURIComponent(taskId) + "/artifacts/" + encodeURIComponent(fileName), root).toString(),
-        new URL(taskId + "/" + encodeURIComponent(fileName), new URL("artifacts/", root)).toString(),
-      ];
-      return Array.from(new Set(candidates));
-    }
-
-    async function probeUrl(url) {
-      try {
-        const response = await fetch(url, {
-          method: "HEAD",
-          cache: "no-store",
-        });
-        if (response.ok) {
-          return true;
-        }
-        if (response.status === 405) {
-          const fallback = await fetch(url, { cache: "no-store" });
-          return fallback.ok;
-        }
-        return false;
-      } catch (error) {
-        return false;
-      }
-    }
-
-    async function subscribeToTask(taskId, options = {}) {
-      const { force = false } = options;
-      requireConfig();
-      if (!force && state.subscriptions.has(taskId)) {
-        return;
-      }
-      stopSubscription(taskId);
-      ensureTask(taskId, {
-        transport: "connecting",
-        note: "正在连接 SSE…",
-      });
-      try {
-        await connectSse(taskId);
-      } catch (error) {
-        console.warn("Falling back to polling for task", taskId, error);
-        ensureTask(taskId, {
-          transport: "polling",
-          note: "SSE 连接失败，已降级为每 3 秒轮询。",
-        });
-        startPolling(taskId);
-      }
-    }
-
-    // Native EventSource cannot attach Authorization headers, so we parse the SSE stream manually.
-    async function connectSse(taskId) {
-      const controller = new AbortController();
-      state.subscriptions.set(taskId, {
-        mode: "sse",
-        controller,
-      });
-      ensureTask(taskId, {
-        transport: "sse",
-        note: "SSE 已连接。",
-      });
-
-      const response = await fetch(buildApiUrl("/v1/tasks/" + encodeURIComponent(taskId) + "/events"), {
-        headers: authHeaders(false),
-        signal: controller.signal,
-        cache: "no-store",
-      });
-      if (!response.ok) {
-        throw new Error("SSE 订阅失败：" + (await extractErrorMessage(response)));
-      }
-      if (!response.body || !response.body.getReader) {
-        throw new Error("当前浏览器不支持 SSE 流式读取");
-      }
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let reachedTerminal = false;
-
-      try {
-        while (true) {
-          const chunk = await reader.read();
-          if (chunk.done) {
-            break;
-          }
-          buffer += decoder.decode(chunk.value, { stream: true });
-          const parts = buffer.replace(/\r/g, "").split("\n\n");
-          buffer = parts.pop() || "";
-          for (const rawBlock of parts) {
-            const payload = parseSseEvent(rawBlock);
-            if (!payload) {
-              continue;
-            }
-            await applyEventPayload(taskId, payload, "sse");
-            if (TERMINAL_STATUSES.has(payload.status)) {
-              reachedTerminal = true;
-            }
-          }
-        }
-
-        const tail = parseSseEvent(buffer.replace(/\r/g, ""));
-        if (tail) {
-          await applyEventPayload(taskId, tail, "sse");
-          if (TERMINAL_STATUSES.has(tail.status)) {
-            reachedTerminal = true;
-          }
-        }
-      } catch (error) {
-        if (controller.signal.aborted) {
-          return;
-        }
-        throw error;
-      } finally {
-        try {
-          reader.releaseLock();
-        } catch (error) {
-          console.warn("Failed to release SSE reader:", error);
-        }
-      }
-
-      const currentTask = state.tasks.get(taskId);
-      if (reachedTerminal || (currentTask && TERMINAL_STATUSES.has(currentTask.status))) {
-        ensureTask(taskId, {
-          transport: "complete",
-          note: currentTask?.note || "任务已进入终态。",
-        });
-        stopSubscription(taskId);
-        return;
-      }
-
-      throw new Error("SSE 已断开，任务尚未终态");
-    }
-
-    function parseSseEvent(rawBlock) {
-      if (!rawBlock.trim()) {
-        return null;
-      }
-      let eventName = "";
-      const dataLines = [];
-      rawBlock.split("\n").forEach((line) => {
-        if (line.startsWith("event:")) {
-          eventName = line.slice(6).trim();
-        } else if (line.startsWith("data:")) {
-          dataLines.push(line.slice(5).trimStart());
-        }
-      });
-      if (!dataLines.length) {
-        return null;
-      }
-      const payload = JSON.parse(dataLines.join("\n"));
-      payload.event = payload.event || eventName;
-      return payload;
-    }
-
-    function startPolling(taskId) {
-      stopSubscription(taskId);
-      const timer = window.setInterval(() => {
-        refreshTask(taskId).catch((error) => {
-          ensureTask(taskId, {
-            note: "轮询失败：" + formatError(error),
-          });
-        });
-      }, POLL_INTERVAL_MS);
-      state.subscriptions.set(taskId, {
-        mode: "polling",
-        timer,
-      });
-      refreshTask(taskId).catch((error) => {
-        ensureTask(taskId, {
-          note: "轮询启动失败：" + formatError(error),
-        });
-      });
-    }
-
-    function stopSubscription(taskId) {
-      const current = state.subscriptions.get(taskId);
-      if (!current) {
-        return;
-      }
-      if (current.mode === "sse" && current.controller) {
-        current.controller.abort();
-      }
-      if (current.mode === "polling" && current.timer) {
-        window.clearInterval(current.timer);
-      }
-      state.subscriptions.delete(taskId);
-    }
-
-    async function refreshTask(taskId) {
-      requireConfig();
-      const response = await fetch(buildApiUrl("/v1/tasks/" + encodeURIComponent(taskId)), {
-        headers: authHeaders(false),
-        cache: "no-store",
-      });
-      if (!response.ok) {
-        throw new Error(await extractErrorMessage(response));
-      }
-      const payload = await response.json();
-      await applyTaskSnapshot(taskId, payload, "polling");
-      if (TERMINAL_STATUSES.has(payload.status)) {
-        return;
-      }
-      ensureTask(taskId, {
-        transport: "polling",
-        note: "轮询中，每 3 秒刷新一次。",
-      });
-    }
-
-    function formatError(error) {
-      if (!error) {
-        return "未知错误";
-      }
-      if (error instanceof Error) {
-        return error.message;
-      }
-      return String(error);
-    }
-
-    function formatTime(value) {
-      if (!value) {
-        return "—";
-      }
-      const date = new Date(value);
-      if (Number.isNaN(date.getTime())) {
-        return value;
-      }
-      return new Intl.DateTimeFormat("zh-CN", {
-        month: "2-digit",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-      }).format(date);
-    }
-
-    function escapeHtml(value) {
-      return String(value)
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll("\"", "&quot;")
-        .replaceAll("'", "&#39;");
-    }
-
-    function statusClass(status) {
-      if (status === "succeeded") {
-        return "badge terminal success";
-      }
-      if (status === "failed" || status === "cancelled") {
-        return "badge terminal failed";
-      }
-      return "badge running";
-    }
-
-    function taskSortValue(task) {
-      const candidates = [task.createdAt, task.submittedAt, task.updatedAt, task.lastSeenAt];
-      for (const value of candidates) {
-        const timestamp = Date.parse(value || "");
-        if (Number.isFinite(timestamp)) {
-          return timestamp;
-        }
-      }
-      return 0;
-    }
-
-    function compareTaskRecords(a, b) {
-      const delta = taskSortValue(b) - taskSortValue(a);
-      if (delta !== 0) {
-        return delta;
-      }
-      return String(b.taskId || "").localeCompare(String(a.taskId || ""));
-    }
-
-    function renderTasks() {
-      const tasks = Array.from(state.tasks.values()).sort(compareTaskRecords);
-
-      if (!tasks.length) {
-        elements.taskList.innerHTML = '<div class="empty">还没有 task_id。提交第一条任务后会自动记录到这里。</div>';
-        syncTaskPageControls();
-        return;
-      }
-
-      const fragment = document.createDocumentFragment();
-      tasks.forEach((task) => {
-        const card = document.createElement("article");
-        card.className = "task-card";
-        card.dataset.action = "inspect";
-        card.dataset.taskId = task.taskId;
-        card.tabIndex = 0;
-
-        const taskError = task.error && task.error.message
-          ? task.error.message + (task.error.failed_stage ? "（" + task.error.failed_stage + "）" : "")
-          : "";
-
-        card.innerHTML = `
-          <div class="task-head">
-            <div class="task-title">
-              <h3>任务 ${escapeHtml(task.taskId.slice(0, 8))}</h3>
-              <div class="history-summary">
-                <span>${escapeHtml(formatTime(task.submittedAt || task.createdAt))}</span>
-                <span>最终状态：${escapeHtml(task.statusLabel || task.status)}</span>
-              </div>
-              <div class="task-id">${escapeHtml(task.taskId)}</div>
-            </div>
-            <div class="badges">
-              <span class="${statusClass(task.status)}">${escapeHtml(task.statusLabel || task.status)}</span>
-              <span class="badge transport">${escapeHtml(task.transport || "idle")}</span>
-            </div>
-          </div>
-          <div class="actions">
-            <button type="button" class="secondary" data-action="resubscribe" data-task-id="${escapeHtml(task.taskId)}">重连</button>
-            <button type="button" class="ghost" data-action="refresh" data-task-id="${escapeHtml(task.taskId)}">刷新</button>
-            <button type="button" class="ghost" data-action="copy" data-task-id="${escapeHtml(task.taskId)}">复制 task_id</button>
-            <button type="button" class="ghost" data-action="delete" data-task-id="${escapeHtml(task.taskId)}">删除</button>
-          </div>
-          <div class="progress-wrap">
-            <div class="progress-meta">
-              <span>阶段：${escapeHtml(task.currentStage || "—")}</span>
-              <strong>${Math.max(0, Math.min(100, Number(task.progress) || 0))}%</strong>
-            </div>
-            <div class="progress-bar">
-              <div class="progress-fill" style="width: ${Math.max(0, Math.min(100, Number(task.progress) || 0))}%"></div>
-            </div>
-          </div>
-          <div class="meta-grid">
-            <div class="meta-box">
-              <span class="k">创建时间</span>
-              <span class="v">${escapeHtml(formatTime(task.createdAt))}</span>
-            </div>
-            <div class="meta-box">
-              <span class="k">最近更新</span>
-              <span class="v">${escapeHtml(formatTime(task.updatedAt || task.lastSeenAt))}</span>
-            </div>
-            <div class="meta-box">
-              <span class="k">队列位置</span>
-              <span class="v">${escapeHtml(task.queuePosition ?? "—")}</span>
-            </div>
-            <div class="meta-box">
-              <span class="k">预估等待</span>
-              <span class="v">${escapeHtml(task.estimatedWaitSeconds ?? "—")}</span>
-            </div>
-          </div>
-          ${task.note ? `<div class="task-note ${taskError ? "error" : ""}">${escapeHtml(task.note)}</div>` : ""}
-          ${taskError ? `<div class="task-note error">${escapeHtml(taskError)}</div>` : ""}
-        `;
-
-        if (task.status === "succeeded" && task.artifacts.length > 0) {
-          const glb = task.artifacts.find((artifact) => artifact.type === "glb") || task.artifacts[0];
-          const artifactBox = document.createElement("section");
-          artifactBox.className = "artifact-box";
-
-          const title = document.createElement("div");
-          title.innerHTML = `
-            <strong>GLB 结果</strong>
-            <div class="hint">backend=${escapeHtml(glb.backend || "unknown")} · size=${escapeHtml(glb.size_bytes ?? "—")} bytes</div>
-          `;
-          artifactBox.appendChild(title);
-
-          const link = document.createElement("a");
-          link.className = "artifact-link";
-          link.textContent = "下载 .glb";
-          link.href = task.resolvedArtifactUrl || glb.url || "#";
-          link.target = "_blank";
-          link.rel = "noopener noreferrer";
-          link.setAttribute("download", "model.glb");
-          artifactBox.appendChild(link);
-
-          const raw = document.createElement("div");
-          raw.className = "hint";
-          raw.textContent = "artifact URL: " + (task.resolvedArtifactUrl || glb.url || "—");
-          artifactBox.appendChild(raw);
-
-          const previewUrl = task.resolvedArtifactUrl || "";
-          if (/^https?:\/\//i.test(previewUrl)) {
-            const viewer = document.createElement("model-viewer");
-            viewer.setAttribute("src", previewUrl);
-            viewer.setAttribute("camera-controls", "");
-            viewer.setAttribute("ar", "");
-            viewer.setAttribute("shadow-intensity", "1");
-            viewer.setAttribute("exposure", "1");
-            viewer.setAttribute("environment-image", "neutral");
-            viewer.setAttribute("interaction-prompt", "none");
-            viewer.setAttribute("tone-mapping", "commerce");
-            artifactBox.appendChild(viewer);
-          } else {
-            const previewHint = document.createElement("div");
-            previewHint.className = "task-note";
-            previewHint.textContent = "当前 artifact 不是可直接嵌入的 http(s) 地址，暂时无法在页面内预览。";
-            artifactBox.appendChild(previewHint);
-          }
-
-          card.appendChild(artifactBox);
-        }
-
-        const details = document.createElement("details");
-        details.open = false;
-        details.innerHTML = "<summary>事件记录</summary>";
-        const log = document.createElement("div");
-        log.className = "event-log";
-        if (task.events.length === 0) {
-          log.innerHTML = '<div class="empty">等待事件回放或首次轮询…</div>';
-        } else {
-          task.events
-            .slice()
-            .reverse()
-            .forEach((event) => {
-              const item = document.createElement("div");
-              item.className = "event-item";
-              item.innerHTML = `
-                <div><code>${escapeHtml(event.event)}</code> · ${escapeHtml(event.currentStage)} · ${escapeHtml(event.progress)}%</div>
-                <time>${escapeHtml(formatTime(event.timestamp))}</time>
-              `;
-              log.appendChild(item);
-            });
-        }
-        details.appendChild(log);
-        card.appendChild(details);
-
-        fragment.appendChild(card);
-      });
-
-      elements.taskList.innerHTML = "";
-      elements.taskList.appendChild(fragment);
-      syncTaskPageControls();
-    }
-
-    async function restoreSubscriptions() {
-      const tasks = Array.from(state.tasks.values()).sort(compareTaskRecords);
-      for (const task of tasks) {
-        if (TERMINAL_STATUSES.has(task.status)) {
-          continue;
-        }
-        try {
-          await subscribeToTask(task.taskId, { force: true });
-        } catch (error) {
-          ensureTask(task.taskId, {
-            note: "恢复订阅失败：" + formatError(error),
-          });
-        }
-      }
-    }
-
-    async function handleTaskAction(event) {
-      const target = event.target.closest("[data-task-id][data-action]");
-      if (!target) {
-        return;
-      }
-
-      const taskId = target.dataset.taskId;
-      const action = target.dataset.action;
-      if (!taskId || !action) {
-        return;
-      }
-
-      if (action === "inspect") {
-        try {
-          await refreshTask(taskId);
-        } catch (error) {
-          ensureTask(taskId, { note: "刷新失败：" + formatError(error) });
-        }
-        return;
-      }
-
-      if (action === "copy") {
-        try {
-          if (!navigator.clipboard || !navigator.clipboard.writeText) {
-            throw new Error("当前环境不支持剪贴板写入");
-          }
-          await navigator.clipboard.writeText(taskId);
-          ensureTask(taskId, { note: "task_id 已复制到剪贴板。" });
-        } catch (error) {
-          ensureTask(taskId, { note: "复制失败：" + formatError(error) });
-        }
-        return;
-      }
-
-      if (action === "refresh") {
-        try {
-          await refreshTask(taskId);
-        } catch (error) {
-          ensureTask(taskId, { note: "刷新失败：" + formatError(error) });
-        }
-        return;
-      }
-
-      if (action === "resubscribe") {
-        try {
-          await subscribeToTask(taskId, { force: true });
-        } catch (error) {
-          ensureTask(taskId, { note: "重连失败：" + formatError(error) });
-        }
-        return;
-      }
-
-      if (action === "delete") {
-        if (!window.confirm("确认删除任务 " + taskId.slice(0, 8) + " 吗？")) {
-          return;
-        }
-        try {
-          await deleteTask(taskId);
-          setStatus(elements.taskPageStatus, "任务已删除。", "success");
-        } catch (error) {
-          ensureTask(taskId, { note: "删除失败：" + formatError(error) });
-          setStatus(elements.taskPageStatus, "删除失败：" + formatError(error), "error");
-        }
-      }
-    }
-
-    function registerEventHandlers() {
-      elements.apiKeyForm.addEventListener("submit", (event) => {
-        event.preventDefault();
-        refreshTaskList({
-          resubscribe: true,
-          statusElement: elements.apiKeyStatus,
-          successMessage: "API Key 已保存，任务列表已刷新。",
-        }).catch((error) => {
-          setStatus(elements.apiKeyStatus, formatError(error), "error");
-        });
-      });
-      elements.configForm.addEventListener("submit", (event) => {
-        event.preventDefault();
-        refreshTaskList({
-          resubscribe: true,
-          statusElement: elements.configStatus,
-          successMessage: "连接配置已保存，任务列表已刷新。",
-        }).catch((error) => {
-          setStatus(elements.configStatus, formatError(error), "error");
-        });
-      });
-      elements.pingButton.addEventListener("click", pingReady);
-      elements.selectImage.addEventListener("click", () => {
-        elements.imageFile.click();
-      });
-      elements.uploadDropzone.addEventListener("click", (event) => {
-        if (event.target.closest("button")) {
-          return;
-        }
-        elements.imageFile.click();
-      });
-      elements.uploadDropzone.addEventListener("keydown", (event) => {
-        if (event.key !== "Enter" && event.key !== " ") {
-          return;
-        }
-        event.preventDefault();
-        elements.imageFile.click();
-      });
-      ["dragenter", "dragover"].forEach((eventName) => {
-        elements.uploadDropzone.addEventListener(eventName, (event) => {
-          event.preventDefault();
-          elements.uploadDropzone.classList.add("dragover");
-        });
-      });
-      ["dragleave", "dragend", "drop"].forEach((eventName) => {
-        elements.uploadDropzone.addEventListener(eventName, (event) => {
-          event.preventDefault();
-          if (eventName !== "drop") {
-            elements.uploadDropzone.classList.remove("dragover");
-          }
-        });
-      });
-      elements.uploadDropzone.addEventListener("drop", (event) => {
-        elements.uploadDropzone.classList.remove("dragover");
-        const [file] = event.dataTransfer?.files || [];
-        handleFileSelection(file).catch((error) => {
-          setStatus(elements.fileStatus, formatError(error), "error");
-        });
-      });
-      elements.imageFile.addEventListener("change", (event) => {
-        const [file] = event.target.files || [];
-        handleFileSelection(file).catch((error) => {
-          setStatus(elements.fileStatus, formatError(error), "error");
-        });
-      });
-      elements.clearUpload.addEventListener("click", clearUploadState);
-      elements.submitForm.addEventListener("submit", submitTask);
-      elements.resubscribeAll.addEventListener("click", () => {
-        restoreSubscriptions().catch((error) => {
-          setStatus(elements.configStatus, "批量重连失败：" + formatError(error), "error");
-        });
-      });
-      elements.clearHistory.addEventListener("click", () => {
-        refreshTaskList({
-          resubscribe: false,
-          statusElement: elements.configStatus,
-        }).catch((error) => {
-          setStatus(elements.configStatus, "刷新任务列表失败：" + formatError(error), "error");
-        });
-      });
-      elements.loadMoreTasks.addEventListener("click", () => {
-        loadMoreTaskPage();
-      });
-      elements.taskList.addEventListener("click", handleTaskAction);
-      elements.taskList.addEventListener("keydown", (event) => {
-        if (event.key !== "Enter" && event.key !== " ") {
-          return;
-        }
-        const card = event.target.closest("[data-task-id][data-action='inspect']");
-        if (!card) {
-          return;
-        }
-        event.preventDefault();
-        handleTaskAction(event).catch((error) => {
-          setStatus(elements.configStatus, "历史任务刷新失败：" + formatError(error), "error");
-        });
-      });
-      window.addEventListener("beforeunload", () => {
-        Array.from(state.subscriptions.keys()).forEach((taskId) => stopSubscription(taskId));
-      });
-    }
-
-    function bootstrap() {
-      loadConfig();
-      loadTasks();
-      clearUploadState();
-      renderTasks();
-      syncTaskPageControls();
-      registerEventHandlers();
-      if (state.config.baseUrl) {
-        refreshTaskList({
-          resubscribe: true,
-          silent: true,
-          statusElement: elements.configStatus,
-        }).catch((error) => {
-          if (!state.config.token) {
-            return;
-          }
-          setStatus(elements.configStatus, "加载任务列表失败：" + formatError(error), "error");
-        });
-      }
-    }
-
-    bootstrap();
-  </script>
+  <script type="module" src="/static/router.js"></script>
 </body>
 </html>
