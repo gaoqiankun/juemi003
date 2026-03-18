@@ -434,29 +434,22 @@ def seed_tasks(database_path: Path, sequences: list[RequestSequence]) -> None:
 def test_health_and_ready_endpoints(tmp_path: Path) -> None:
     with make_client(tmp_path) as client:
         health_response = client.get("/health")
-        readiness_before_response = client.get("/readiness")
-        create_response = client.post(
-            "/v1/tasks",
-            headers=task_auth_headers(client),
-            json={
-                "type": "image_to_3d",
-                "input_url": upload_input_url(client),
-                "options": {"resolution": 1024},
-            },
+        wait_for_condition(
+            lambda: client.get("/readiness").status_code == 200,
+            timeout_seconds=2.0,
         )
-        assert create_response.status_code == 201
-        wait_for_status(client, create_response.json()["taskId"], "succeeded")
-        readiness_after_response = client.get("/readiness")
+        readiness_response = client.get("/readiness")
+        ready_alias_response = client.get("/ready")
 
     assert health_response.status_code == 200
     assert health_response.json() == {"status": "ok", "service": "gen3d"}
-    assert readiness_before_response.status_code == 503
-    assert readiness_before_response.json() == {
-        "status": "not_ready",
+    assert readiness_response.status_code == 200
+    assert readiness_response.json() == {
+        "status": "ready",
         "service": "gen3d",
     }
-    assert readiness_after_response.status_code == 200
-    assert readiness_after_response.json() == {
+    assert ready_alias_response.status_code == 200
+    assert ready_alias_response.json() == {
         "status": "ready",
         "service": "gen3d",
     }
@@ -475,12 +468,13 @@ def test_dev_proxy_is_disabled_by_default(tmp_path: Path, monkeypatch: pytest.Mo
         uploads_dir=tmp_path / "uploads",
     )
     with TestClient(create_app(config)) as client:
-        ready_response = client.get("/ready")
+        health_response = client.get("/health")
         root_response = client.get("/")
 
-    assert ready_response.status_code == 503
-    assert ready_response.json() == {"status": "not_ready", "service": "gen3d"}
-    assert root_response.status_code == 204
+    assert health_response.status_code == 200
+    assert health_response.json() == {"status": "ok", "service": "gen3d"}
+    expected_root_status = 200 if server_module.SPA_INDEX_PATH.is_file() else 204
+    assert root_response.status_code == expected_root_status
 
 
 def test_dev_proxy_forwards_non_static_requests(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -575,12 +569,79 @@ def test_dev_proxy_forwards_non_static_requests(tmp_path: Path, monkeypatch: pyt
     assert proxy_clients and proxy_clients[0].closed is True
 
 
-def test_app_startup_does_not_trigger_model_load(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_root_and_spa_routes_serve_built_index_when_present(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    spa_index = tmp_path / "dist" / "index.html"
+    spa_index.parent.mkdir(parents=True, exist_ok=True)
+    spa_index.write_text("<!doctype html><html><body>gen3d spa</body></html>", encoding="utf-8")
+    monkeypatch.setattr(server_module, "SPA_INDEX_PATH", spa_index)
+
+    with make_client(tmp_path) as client:
+        root_response = client.get("/")
+        gallery_response = client.get("/gallery")
+        settings_response = client.get("/settings")
+
+    assert root_response.status_code == 200
+    assert "gen3d spa" in root_response.text
+    assert gallery_response.status_code == 200
+    assert "gen3d spa" in gallery_response.text
+    assert settings_response.status_code == 200
+    assert "gen3d spa" in settings_response.text
+
+
+def test_dev_proxy_does_not_forward_spa_routes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    forwarded_requests: list[str] = []
+    spa_index = tmp_path / "dist" / "index.html"
+    spa_index.parent.mkdir(parents=True, exist_ok=True)
+    spa_index.write_text("<!doctype html><html><body>local spa</body></html>", encoding="utf-8")
+    monkeypatch.setattr(server_module, "SPA_INDEX_PATH", spa_index)
+
+    class FakeProxyClient:
+        def __init__(self, *args, **kwargs) -> None:
+            self.closed = False
+
+        def build_request(self, *args, **kwargs):
+            raise AssertionError("spa routes should not be proxied")
+
+        async def send(self, *args, **kwargs):
+            forwarded_requests.append("send")
+            raise AssertionError("spa routes should not be proxied")
+
+        async def aclose(self) -> None:
+            self.closed = True
+
+    monkeypatch.setattr(server_module.httpx, "AsyncClient", FakeProxyClient)
+
+    config = ServingConfig(
+        dev_proxy_target="https://gen3d.frps.zhifouai.com",
+        database_path=tmp_path / "gen3d.sqlite3",
+        artifacts_dir=tmp_path / "artifacts",
+        uploads_dir=tmp_path / "uploads",
+    )
+
+    with TestClient(create_app(config)) as client:
+        response = client.get("/gallery")
+
+    assert response.status_code == 200
+    assert "local spa" in response.text
+    assert forwarded_requests == []
+
+
+def test_app_startup_triggers_async_model_prewarm_without_blocking(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     original_build_model_runtime = server_module.build_model_runtime
     calls: list[str] = []
 
     def tracking_build_model_runtime(config: ServingConfig, model_name: str):
         calls.append(model_name)
+        time.sleep(0.5)
         return original_build_model_runtime(config, model_name)
 
     monkeypatch.setattr(
@@ -589,21 +650,39 @@ def test_app_startup_does_not_trigger_model_load(tmp_path: Path, monkeypatch: py
         tracking_build_model_runtime,
     )
 
+    startup_started_at = time.perf_counter()
     with make_client(tmp_path) as client:
-        readiness_response = client.get("/readiness")
+        startup_elapsed_seconds = time.perf_counter() - startup_started_at
+        readiness_loading_response = client.get("/readiness")
+        wait_for_condition(lambda: calls == ["trellis"], timeout_seconds=1.0)
+        wait_for_condition(
+            lambda: client.get("/readiness").status_code == 200,
+            timeout_seconds=2.0,
+        )
+        readiness_ready_response = client.get("/readiness")
 
-    assert readiness_response.status_code == 503
-    assert calls == []
+    assert startup_elapsed_seconds < 0.25
+    assert readiness_loading_response.status_code == 503
+    assert readiness_loading_response.json() == {
+        "status": "not_ready",
+        "service": "gen3d",
+    }
+    assert calls == ["trellis"]
+    assert readiness_ready_response.status_code == 200
+    assert readiness_ready_response.json() == {
+        "status": "ready",
+        "service": "gen3d",
+    }
 
 
-def test_create_task_returns_immediately_while_model_loads_in_worker(
+def test_create_task_returns_immediately_while_model_loads_in_background(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     original_build_model_runtime = server_module.build_model_runtime
 
     def slow_build_model_runtime(config: ServingConfig, model_name: str):
-        time.sleep(0.5)
+        time.sleep(0.7)
         return original_build_model_runtime(config, model_name)
 
     monkeypatch.setattr(
@@ -613,6 +692,8 @@ def test_create_task_returns_immediately_while_model_loads_in_worker(
     )
 
     with make_client(tmp_path, queue_delay_ms=0) as client:
+        readiness_before_response = client.get("/readiness")
+        assert readiness_before_response.status_code == 503
         input_url = upload_input_url(client)
 
         started_at = time.perf_counter()

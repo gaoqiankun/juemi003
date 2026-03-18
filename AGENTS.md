@@ -24,7 +24,8 @@
   - artifact backend：`local` / `minio`
   - API：任务提交、查询、SSE、取消、webhook、artifacts
   - Docker + `deploy.sh` 部署材料齐全，真实链路已在 GPU 服务器跑通
-- 当前测试基线：`python -m pytest tests -q` 为 `23 passed`
+- 当前测试基线：`python -m pytest tests -q` 为 `71 passed`
+- Web 前端已迁移到 `web/`（React + Vite + TypeScript），FastAPI 直接服务 `web/dist/`
 - `Hunyuan3DProvider` 仍未实现
 
 ## 3. 实际目录结构
@@ -46,6 +47,7 @@ gen3d/
 ├── tests/
 ├── scripts/
 ├── docker/
+├── web/
 ├── docs/
 └── plan/
 ```
@@ -84,6 +86,21 @@ python -m pytest tests -q
 - `.python-version` 当前内容是 `hey3d_gen3d`
 - real mode 还需要 `requirements-worker.txt` 里说明的 GPU/TRELLIS2 依赖、模型目录，以及可选的对象存储配置
 - smoke helper 在 `scripts/bench.py`
+
+### Web 前端（React SPA）
+
+```bash
+cd /Users/gqk/work/hey3d/gen3d/web
+export PATH="$HOME/.nvm/versions/node/v24.14.0/bin:$PATH"
+npm ci
+npm run build
+```
+
+说明：
+- `npm run build` 输出到 `web/dist/`；生产镜像也会在 Docker build 阶段生成这份产物
+- 本地联调主路径是先构建前端，再回到仓库根运行 `python serve.py`，通过 FastAPI 打开的 `http://127.0.0.1:<port>/` 验证
+- 纯前端样式调试可用 `npm run dev -- --host 127.0.0.1 --port 5173`
+- 当前仓库没有给 Vite dev server 配 API 反向代理，后端也没有 CORS 中间件；要验证真实 API 流程，仍以 FastAPI 服务 `web/dist/` 为准
 
 ## 6. 修改时注意
 

@@ -1,4 +1,23 @@
 ARG TRELLIS2_IMAGE=hey3d/trellis2:latest
+ARG NODE_IMAGE=node:24-bookworm-slim
+
+FROM ${NODE_IMAGE} AS web-builder
+
+WORKDIR /web
+
+COPY web/package.json web/package-lock.json ./
+
+RUN npm ci
+
+COPY web/index.html ./
+COPY web/postcss.config.js ./
+COPY web/tailwind.config.ts ./
+COPY web/tsconfig.json ./
+COPY web/vite.config.ts ./
+COPY web/public ./public
+COPY web/src ./src
+
+RUN npm run build
 
 FROM ${TRELLIS2_IMAGE}
 
@@ -17,6 +36,7 @@ RUN python -m pip install --upgrade pip setuptools wheel && \
 # Keep the checkout under /app/gen3d so `python serve.py` sees the same
 # package layout as a normal repo checkout (`<parent>/gen3d/...`).
 COPY . /app/gen3d
+COPY --from=web-builder /web/dist /app/gen3d/web/dist
 
 RUN chmod +x /app/gen3d/scripts/download_models.sh
 

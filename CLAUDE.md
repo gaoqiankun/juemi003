@@ -1,7 +1,7 @@
 # Hey3D gen3d · Claude 架构师记忆
 
 > 子仓库：`/Users/gqk/work/hey3d/gen3d/`（独立 git 仓库）
-> 最后更新：2026-03-17
+> 最后更新：2026-03-18
 
 ## 规划日志
 
@@ -11,7 +11,7 @@
 ## 当前状态
 
 - `gen3d` 已是可运行的 Python/FastAPI 3D 生成服务，Phase A/B/C 全部完成
-- 当前测试基线：`python -m pytest tests -q` 为 `67 passed`
+- 当前测试基线：`python -m pytest tests -q` 为 `71 passed`
 - Provider：
   - `mock`：`MockTrellis2Provider`
   - `real`：`Trellis2Provider`
@@ -29,6 +29,8 @@
   - C3：多卡并发（GPU_DEVICE_IDS 多进程 worker、QUEUE_MAX_SIZE 有界队列、503 拒绝）
   - C4：可观测性（structlog JSON 结构化日志、Prometheus 指标）
   - C5：Web UI（多页面 SPA：生成页/图库/设置，Three.js 预览，Hash Router，深色商业化风格）
+- E12（2026-03-18）：启动预热 + /health UI 对齐。engine.start() 后自动后台预热默认模型；Web UI 连接状态改为基于 /health，任务提交不再依赖 /ready
+- E13（2026-03-18）：Web UI 迁移到 React + TypeScript + Vite + Tailwind + shadcn 风格组件。源码在 web/，Dockerfile 增加 Node builder stage，dist 在镜像构建时生成。GET / 返回 SPA index.html，支持 /gallery、/settings 客户端路由。旧 static/ 目录已删除
 
 ## 关键路径
 
@@ -73,12 +75,13 @@
 - 取消只支持 `gpu_queued` 状态，运行中阶段不可中断
 - `observability/metrics.py` 目前只有 readiness gauge，Prometheus/Grafana 未完成
 - 下一步待办：
-  ① GET / 改为返回 index.html（目前还是 204，部署后需要开启）
+  ① Web UI 视觉迭代（上传区放大、图库卡片精简、copy 收紧）
   ② server → gen3d 集成（iOS 路径，已确认为中转架构：iOS → server → gen3d）
-  ② release 包 `docker-compose.yml` 去掉 `build:` 块
-  ③ IP 白名单校验逻辑（E10 只存不校验，等 nginx 路径稳定后开启）
-  ④ GPU 细粒度进度 hook（gpu_ss/gpu_shape/gpu_material 目前是占位）
-  ⑤ Prometheus/Grafana 完整化（目前只有 readiness gauge）
+  ③ release 包 `docker-compose.yml` 去掉 `build:` 块
+  ④ IP 白名单校验逻辑（E10 只存不校验，等 nginx 路径稳定后开启）
+  ⑤ GPU 细粒度进度 hook（gpu_ss/gpu_shape/gpu_material 目前是占位）
+  ⑥ Prometheus/Grafana 完整化（目前只有 readiness gauge）
+  ⑦ Web UI chunk size 优化（当前主 JS ~939kB，Vite 有 warning）
 
 ## 使用提醒
 

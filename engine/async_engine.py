@@ -81,6 +81,7 @@ class AsyncGen3DEngine:
         queue_max_size: int = 20,
         uploads_dir: Path = Path("./data/uploads"),
         worker_poll_interval_seconds: float = 0.05,
+        startup_models: tuple[str, ...] = (),
     ) -> None:
         self._task_store = task_store
         self._pipeline = pipeline
@@ -102,6 +103,13 @@ class AsyncGen3DEngine:
         self._allowed_callback_domains = allowed_callback_domains
         self._rate_limiter = rate_limiter
         self._uploads_dir = Path(uploads_dir)
+        self._startup_models = tuple(
+            dict.fromkeys(
+                str(model_name).strip().lower()
+                for model_name in startup_models
+                if str(model_name).strip()
+            )
+        )
         self._logger = structlog.get_logger(__name__)
         self._pipeline.add_listener(self._publish_update)
 
@@ -121,6 +129,9 @@ class AsyncGen3DEngine:
         ]
         set_queue_depth(await self._task_store.count_queued_tasks())
         self._started = True
+        for model_name in self._startup_models:
+            self._model_registry.load(model_name)
+            self._logger.info("model.prewarm_scheduled", model_name=model_name)
 
     async def stop(self) -> None:
         if not self._started:

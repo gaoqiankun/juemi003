@@ -72,7 +72,8 @@ from gen3d.storage.api_key_store import (
 )
 from gen3d.storage.task_store import TaskStore
 
-STATIC_DIR = Path(__file__).resolve().parents[1] / "static"
+WEB_DIST_DIR = Path(__file__).resolve().parents[1] / "web" / "dist"
+SPA_INDEX_PATH = WEB_DIST_DIR / "index.html"
 ALLOWED_UPLOAD_CONTENT_TYPES = {
     "image/jpeg": ".jpg",
     "image/png": ".png",
@@ -281,6 +282,7 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
         parallel_slots=len(config.gpu_device_ids),
         queue_max_size=config.queue_max_size,
         uploads_dir=config.uploads_dir,
+        startup_models=("trellis",),
     )
     container = AppContainer(
         config=config,
@@ -317,7 +319,7 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
     app = FastAPI(title=config.service_name, lifespan=lifespan)
     app.mount(
         "/static",
-        StaticFiles(directory=str(STATIC_DIR)),
+        StaticFiles(directory=str(WEB_DIST_DIR), check_dir=False),
         name="static",
     )
     auth_scheme = HTTPBearer(auto_error=False)
@@ -826,6 +828,8 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
 
     @app.get("/", include_in_schema=False)
     async def root() -> Response:
+        if SPA_INDEX_PATH.is_file():
+            return FileResponse(SPA_INDEX_PATH)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     @app.api_route(
@@ -839,6 +843,8 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
     ) -> Response:
         _ = proxy_path
         if not _should_proxy_dev_request(request, config):
+            if _should_serve_spa_route(request) and SPA_INDEX_PATH.is_file():
+                return FileResponse(SPA_INDEX_PATH)
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="not found")
         if proxy_client is None:
             raise HTTPException(
@@ -872,7 +878,31 @@ def _is_valid_token(provided_token: str | None, configured_token: str | None) ->
 
 
 def _should_proxy_dev_request(request: Request, config: ServingConfig) -> bool:
-    return config.dev_proxy_target is not None and not request.url.path.startswith("/static")
+    if config.dev_proxy_target is None:
+        return False
+    path = request.url.path
+    if path.startswith("/static"):
+        return False
+    return (
+        path.startswith("/v1/")
+        or path.startswith("/admin/")
+        or path in {"/health", "/readiness", "/ready", "/metrics", "/docs", "/redoc", "/openapi.json"}
+    )
+
+
+def _should_serve_spa_route(request: Request) -> bool:
+    if request.method not in {"GET", "HEAD"}:
+        return False
+    path = request.url.path
+    if path == "/":
+        return True
+    if path.startswith("/static"):
+        return False
+    if path.startswith("/v1/") or path.startswith("/admin/"):
+        return False
+    if path in {"/health", "/readiness", "/ready", "/metrics", "/docs", "/redoc", "/openapi.json"}:
+        return False
+    return "." not in path.rsplit("/", 1)[-1]
 
 
 async def _forward_dev_proxy_request(

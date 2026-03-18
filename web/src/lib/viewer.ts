@@ -1,31 +1,31 @@
 import * as THREE from "three";
-import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+
+import { sleep } from "@/lib/utils";
 
 const DEFAULT_BACKGROUND = "#060816";
 const THUMBNAIL_BACKGROUND = "#0d1222";
 const loader = new GLTFLoader();
 
-function disposeMaterial(material) {
+function disposeMaterial(material: any) {
   if (!material) {
     return;
   }
   Object.values(material).forEach((value) => {
-    if (value && value.isTexture) {
-      value.dispose();
+    if ((value as any)?.isTexture) {
+      (value as THREE.Texture).dispose();
     }
   });
-  material.dispose();
+  material.dispose?.();
 }
 
-function disposeObject(root) {
+function disposeObject(root: THREE.Object3D | null) {
   if (!root) {
     return;
   }
-  root.traverse((child) => {
-    if (child.geometry) {
-      child.geometry.dispose();
-    }
+  root.traverse((child: any) => {
+    child.geometry?.dispose?.();
     if (Array.isArray(child.material)) {
       child.material.forEach(disposeMaterial);
     } else if (child.material) {
@@ -34,7 +34,7 @@ function disposeObject(root) {
   });
 }
 
-function createStudioLights(scene) {
+function createStudioLights(scene: THREE.Scene) {
   const ambient = new THREE.AmbientLight(0xffffff, 2.6);
   const hemisphere = new THREE.HemisphereLight(0x9fb7ff, 0x0f172a, 1.2);
   const key = new THREE.DirectionalLight(0xffffff, 2.8);
@@ -44,7 +44,12 @@ function createStudioLights(scene) {
   scene.add(ambient, hemisphere, key, rim);
 }
 
-function fitCameraToObject(camera, object, controls, aspect = 1) {
+function fitCameraToObject(
+  camera: THREE.PerspectiveCamera,
+  object: THREE.Object3D,
+  controls: OrbitControls | null,
+  aspect = 1,
+) {
   const box = new THREE.Box3().setFromObject(object);
   const size = box.getSize(new THREE.Vector3());
   const center = box.getCenter(new THREE.Vector3());
@@ -69,7 +74,17 @@ function fitCameraToObject(camera, object, controls, aspect = 1) {
   }
 }
 
-function createRenderer({ width, height, alpha = false, preserveDrawingBuffer = false }) {
+function createRenderer({
+  width,
+  height,
+  alpha = false,
+  preserveDrawingBuffer = false,
+}: {
+  width: number;
+  height: number;
+  alpha?: boolean;
+  preserveDrawingBuffer?: boolean;
+}) {
   const renderer = new THREE.WebGLRenderer({
     antialias: true,
     alpha,
@@ -81,18 +96,12 @@ function createRenderer({ width, height, alpha = false, preserveDrawingBuffer = 
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.1;
-  renderer.shadowMap.enabled = false;
   return renderer;
 }
 
-function sleep(ms) {
-  return new Promise((resolve) => {
-    window.setTimeout(resolve, ms);
-  });
-}
-
-async function fetchModelBlobUrl(url, attempt) {
+async function fetchModelBlobUrl(url: string, requestHeaders: Record<string, string> = {}) {
   const response = await fetch(url, {
+    headers: requestHeaders,
     cache: "no-store",
     credentials: "same-origin",
   });
@@ -103,24 +112,20 @@ async function fetchModelBlobUrl(url, attempt) {
   return URL.createObjectURL(blob);
 }
 
-async function loadScene(url) {
-  let lastError = null;
+async function loadScene(url: string, requestHeaders: Record<string, string> = {}) {
+  let lastError: unknown = null;
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     let objectUrl = "";
     try {
-      objectUrl = await fetchModelBlobUrl(url, attempt);
+      objectUrl = await fetchModelBlobUrl(url, requestHeaders);
       const gltf = await loader.loadAsync(objectUrl);
       const root = gltf.scene || gltf.scenes?.[0];
       if (!root) {
         throw new Error("GLB did not contain a scene");
       }
-      root.traverse((child) => {
-        if (child.isMesh) {
-          child.castShadow = false;
-          child.receiveShadow = false;
-          if (child.material) {
-            child.material.side = THREE.FrontSide;
-          }
+      root.traverse((child: any) => {
+        if (child.isMesh && child.material) {
+          child.material.side = THREE.FrontSide;
         }
       });
       return root;
@@ -140,7 +145,19 @@ async function loadScene(url) {
 }
 
 export class Viewer3D {
-  constructor(container, options = {}) {
+  container: HTMLElement;
+  options: { background: string; autoRotate: boolean };
+  scene: THREE.Scene;
+  camera: THREE.PerspectiveCamera;
+  renderer: THREE.WebGLRenderer;
+  controls: OrbitControls;
+  modelRoot: THREE.Object3D | null;
+  frameHandle = 0;
+  loadToken = 0;
+  overlay: HTMLDivElement;
+  resizeObserver: ResizeObserver;
+
+  constructor(container: HTMLElement, options: { background?: string; autoRotate?: boolean } = {}) {
     this.container = container;
     this.options = {
       background: options.background || DEFAULT_BACKGROUND,
@@ -151,7 +168,6 @@ export class Viewer3D {
     this.renderer = createRenderer({
       width: Math.max(this.container.clientWidth, 1),
       height: Math.max(this.container.clientHeight, 1),
-      alpha: false,
     });
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
@@ -160,26 +176,22 @@ export class Viewer3D {
     this.controls.maxDistance = 80;
     this.controls.autoRotate = this.options.autoRotate;
     this.controls.autoRotateSpeed = 1.25;
-
     this.modelRoot = null;
-    this.frameHandle = 0;
-    this.loadToken = 0;
 
     this.container.innerHTML = "";
-    this.container.classList.add("viewer-3d-shell");
-    this.container.style.position = "relative";
-    this.renderer.domElement.className = "viewer-3d-canvas";
+    this.renderer.domElement.className = "size-full";
     this.container.appendChild(this.renderer.domElement);
 
     this.overlay = document.createElement("div");
-    this.overlay.className = "viewer-3d-overlay";
-    this.overlay.innerHTML = '<div class="viewer-3d-message">等待选择任务</div>';
+    this.overlay.className = "absolute inset-0 flex items-center justify-center bg-slate-950/30 backdrop-blur-sm";
+    this.overlay.innerHTML = '<div class="rounded-full border border-white/12 bg-slate-950/75 px-4 py-2 text-sm text-slate-200">等待选择任务</div>';
     this.container.appendChild(this.overlay);
 
     this.scene.background = new THREE.Color(this.options.background);
     createStudioLights(this.scene);
     this.camera.position.set(2.5, 1.8, 2.5);
     this.controls.update();
+
     this.handleResize = this.handleResize.bind(this);
     this.animate = this.animate.bind(this);
     this.resizeObserver = new ResizeObserver(this.handleResize);
@@ -188,7 +200,7 @@ export class Viewer3D {
     this.animate();
   }
 
-  handleResize() {
+  private handleResize() {
     const width = Math.max(this.container.clientWidth, 1);
     const height = Math.max(this.container.clientHeight, 1);
     this.camera.aspect = width / height;
@@ -196,16 +208,20 @@ export class Viewer3D {
     this.renderer.setSize(width, height, false);
   }
 
-  animate() {
+  private animate() {
     this.frameHandle = window.requestAnimationFrame(this.animate);
     this.controls.update();
     this.renderer.render(this.scene, this.camera);
   }
 
-  setMessage(message, tone = "info") {
-    this.overlay.dataset.tone = tone;
+  setMessage(message: string, tone: "info" | "loading" | "error" = "info") {
+    const toneClass = tone === "error"
+      ? "border-rose-400/20 bg-rose-950/65 text-rose-100"
+      : tone === "loading"
+        ? "border-cyan-400/20 bg-slate-950/75 text-slate-100"
+        : "border-white/12 bg-slate-950/75 text-slate-200";
     this.overlay.hidden = false;
-    this.overlay.innerHTML = `<div class="viewer-3d-message">${message}</div>`;
+    this.overlay.innerHTML = `<div class="rounded-full border px-4 py-2 text-sm ${toneClass}">${message}</div>`;
   }
 
   clearModel() {
@@ -217,7 +233,7 @@ export class Viewer3D {
     this.modelRoot = null;
   }
 
-  async load(url) {
+  async load(url?: string | null, requestHeaders: Record<string, string> = {}) {
     if (!url) {
       this.clearModel();
       this.setMessage("任务产物尚未可用");
@@ -226,10 +242,9 @@ export class Viewer3D {
 
     const currentToken = ++this.loadToken;
     this.setMessage("正在加载 3D 模型…", "loading");
-
-    let root = null;
+    let root: THREE.Object3D | null = null;
     try {
-      root = await loadScene(url);
+      root = await loadScene(url, requestHeaders);
       if (currentToken !== this.loadToken) {
         disposeObject(root);
         return;
@@ -264,18 +279,23 @@ export class Viewer3D {
     this.controls.dispose();
     this.clearModel();
     this.renderer.dispose();
-    if (this.renderer.domElement.parentNode === this.container) {
-      this.container.removeChild(this.renderer.domElement);
-    }
-    if (this.overlay.parentNode === this.container) {
-      this.container.removeChild(this.overlay);
-    }
+    this.container.innerHTML = "";
   }
 }
 
 export async function renderModelThumbnail(
-  url,
-  { width = 480, height = 320, background = THUMBNAIL_BACKGROUND } = {},
+  url: string,
+  {
+    width = 480,
+    height = 320,
+    background = THUMBNAIL_BACKGROUND,
+    requestHeaders = {},
+  }: {
+    width?: number;
+    height?: number;
+    background?: string;
+    requestHeaders?: Record<string, string>;
+  } = {},
 ) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(background);
@@ -285,13 +305,12 @@ export async function renderModelThumbnail(
   const renderer = createRenderer({
     width,
     height,
-    alpha: false,
     preserveDrawingBuffer: true,
   });
 
-  let root = null;
+  let root: THREE.Object3D | null = null;
   try {
-    root = await loadScene(url);
+    root = await loadScene(url, requestHeaders);
     scene.add(root);
     fitCameraToObject(camera, root, null, width / height);
     renderer.render(scene, camera);
