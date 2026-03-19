@@ -29,7 +29,11 @@ from gen3d.stages.gpu.scheduler import GPUSlotScheduler
 from gen3d.stages.gpu.stage import GPUStage
 from gen3d.stages.gpu.worker import build_gpu_workers
 from gen3d.stages.preprocess.stage import PreprocessStage
-from gen3d.storage.artifact_store import ArtifactStore, ArtifactStoreOperationError
+from gen3d.storage.artifact_store import (
+    ArtifactStore,
+    ArtifactStoreOperationError,
+    ObjectStorageStreamResult,
+)
 from gen3d.storage.task_store import TaskStore
 
 SAMPLE_IMAGE_DATA_URL = (
@@ -43,7 +47,7 @@ class FakeObjectStorageClient:
         self.fail_on_presign = fail_on_presign
         self.validated_bucket: str | None = None
         self.uploads: list[dict[str, object]] = []
-        self.objects: dict[tuple[str, str], bytes] = {}
+        self.objects: dict[tuple[str, str], dict[str, object]] = {}
         self.deleted_keys: list[tuple[str, str]] = []
 
     def ensure_bucket_exists(self, bucket: str) -> None:
@@ -65,7 +69,10 @@ class FakeObjectStorageClient:
                 "body": source_path.read_bytes(),
             }
         )
-        self.objects[(bucket, key)] = source_path.read_bytes()
+        self.objects[(bucket, key)] = {
+            "body": source_path.read_bytes(),
+            "content_type": content_type,
+        }
 
     def generate_presigned_get_url(
         self,
@@ -92,6 +99,41 @@ class FakeObjectStorageClient:
             for (stored_bucket, key), _ in self.objects.items()
             if stored_bucket == bucket and key.startswith(prefix)
         ]
+
+    def get_object_stream(
+        self,
+        *,
+        bucket: str,
+        key: str,
+    ) -> ObjectStorageStreamResult:
+        stored = self.objects[(bucket, key)]
+
+        class MemoryStream:
+            def __init__(self, payload: bytes) -> None:
+                self._payload = payload
+                self._offset = 0
+
+            def read(self, amount: int = -1) -> bytes:
+                if self._offset >= len(self._payload):
+                    return b""
+                if amount is None or amount < 0:
+                    amount = len(self._payload) - self._offset
+                chunk = self._payload[self._offset:self._offset + amount]
+                self._offset += len(chunk)
+                return chunk
+
+            def close(self) -> None:
+                return
+
+        payload = stored["body"]
+        assert isinstance(payload, bytes)
+        content_type = stored.get("content_type")
+        return ObjectStorageStreamResult(
+            body=MemoryStream(payload),
+            content_type=content_type if isinstance(content_type, str) else None,
+            content_length=len(payload),
+            etag='"fake-etag"',
+        )
 
     def delete_objects(
         self,
@@ -646,6 +688,42 @@ def test_minio_artifact_store_returns_presigned_metadata_without_real_minio(
         assert artifact["content_type"] == "model/gltf-binary"
         assert artifact["expires_at"] is not None
         assert listed == [artifact]
+
+    asyncio.run(scenario())
+
+
+def test_minio_artifact_store_opens_streaming_download_without_staging_file(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> None:
+        fake_client = FakeObjectStorageClient()
+        artifact_store = ArtifactStore(
+            tmp_path / "artifacts",
+            mode="minio",
+            object_store_client=fake_client,
+            object_store_bucket="gen3d-artifacts",
+        )
+        await artifact_store.initialize()
+
+        async with artifact_store.create_staging_path("task-stream", "model.glb") as staging_path:
+            staging_path.write_bytes(b"glTF")
+            await artifact_store.publish_artifact(
+                task_id="task-stream",
+                artifact_type="glb",
+                file_name="model.glb",
+                staging_path=staging_path,
+            )
+
+        stream = await artifact_store.open_streaming_download("task-stream", "model.glb")
+
+        assert stream is not None
+        assert stream.content_type == "model/gltf-binary"
+        assert stream.content_length == 4
+        assert stream.etag == '"fake-etag"'
+        assert stream.body.read(2) == b"gl"
+        assert stream.body.read(2) == b"TF"
+        assert stream.body.read(2) == b""
+        stream.body.close()
 
     asyncio.run(scenario())
 

@@ -31,6 +31,7 @@ from gen3d.model.trellis2.provider import MockTrellis2Provider, Trellis2Provider
 from gen3d.storage.artifact_store import (
     ArtifactStoreConfigurationError,
     ArtifactStoreOperationError,
+    ObjectStorageStreamResult,
 )
 from gen3d.storage.task_store import TaskStore
 
@@ -2116,7 +2117,7 @@ def test_create_task_downloads_artifact_via_same_origin_proxy_for_minio_backend(
 ) -> None:
     class FakeObjectStoreClient:
         def __init__(self) -> None:
-            self.objects: dict[tuple[str, str], bytes] = {}
+            self.objects: dict[tuple[str, str], dict[str, object]] = {}
 
         def ensure_bucket_exists(self, bucket: str) -> None:
             _ = bucket
@@ -2129,8 +2130,10 @@ def test_create_task_downloads_artifact_via_same_origin_proxy_for_minio_backend(
             source_path: Path,
             content_type: str | None = None,
         ) -> None:
-            _ = content_type
-            self.objects[(bucket, key)] = source_path.read_bytes()
+            self.objects[(bucket, key)] = {
+                "body": source_path.read_bytes(),
+                "content_type": content_type,
+            }
 
         def generate_presigned_get_url(
             self,
@@ -2150,7 +2153,45 @@ def test_create_task_downloads_artifact_via_same_origin_proxy_for_minio_backend(
             destination_path: Path,
         ) -> None:
             destination_path.parent.mkdir(parents=True, exist_ok=True)
-            destination_path.write_bytes(self.objects[(bucket, key)])
+            stored = self.objects[(bucket, key)]
+            body = stored["body"]
+            assert isinstance(body, bytes)
+            destination_path.write_bytes(body)
+
+        def get_object_stream(
+            self,
+            *,
+            bucket: str,
+            key: str,
+        ) -> ObjectStorageStreamResult:
+            stored = self.objects[(bucket, key)]
+            body = stored["body"]
+            assert isinstance(body, bytes)
+
+            class MemoryStream:
+                def __init__(self, payload: bytes) -> None:
+                    self._payload = payload
+                    self._offset = 0
+
+                def read(self, amount: int = -1) -> bytes:
+                    if self._offset >= len(self._payload):
+                        return b""
+                    if amount is None or amount < 0:
+                        amount = len(self._payload) - self._offset
+                    chunk = self._payload[self._offset:self._offset + amount]
+                    self._offset += len(chunk)
+                    return chunk
+
+                def close(self) -> None:
+                    return
+
+            content_type = stored.get("content_type")
+            return ObjectStorageStreamResult(
+                body=MemoryStream(body),
+                content_type=content_type if isinstance(content_type, str) else None,
+                content_length=len(body),
+                etag='"fake-etag"',
+            )
 
         def list_object_keys(
             self,
@@ -2215,6 +2256,150 @@ def test_create_task_downloads_artifact_via_same_origin_proxy_for_minio_backend(
     assert final_payload["artifacts"][0]["url"].startswith("https://artifacts.example.com/")
     assert download_response.status_code == 200
     assert download_response.content.startswith(b"glTF")
+    assert download_response.headers["etag"] == '"fake-etag"'
+    assert int(download_response.headers["content-length"]) >= 4
+
+
+def test_minio_artifact_proxy_streams_without_buffering_temp_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class StreamingOnlyObjectStoreClient:
+        def __init__(self) -> None:
+            self.objects: dict[tuple[str, str], bytes] = {}
+            self.download_file_called = False
+            self.stream_opened = False
+
+        def ensure_bucket_exists(self, bucket: str) -> None:
+            _ = bucket
+
+        def upload_file(
+            self,
+            *,
+            bucket: str,
+            key: str,
+            source_path: Path,
+            content_type: str | None = None,
+        ) -> None:
+            _ = content_type
+            self.objects[(bucket, key)] = source_path.read_bytes()
+
+        def generate_presigned_get_url(
+            self,
+            *,
+            bucket: str,
+            key: str,
+            expires_in_seconds: int,
+        ) -> str:
+            _ = expires_in_seconds
+            return f"https://artifacts.example.com/{bucket}/{key}?signature=fake"
+
+        def download_file(
+            self,
+            *,
+            bucket: str,
+            key: str,
+            destination_path: Path,
+        ) -> None:
+            _ = bucket
+            _ = key
+            _ = destination_path
+            self.download_file_called = True
+            raise AssertionError("download_file should not be called for streamed proxy downloads")
+
+        def get_object_stream(
+            self,
+            *,
+            bucket: str,
+            key: str,
+        ) -> ObjectStorageStreamResult:
+            _ = bucket
+            payload = self.objects[(bucket, key)]
+            self.stream_opened = True
+
+            class ChunkedStream:
+                def __init__(self, chunks: list[bytes]) -> None:
+                    self._chunks = chunks
+
+                def read(self, amount: int = -1) -> bytes:
+                    _ = amount
+                    if not self._chunks:
+                        return b""
+                    return self._chunks.pop(0)
+
+                def close(self) -> None:
+                    return
+
+            return ObjectStorageStreamResult(
+                body=ChunkedStream([payload[:2], payload[2:]]),
+                content_type="model/gltf-binary",
+                content_length=len(payload),
+                etag='"stream-etag"',
+            )
+
+        def list_object_keys(
+            self,
+            *,
+            bucket: str,
+            prefix: str,
+        ) -> list[str]:
+            return [
+                key
+                for stored_bucket, key in self.objects
+                if stored_bucket == bucket and key.startswith(prefix)
+            ]
+
+        def delete_objects(
+            self,
+            *,
+            bucket: str,
+            keys: list[str],
+        ) -> None:
+            for key in keys:
+                self.objects.pop((bucket, key), None)
+
+    fake_object_store_client = StreamingOnlyObjectStoreClient()
+    monkeypatch.setattr(
+        server_module,
+        "build_boto3_object_storage_client",
+        lambda **_: fake_object_store_client,
+    )
+
+    with make_client(
+        tmp_path,
+        artifact_store_mode="minio",
+        object_store_endpoint="http://minio:9000",
+        object_store_bucket="gen3d-artifacts",
+        object_store_access_key="minioadmin",
+        object_store_secret_key="minioadmin",
+    ) as client:
+        create_response = client.post(
+            "/v1/tasks",
+            headers=task_auth_headers(client),
+            json={
+                "type": "image_to_3d",
+                "input_url": upload_input_url(client),
+                "options": {"resolution": 1024},
+            },
+        )
+        assert create_response.status_code == 201
+        payload = create_response.json()
+
+        collect_task_snapshots(
+            client,
+            payload["taskId"],
+            terminal_status="succeeded",
+        )
+        download_response = client.get(
+            f"/v1/tasks/{payload['taskId']}/artifacts/model.glb",
+            headers=task_auth_headers(client),
+        )
+
+    assert download_response.status_code == 200
+    assert download_response.content.startswith(b"glTF")
+    assert download_response.headers["etag"] == '"stream-etag"'
+    assert fake_object_store_client.stream_opened is True
+    assert fake_object_store_client.download_file_called is False
 
 
 def test_metrics_track_successful_task(tmp_path: Path) -> None:

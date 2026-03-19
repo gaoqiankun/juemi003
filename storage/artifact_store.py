@@ -27,6 +27,20 @@ class ArtifactStoreOperationError(RuntimeError):
         self.stage_name = stage_name
 
 
+class ObjectStorageBodyReader(Protocol):
+    def read(self, amount: int = -1) -> bytes: ...
+
+    def close(self) -> None: ...
+
+
+@dataclass(slots=True)
+class ObjectStorageStreamResult:
+    body: ObjectStorageBodyReader
+    content_type: str | None = None
+    content_length: int | None = None
+    etag: str | None = None
+
+
 class ObjectStorageClient(Protocol):
     def ensure_bucket_exists(self, bucket: str) -> None: ...
 
@@ -55,6 +69,13 @@ class ObjectStorageClient(Protocol):
         destination_path: Path,
     ) -> None: ...
 
+    def get_object_stream(
+        self,
+        *,
+        bucket: str,
+        key: str,
+    ) -> ObjectStorageStreamResult: ...
+
     def list_object_keys(
         self,
         *,
@@ -82,6 +103,15 @@ class ArtifactRecord:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+@dataclass(slots=True)
+class ArtifactStream:
+    file_name: str
+    body: ObjectStorageBodyReader
+    content_type: str | None
+    content_length: int | None = None
+    etag: str | None = None
 
 
 class Boto3ObjectStorageClient:
@@ -168,6 +198,20 @@ class Boto3ObjectStorageClient:
     ) -> None:
         destination_path.parent.mkdir(parents=True, exist_ok=True)
         self._upload_client.download_file(bucket, key, str(destination_path))
+
+    def get_object_stream(
+        self,
+        *,
+        bucket: str,
+        key: str,
+    ) -> ObjectStorageStreamResult:
+        response = self._upload_client.get_object(Bucket=bucket, Key=key)
+        return ObjectStorageStreamResult(
+            body=response["Body"],
+            content_type=response.get("ContentType"),
+            content_length=response.get("ContentLength"),
+            etag=response.get("ETag"),
+        )
 
     def list_object_keys(
         self,
@@ -407,6 +451,49 @@ class ArtifactStore:
             str(artifact.get("type") or "file"),
         )
         return temp_path, content_type, True
+
+    async def open_streaming_download(
+        self,
+        task_id: str,
+        file_name: str,
+    ) -> ArtifactStream | None:
+        safe_file_name = self._sanitize_file_name(file_name)
+        if safe_file_name is None or self._mode != "minio":
+            return None
+
+        artifact = await self._find_artifact_record(task_id, safe_file_name)
+        if artifact is None:
+            return None
+
+        try:
+            stream_result = await asyncio.to_thread(
+                self._require_object_store_client().get_object_stream,
+                bucket=self._require_object_store_bucket(),
+                key=f"{self._object_store_prefix}/{task_id}/{safe_file_name}",
+            )
+        except Exception as exc:
+            raise ArtifactStoreOperationError(
+                "downloading",
+                f"failed to stream artifact from object store: {exc}",
+            ) from exc
+
+        content_type = stream_result.content_type or artifact.get("content_type") or _guess_content_type(
+            safe_file_name,
+            str(artifact.get("type") or "file"),
+        )
+        content_length = stream_result.content_length
+        if content_length is None:
+            size_bytes = artifact.get("size_bytes")
+            if isinstance(size_bytes, (int, float)):
+                content_length = int(size_bytes)
+
+        return ArtifactStream(
+            file_name=safe_file_name,
+            body=stream_result.body,
+            content_type=content_type,
+            content_length=content_length,
+            etag=stream_result.etag,
+        )
 
     async def delete_artifacts(self, task_id: str) -> None:
         manifest_path = self._manifest_dir / f"{task_id}.json"

@@ -10,7 +10,7 @@ from email.parser import BytesParser
 from email.policy import default as default_email_policy
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import quote, urlsplit, urlunsplit
 
 from datetime import datetime
 
@@ -93,6 +93,7 @@ HOP_BY_HOP_HEADERS = {
     "upgrade",
 }
 PROXY_REQUEST_HEADER_EXCLUSIONS = HOP_BY_HOP_HEADERS | {"host", "content-length"}
+ARTIFACT_STREAM_CHUNK_SIZE = 1024 * 1024
 
 
 @dataclass(slots=True)
@@ -850,7 +851,7 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
         task_id: str,
         filename: str,
         app_container: AppContainer = Depends(get_container),
-    ) -> FileResponse:
+    ) -> Response:
         local_model_path = _resolve_dev_local_model_path(app_container.config, filename)
         if local_model_path is not None:
             return FileResponse(
@@ -870,6 +871,36 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
                 status_code=status.HTTP_409_CONFLICT,
                 detail="artifacts are only available for succeeded tasks",
             )
+        streaming_download = await app_container.artifact_store.open_streaming_download(
+            task_id,
+            filename,
+        )
+        if streaming_download is not None:
+            headers = _build_artifact_download_headers(
+                file_name=streaming_download.file_name,
+                content_length=streaming_download.content_length,
+                etag=streaming_download.etag,
+            )
+
+            async def stream_artifact():
+                try:
+                    while True:
+                        chunk = await asyncio.to_thread(
+                            streaming_download.body.read,
+                            ARTIFACT_STREAM_CHUNK_SIZE,
+                        )
+                        if not chunk:
+                            break
+                        yield chunk
+                finally:
+                    await asyncio.to_thread(streaming_download.body.close)
+
+            return StreamingResponse(
+                stream_artifact(),
+                media_type=streaming_download.content_type,
+                headers=headers,
+            )
+
         artifact_download = await app_container.artifact_store.prepare_download(
             task_id,
             filename,
@@ -979,6 +1010,23 @@ def _cleanup_temporary_artifact(path: Path) -> None:
         path.unlink()
     except FileNotFoundError:
         pass
+
+
+def _build_artifact_download_headers(
+    *,
+    file_name: str,
+    content_length: int | None = None,
+    etag: str | None = None,
+) -> dict[str, str]:
+    safe_name = Path(file_name).name or "artifact"
+    headers = {
+        "Content-Disposition": f"attachment; filename*=utf-8''{quote(safe_name)}",
+    }
+    if content_length is not None and content_length >= 0:
+        headers["Content-Length"] = str(content_length)
+    if etag:
+        headers["ETag"] = str(etag)
+    return headers
 
 
 def _should_serve_static_spa_route(path: str) -> bool:

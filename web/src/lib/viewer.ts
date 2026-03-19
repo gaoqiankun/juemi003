@@ -7,6 +7,8 @@ import { sleep } from "@/lib/utils";
 
 const DEFAULT_BACKGROUND = "#2a2a2a";
 const THUMBNAIL_BACKGROUND = "#2a2a2a";
+const MODEL_CACHE_NAME = "gen3d-model-artifacts-v1";
+const MODEL_ETAG_STORAGE_KEY_PREFIX = "gen3d:model-etag:";
 const loader = new GLTFLoader();
 
 function hasFiniteBox(box: THREE.Box3) {
@@ -244,6 +246,70 @@ function formatBytes(bytes: number) {
   return `${value.toFixed(precision)} ${units[unitIndex]}`;
 }
 
+function canUseModelCache() {
+  return typeof window !== "undefined" && "caches" in window;
+}
+
+function rememberModelEtag(url: string, etag: string | null) {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    const storageKey = `${MODEL_ETAG_STORAGE_KEY_PREFIX}${url}`;
+    if (etag) {
+      window.localStorage.setItem(storageKey, etag);
+      return;
+    }
+    window.localStorage.removeItem(storageKey);
+  } catch {
+    // Ignore cache metadata failures and continue with network data.
+  }
+}
+
+async function readCachedModelBlob(url: string, onStatus?: (message: string) => void) {
+  if (!canUseModelCache()) {
+    return null;
+  }
+  try {
+    const cache = await window.caches.open(MODEL_CACHE_NAME);
+    const cachedResponse = await cache.match(url);
+    if (!cachedResponse) {
+      return null;
+    }
+    onStatus?.("正在读取本地缓存…");
+    const blob = await cachedResponse.blob();
+    onStatus?.("模型数据已读取，正在解析…");
+    return blob;
+  } catch {
+    return null;
+  }
+}
+
+async function cacheModelBlob(
+  url: string,
+  blob: Blob,
+  contentType: string,
+  etag: string | null,
+) {
+  rememberModelEtag(url, etag);
+  if (!canUseModelCache()) {
+    return;
+  }
+  try {
+    const headers = new Headers({
+      "content-length": String(blob.size),
+      "content-type": contentType,
+    });
+    if (etag) {
+      headers.set("etag", etag);
+    }
+    const cache = await window.caches.open(MODEL_CACHE_NAME);
+    await cache.put(url, new Response(blob, { headers }));
+  } catch {
+    // Ignore disk cache failures and keep the in-memory render path working.
+  }
+}
+
 async function readModelBlob(
   response: Response,
   onStatus?: (message: string) => void,
@@ -299,6 +365,11 @@ async function fetchModelBlobUrl(
   requestHeaders: Record<string, string> = {},
   onStatus?: (message: string) => void,
 ) {
+  const cachedBlob = await readCachedModelBlob(url, onStatus);
+  if (cachedBlob) {
+    return URL.createObjectURL(cachedBlob);
+  }
+
   const response = await fetch(url, {
     headers: requestHeaders,
     cache: "no-store",
@@ -314,6 +385,8 @@ async function fetchModelBlobUrl(
       : "正在接收模型数据…",
   );
   const blob = await readModelBlob(response, onStatus);
+  const contentType = response.headers.get("content-type") || "model/gltf-binary";
+  void cacheModelBlob(url, blob, contentType, response.headers.get("etag"));
   return URL.createObjectURL(blob);
 }
 
