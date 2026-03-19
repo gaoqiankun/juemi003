@@ -6,7 +6,7 @@
 ## 规划日志
 
 - 历史规划和执行记录在 `plan/`
-- `plan/2026-03-19-web-ui-product-reference-alignment.md`：状态 done / uncommitted，本次会话主要 plan
+- `plan/2026-03-19-web-ui-product-reference-alignment.md`：Status = done，已随 E14 提交（59a09f5）
 
 ## 当前状态（2026-03-19）
 
@@ -16,22 +16,18 @@
   - `mock`：`MockTrellis2Provider`
   - `real`：`Trellis2Provider`
   - `hunyuan3d`：占位，未实现
-- Artifact backend：
-  - `local`
-  - `minio`
+- Artifact backend：`local` / `minio`
 - 对外功能已具备：任务提交、任务查询、SSE 事件流、取消、终态 webhook、artifacts 查询
 - 部署材料已齐：`docker/Dockerfile`、根目录 `docker-compose.yml`、`deploy.sh`
-- D1 已完成：`docker/trellis2/` 已拆成独立基础镜像目录，TRELLIS.2 CUDA 扩展编译从应用镜像剥离，常规应用镜像 build 目标 < 2 分钟
 - 真实 TRELLIS2 链路已在 GPU 服务器跑通
-- **Phase C 新增能力（已上线）**：
-  - C1：安全收口（SSRF 防护、scoped token 分层、rate limit、artifact 代理、/metrics 访问控制）
-  - C2：基础可靠性（服务重启任务恢复、webhook 指数退避重试、幂等 key 竞态修复、任务超时）
-  - C3：多卡并发（GPU_DEVICE_IDS 多进程 worker、QUEUE_MAX_SIZE 有界队列、503 拒绝）
-  - C4：可观测性（structlog JSON 结构化日志、Prometheus 指标）
-  - C5：Web UI（多页面 SPA：生成页/图库/设置，Three.js 预览，Hash Router，深色商业化风格）
-- E12（2026-03-18）：启动预热 + /health UI 对齐。engine.start() 后自动后台预热默认模型；Web UI 连接状态改为基于 /health，任务提交不再依赖 /ready
-- E13（2026-03-18）：Web UI 迁移到 React + TypeScript + Vite + Tailwind + shadcn 风格组件。源码在 web/，Dockerfile 增加 Node builder stage，dist 在镜像构建时生成。GET / 返回 SPA index.html，支持 /gallery、/settings 客户端路由。旧 static/ 目录已删除
-- E14（2026-03-19，进行中，未提交）：Web UI 产品化对齐。参考 Meshy/Tripo 重构布局：生成页改为左侧 220px 上传面板 + 中央主舞台 + 右侧最近生成列表，粒子动画生成中态，Three.js 完成态全屏查看器。图库改为 auto-fill 卡片网格（minmax 220px），缩略图预留 preview.png 接口（fallback 占位图）。**部署前待完成项**：① 图库 auto-fill 网格 ② 图库缩略图改用 preview.png + fallback ③ 设置页保存/取消后 navigate(-1) ④ 生成页空态中央内容 ⑤ 生成页底部工具栏空态时隐藏
+- **Phase C 新增能力（已上线）**：C1 安全、C2 可靠性、C3 多卡并发、C4 可观测性、C5 Web UI
+- E12（2026-03-18）：engine.start() 启动预热；Web UI 绿点改用 /health
+- E13（2026-03-18）：Web UI 迁移 React + TypeScript + Vite + Tailwind + shadcn；Node builder 进 Dockerfile；GET / 返回 SPA
+- E14（2026-03-19，**已提交 59a09f5**）：Web UI 产品化对齐（Meshy/Tripo 参考）
+  - 生成页：220px 左侧上传面板 + 中央主舞台（空态/处理中粒子动画/完成态 Three.js 查看器）+ 280px 右侧最近生成面板（preview.png 占位图）
+  - 图库页：auto-fill 网格（minmax 220px，aspect-ratio 1:1），preview.png + auth fetch + fallback 占位图，pill tabs 筛选
+  - 设置页：save/cancel 关闭 Sheet overlay（原 navigate(-1) 错误已修复）
+  - 后端：async_engine 启动预热、artifact_store 原子写、task_store pragma 优化
 
 ## 关键路径
 
@@ -67,23 +63,46 @@
 - E11（2026-03-16）：API 与 Worker 完全解耦，ModelRegistry 懒加载（asyncio.to_thread），FIFO 原子 claim，per-stage Welford ETA，upload-only 输入，/health + /readiness
 - Phase D：未开始。多机 worker、阶段解耦未做
 
-## 已知待办 / 技术债
+## 下一步待办（优先级排序）
 
-- `model/hunyuan3d/provider.py` 仍是 `NotImplementedError` 占位
-- GPU scheduler 目前只是简单 FIFO 队列，`max_batch + deadline` 调度未实现
-- GPU worker 当前是进程内 wrapper，不是独立多进程 worker
-- Real mode 的 `gpu_ss` / `gpu_shape` / `gpu_material` 进度仍是语义占位，未接上官方细粒度 hook
-- 取消只支持 `gpu_queued` 状态，运行中阶段不可中断
-- `observability/metrics.py` 目前只有 readiness gauge，Prometheus/Grafana 未完成
-- 下一步待办：
-  ① **E14 收尾并部署**（本次会话未完成，见 E14 待完成项）
-  ② 后端生成 preview.png 缩略图（generation pipeline 末尾多存一张，图库卡片直接用）
-  ③ server → gen3d 集成（iOS 路径，已确认为中转架构：iOS → server → gen3d）
-  ④ release 包 `docker-compose.yml` 去掉 `build:` 块
-  ⑤ IP 白名单校验逻辑（E10 只存不校验，等 nginx 路径稳定后开启）
-  ⑥ GPU 细粒度进度 hook（gpu_ss/gpu_shape/gpu_material 目前是占位）
-  ⑦ Prometheus/Grafana 完整化（目前只有 readiness gauge）
-  ⑧ Web UI chunk size 优化（当前主 JS ~939kB，Vite 有 warning）
+### 🔴 近期（E15，下一会话）
+
+**E15-A：后端生成 preview.png 缩略图**
+- 目标：generation pipeline 末尾（GLB export 完成后）额外渲染一张 512×512 PNG 存为 artifact `preview.png`
+- 现状：前端 task-thumbnail.tsx 已预留 `/v1/tasks/{id}/artifacts/preview.png` 接口，404 时 fallback 占位图。后端不生成，图库和右侧历史面板全是占位图
+- 关键约束：不阻塞主任务流程；渲染逻辑放在 stages/ 末尾或独立 post-process stage；artifact 存储走现有 artifact_store 接口
+- 验收：图库卡片和生成页右侧历史面板显示真实 3D 截图缩略图
+
+**E15-B：server → gen3d 集成**
+- 目标：hey3d server（`/Users/gqk/work/hey3d/server/`）接入 gen3d，iOS 调用 server 的 3D 生成接口，server 持有 platform key 中转 gen3d
+- 现状：iOS → server 路径已规划，server 尚未对接 gen3d 任何 API
+- 关键约束：server 用 platform key 鉴权；gen3d 接口语义不改；iOS 不直连 gen3d
+- 先读 server/CLAUDE.md 了解 server 现有接口结构
+
+### 🟡 中期
+
+**E15-C：Web UI chunk size 优化**
+- 现状：主 JS ~939kB，Vite 有 chunk size warning
+- 方向：Three.js 和 React Router 做代码分割（dynamic import），vendor chunk 拆分
+- 验收：主 chunk < 500kB，Vite warning 消除
+
+**E15-D：release docker-compose.yml 清理**
+- 现状：`docker-compose.yml` 含 `build:` 块，生产部署应直接拉镜像
+- 方向：做两个文件：`docker-compose.yml`（含 build，开发用）、`docker-compose.release.yml`（纯 image，生产用）
+
+### 🔵 技术债（不紧急）
+
+- IP 白名单校验：E10 已存 IP，校验逻辑等 nginx 路径稳定后开启
+- GPU 细粒度进度 hook：`gpu_ss/gpu_shape/gpu_material` 目前是语义占位，未接官方 hook
+- Prometheus/Grafana 完整化：目前只有 readiness gauge
+- hunyuan3d provider：`model/hunyuan3d/provider.py` 仍是 `NotImplementedError`
+- 取消运行中任务：目前只支持 `gpu_queued` 状态
+
+## 已知技术债（长期）
+
+- GPU scheduler：简单 FIFO，`max_batch + deadline` 调度未实现
+- GPU worker：进程内 wrapper，不是独立多进程 worker
+- Phase D：多机 worker、阶段解耦未开始
 
 ## 使用提醒
 

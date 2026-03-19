@@ -1,5 +1,5 @@
 # Web UI 正式产品对齐
-Date / Status: 2026-03-19 / done / Commits: uncommitted
+Date / Status: 2026-03-19 / done / Commits: 59a09f5
 
 ## Goal
 按登录后的 `Meshy` 与 `Tripo` 实际页面链路，重写 `gen3d` Web UI 的文案与信息层级，
