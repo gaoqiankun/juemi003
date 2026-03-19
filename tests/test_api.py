@@ -28,7 +28,10 @@ from gen3d.engine import async_engine as async_engine_module
 from gen3d.engine.sequence import RequestSequence, TaskStatus, TaskType, utcnow
 from gen3d.model.base import GenerationResult, ModelProviderConfigurationError
 from gen3d.model.trellis2.provider import MockTrellis2Provider, Trellis2Provider
-from gen3d.stages.export.stage import ExportStage
+from gen3d.stages.export.preview_renderer_service import (
+    PreviewRendererService,
+    PreviewRendererServiceProtocol,
+)
 from gen3d.storage.artifact_store import (
     ArtifactStoreConfigurationError,
     ArtifactStoreOperationError,
@@ -41,6 +44,37 @@ SAMPLE_IMAGE_DATA_URL = (
     "data:image/png;base64,"
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADUlEQVR42mP8z/C/HwAF/gL+Q6UkWQAAAABJRU5ErkJggg=="
 )
+
+
+class DisabledPreviewRendererService:
+    async def start(self) -> None:
+        return
+
+    async def stop(self) -> None:
+        return
+
+    async def render_preview_png(
+        self,
+        *,
+        model_path: Path | None = None,
+        model_bytes: bytes | None = None,
+    ) -> bytes:
+        _ = model_path
+        _ = model_bytes
+        raise RuntimeError("preview renderer disabled in unit tests")
+
+
+def create_test_app(
+    config: ServingConfig,
+    *,
+    webhook_sender: WebhookSender | None = None,
+    preview_renderer_service: PreviewRendererServiceProtocol | None = None,
+):
+    return create_app(
+        config,
+        webhook_sender=webhook_sender,
+        preview_renderer_service=preview_renderer_service or DisabledPreviewRendererService(),
+    )
 
 
 def make_client(
@@ -65,6 +99,7 @@ def make_client(
     gpu_device_ids: tuple[str, ...] = ("0",),
     queue_max_size: int = 20,
     preprocess_max_image_bytes: int = 10 * 1024 * 1024,
+    preview_renderer_service: PreviewRendererServiceProtocol | None = None,
 ) -> TestClient:
     database_path = database_path or (tmp_path / "gen3d.sqlite3")
     artifacts_dir = artifacts_dir or (tmp_path / "artifacts")
@@ -92,7 +127,13 @@ def make_client(
         webhook_max_retries=webhook_max_retries,
         task_timeout_seconds=task_timeout_seconds,
     )
-    return TestClient(create_app(config, webhook_sender=webhook_sender))
+    return TestClient(
+        create_test_app(
+            config,
+            webhook_sender=webhook_sender,
+            preview_renderer_service=preview_renderer_service,
+        )
+    )
 
 
 def make_real_mode_client(
@@ -102,6 +143,7 @@ def make_real_mode_client(
     allowed_callback_domains: tuple[str, ...] = (),
     admin_token: str | None = "admin-token",
     uploads_dir: Path | None = None,
+    preview_renderer_service: PreviewRendererServiceProtocol | None = None,
 ) -> TestClient:
     monkeypatch.setattr(
         server_module,
@@ -120,7 +162,12 @@ def make_real_mode_client(
         mock_export_delay_ms=0,
         allowed_callback_domains=allowed_callback_domains,
     )
-    return TestClient(create_app(config))
+    return TestClient(
+        create_test_app(
+            config,
+            preview_renderer_service=preview_renderer_service,
+        )
+    )
 
 
 def auth_headers(token: str = "test-token") -> dict[str, str]:
@@ -251,18 +298,6 @@ def make_image_bytes(image_format: str) -> bytes:
     buffer = io.BytesIO()
     image.save(buffer, format=image_format)
     return buffer.getvalue()
-
-
-@pytest.fixture(autouse=True)
-def disable_real_preview_render(monkeypatch: pytest.MonkeyPatch) -> None:
-    def disabled_preview_render(_cls, _model_path: Path, _output_path: Path) -> None:
-        raise RuntimeError("preview renderer disabled in unit tests")
-
-    monkeypatch.setattr(
-        ExportStage,
-        "_render_preview_png",
-        classmethod(disabled_preview_render),
-    )
 
 
 @pytest.fixture
@@ -521,7 +556,7 @@ def test_dev_proxy_is_disabled_by_default(tmp_path: Path, monkeypatch: pytest.Mo
         artifacts_dir=tmp_path / "artifacts",
         uploads_dir=tmp_path / "uploads",
     )
-    with TestClient(create_app(config)) as client:
+    with TestClient(create_test_app(config)) as client:
         health_response = client.get("/health")
         root_response = client.get("/")
 
@@ -576,7 +611,7 @@ def test_dev_proxy_forwards_non_static_requests(tmp_path: Path, monkeypatch: pyt
         uploads_dir=tmp_path / "uploads",
         dev_proxy_target="https://gen3d.frps.zhifouai.com",
     )
-    with TestClient(create_app(config)) as client:
+    with TestClient(create_test_app(config)) as client:
         ready_response = client.get(
             "/ready?check=1",
             headers={"Authorization": "Bearer upstream-token", "X-Debug": "true"},
@@ -664,7 +699,7 @@ def test_dev_proxy_serves_local_model_override_for_artifact_request(
         dev_local_model_path=local_model,
     )
 
-    with TestClient(create_app(config)) as client:
+    with TestClient(create_test_app(config)) as client:
         model_response = client.get("/v1/tasks/remote-task/artifacts/model.glb")
         ready_response = client.get("/ready")
 
@@ -762,7 +797,7 @@ def test_dev_proxy_does_not_forward_spa_routes(
         uploads_dir=tmp_path / "uploads",
     )
 
-    with TestClient(create_app(config)) as client:
+    with TestClient(create_test_app(config)) as client:
         response = client.get("/gallery")
 
     assert response.status_code == 200
@@ -2188,22 +2223,32 @@ def test_create_task_runs_full_mock_pipeline_and_exposes_artifact_metadata(tmp_p
 
 def test_create_task_serves_preview_and_input_artifacts(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     preview_bytes = make_image_bytes("PNG")
     input_bytes = make_image_bytes("JPEG")
 
-    def fake_render_preview(_cls, model_path: Path, output_path: Path) -> None:
-        assert model_path.name == "model.glb"
-        output_path.write_bytes(preview_bytes)
+    class StaticPreviewRendererService:
+        async def start(self) -> None:
+            return
 
-    monkeypatch.setattr(
-        server_module.ExportStage,
-        "_render_preview_png",
-        classmethod(fake_render_preview),
-    )
+        async def stop(self) -> None:
+            return
 
-    with make_client(tmp_path) as client:
+        async def render_preview_png(
+            self,
+            *,
+            model_path: Path | None = None,
+            model_bytes: bytes | None = None,
+        ) -> bytes:
+            assert model_path is not None
+            assert model_path.name == "model.glb"
+            assert model_bytes is None
+            return preview_bytes
+
+    with make_client(
+        tmp_path,
+        preview_renderer_service=StaticPreviewRendererService(),
+    ) as client:
         upload_response = client.post(
             "/v1/upload",
             headers=task_auth_headers(client),
@@ -2245,6 +2290,51 @@ def test_create_task_serves_preview_and_input_artifacts(
     assert input_response.headers["content-type"].startswith("image/jpeg")
 
 
+def test_preview_renderer_warmup_failure_does_not_break_startup_or_task(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    input_bytes = make_image_bytes("JPEG")
+    preview_renderer_service = PreviewRendererService()
+
+    async def failing_ensure_process_ready_locked(*, timeout_seconds: int) -> None:
+        _ = timeout_seconds
+        raise RuntimeError("warmup failed")
+
+    monkeypatch.setattr(
+        preview_renderer_service,
+        "_ensure_process_ready_locked",
+        failing_ensure_process_ready_locked,
+    )
+
+    with make_client(
+        tmp_path,
+        preview_renderer_service=preview_renderer_service,
+    ) as client:
+        upload_response = client.post(
+            "/v1/upload",
+            headers=task_auth_headers(client),
+            files={"file": ("pixel.jpg", input_bytes, "image/jpeg")},
+        )
+        assert upload_response.status_code == 201
+
+        create_response = client.post(
+            "/v1/tasks",
+            headers=task_auth_headers(client),
+            json={
+                "type": "image_to_3d",
+                "input_url": upload_response.json()["url"],
+                "options": {"resolution": 1024},
+            },
+        )
+        assert create_response.status_code == 201
+
+        final_payload = wait_for_status(client, create_response.json()["taskId"], "succeeded")
+
+    artifact_names = [Path(artifact["url"]).name for artifact in final_payload["artifacts"]]
+    assert artifact_names == ["model.glb", "input.png"]
+
+
 def test_missing_preview_artifact_triggers_background_render_once(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -2258,27 +2348,38 @@ def test_missing_preview_artifact_triggers_background_render_once(
     task_dir.mkdir(parents=True, exist_ok=True)
     task_dir.joinpath("model.glb").write_bytes(b"glTF-preview")
 
+    preview_bytes = make_image_bytes("PNG")
     render_started = threading.Event()
     render_release = threading.Event()
     render_finished = threading.Event()
 
-    async def fake_render_preview(task_id_arg: str, artifact_store: object) -> None:
-        try:
-            assert task_id_arg == task_id
-            _ = artifact_store
+    class BlockingPreviewRendererService:
+        async def start(self) -> None:
+            return
+
+        async def stop(self) -> None:
+            return
+
+        async def render_preview_png(
+            self,
+            *,
+            model_path: Path | None = None,
+            model_bytes: bytes | None = None,
+        ) -> bytes:
+            assert model_path is not None
+            assert model_path.name == "model.glb"
+            assert model_bytes is None
             render_started.set()
             await asyncio.to_thread(render_release.wait, 1.0)
             render_finished.set()
-        finally:
-            server_module._preview_rendering.discard(task_id_arg)
-
-    monkeypatch.setattr(server_module, "_render_preview_artifact_on_demand", fake_render_preview)
+            return preview_bytes
 
     try:
         with make_client(
             tmp_path,
             database_path=database_path,
             artifacts_dir=artifacts_dir,
+            preview_renderer_service=BlockingPreviewRendererService(),
         ) as client:
             create_task_calls = 0
             original_create_task = server_module.asyncio.create_task
@@ -2286,7 +2387,7 @@ def test_missing_preview_artifact_triggers_background_render_once(
             def counting_create_task(coro, *args, **kwargs):
                 nonlocal create_task_calls
                 coro_name = getattr(getattr(coro, "cr_code", None), "co_name", "")
-                if coro_name == fake_render_preview.__name__:
+                if coro_name == "_render_preview_artifact_on_demand":
                     create_task_calls += 1
                 return original_create_task(coro, *args, **kwargs)
 
@@ -2324,27 +2425,38 @@ def test_missing_preview_artifact_deduplicates_background_render(
     task_dir.mkdir(parents=True, exist_ok=True)
     task_dir.joinpath("model.glb").write_bytes(b"glTF-preview")
 
+    preview_bytes = make_image_bytes("PNG")
     render_started = threading.Event()
     render_release = threading.Event()
     render_finished = threading.Event()
 
-    async def fake_render_preview(task_id_arg: str, artifact_store: object) -> None:
-        try:
-            assert task_id_arg == task_id
-            _ = artifact_store
+    class BlockingPreviewRendererService:
+        async def start(self) -> None:
+            return
+
+        async def stop(self) -> None:
+            return
+
+        async def render_preview_png(
+            self,
+            *,
+            model_path: Path | None = None,
+            model_bytes: bytes | None = None,
+        ) -> bytes:
+            assert model_path is not None
+            assert model_path.name == "model.glb"
+            assert model_bytes is None
             render_started.set()
             await asyncio.to_thread(render_release.wait, 1.0)
             render_finished.set()
-        finally:
-            server_module._preview_rendering.discard(task_id_arg)
-
-    monkeypatch.setattr(server_module, "_render_preview_artifact_on_demand", fake_render_preview)
+            return preview_bytes
 
     try:
         with make_client(
             tmp_path,
             database_path=database_path,
             artifacts_dir=artifacts_dir,
+            preview_renderer_service=BlockingPreviewRendererService(),
         ) as client:
             create_task_calls = 0
             original_create_task = server_module.asyncio.create_task
@@ -2352,7 +2464,7 @@ def test_missing_preview_artifact_deduplicates_background_render(
             def counting_create_task(coro, *args, **kwargs):
                 nonlocal create_task_calls
                 coro_name = getattr(getattr(coro, "cr_code", None), "co_name", "")
-                if coro_name == fake_render_preview.__name__:
+                if coro_name == "_render_preview_artifact_on_demand":
                     create_task_calls += 1
                 return original_create_task(coro, *args, **kwargs)
 
@@ -3351,7 +3463,7 @@ def test_real_mode_model_load_failure_marks_task_failed_without_blocking_startup
         artifacts_dir=tmp_path / "artifacts",
         uploads_dir=tmp_path / "uploads",
     )
-    app = create_app(config)
+    app = create_test_app(config)
 
     with TestClient(app) as client:
         readiness_before = client.get("/readiness")
@@ -3581,4 +3693,4 @@ def test_minio_artifact_store_requires_complete_config(tmp_path: Path) -> None:
         ArtifactStoreConfigurationError,
         match="OBJECT_STORE_ENDPOINT, OBJECT_STORE_BUCKET, OBJECT_STORE_ACCESS_KEY, OBJECT_STORE_SECRET_KEY",
     ):
-        create_app(config)
+        create_test_app(config)

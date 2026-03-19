@@ -25,6 +25,7 @@ from gen3d.engine.sequence import (
     utcnow,
 )
 from gen3d.model.trellis2.provider import MockTrellis2Provider
+from gen3d.stages.export.preview_renderer_service import PreviewRendererServiceProtocol
 from gen3d.stages.export.stage import ExportStage
 from gen3d.stages.gpu.scheduler import GPUSlotScheduler
 from gen3d.stages.gpu.stage import GPUStage
@@ -45,6 +46,24 @@ PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 JPEG_MAGIC = b"\xff\xd8\xff"
 
 
+class DisabledPreviewRendererService:
+    async def start(self) -> None:
+        return
+
+    async def stop(self) -> None:
+        return
+
+    async def render_preview_png(
+        self,
+        *,
+        model_path: Path | None = None,
+        model_bytes: bytes | None = None,
+    ) -> bytes:
+        _ = model_path
+        _ = model_bytes
+        raise RuntimeError("preview renderer disabled in unit tests")
+
+
 def make_image_bytes(image_format: str) -> bytes:
     from PIL import Image
 
@@ -52,18 +71,6 @@ def make_image_bytes(image_format: str) -> bytes:
     buffer = io.BytesIO()
     image.save(buffer, format=image_format)
     return buffer.getvalue()
-
-
-@pytest.fixture(autouse=True)
-def disable_real_preview_render(monkeypatch: pytest.MonkeyPatch) -> None:
-    def disabled_preview_render(_cls, _model_path: Path, _output_path: Path) -> None:
-        raise RuntimeError("preview renderer disabled in unit tests")
-
-    monkeypatch.setattr(
-        ExportStage,
-        "_render_preview_png",
-        classmethod(disabled_preview_render),
-    )
 
 
 class FakeObjectStorageClient:
@@ -179,10 +186,12 @@ def build_engine(
     queue_max_size: int = 20,
     mock_gpu_stage_delay_ms: int = 20,
     uploads_dir: Path | None = None,
+    preview_renderer_service: PreviewRendererServiceProtocol | None = None,
 ) -> tuple[TaskStore, ArtifactStore, AsyncGen3DEngine]:
     task_store = TaskStore(tmp_path / "pipeline.sqlite3")
     artifact_store = ArtifactStore(tmp_path / "artifacts")
     uploads_dir = uploads_dir or (tmp_path / "uploads")
+    preview_renderer_service = preview_renderer_service or DisabledPreviewRendererService()
 
     def build_runtime(model_name: str) -> ModelRuntime:
         provider = MockTrellis2Provider(stage_delay_ms=mock_gpu_stage_delay_ms)
@@ -219,6 +228,7 @@ def build_engine(
             ExportStage(
                 model_registry=model_registry,
                 artifact_store=artifact_store,
+                preview_renderer_service=preview_renderer_service,
                 task_store=task_store,
                 delay_ms=10,
             ),
@@ -363,27 +373,38 @@ def test_pipeline_persists_full_success_history(tmp_path: Path) -> None:
 
 def test_pipeline_persists_input_and_preview_artifacts(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     preview_bytes = make_image_bytes("PNG")
     input_bytes = make_image_bytes("JPEG")
 
-    def fake_render_preview(model_path: Path, output_path: Path) -> None:
-        assert model_path.name == "model.glb"
-        output_path.write_bytes(preview_bytes)
+    class StaticPreviewRendererService:
+        async def start(self) -> None:
+            return
 
-    monkeypatch.setattr(
-        ExportStage,
-        "_render_preview_png",
-        classmethod(lambda cls, model_path, output_path: fake_render_preview(model_path, output_path)),
-    )
+        async def stop(self) -> None:
+            return
+
+        async def render_preview_png(
+            self,
+            *,
+            model_path: Path | None = None,
+            model_bytes: bytes | None = None,
+        ) -> bytes:
+            assert model_path is not None
+            assert model_path.name == "model.glb"
+            assert model_bytes is None
+            return preview_bytes
 
     async def scenario() -> None:
         uploads_dir = tmp_path / "uploads"
         uploads_dir.mkdir(parents=True, exist_ok=True)
         uploads_dir.joinpath("preview-source.jpg").write_bytes(input_bytes)
 
-        task_store, artifact_store, engine = build_engine(tmp_path, uploads_dir=uploads_dir)
+        task_store, artifact_store, engine = build_engine(
+            tmp_path,
+            uploads_dir=uploads_dir,
+            preview_renderer_service=StaticPreviewRendererService(),
+        )
         await task_store.initialize()
         await artifact_store.initialize()
         await engine.start()
@@ -417,19 +438,34 @@ def test_pipeline_persists_input_and_preview_artifacts(
 
 def test_preview_render_failure_does_not_fail_task(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def exploding_render_preview(_cls, _model_path: Path, _output_path: Path) -> None:
-        raise RuntimeError("pyrender boom")
+    class FailingPreviewRendererService:
+        async def start(self) -> None:
+            return
 
-    monkeypatch.setattr(ExportStage, "_render_preview_png", classmethod(exploding_render_preview))
+        async def stop(self) -> None:
+            return
+
+        async def render_preview_png(
+            self,
+            *,
+            model_path: Path | None = None,
+            model_bytes: bytes | None = None,
+        ) -> bytes:
+            _ = model_path
+            _ = model_bytes
+            raise RuntimeError("pyrender boom")
 
     async def scenario() -> None:
         uploads_dir = tmp_path / "uploads"
         uploads_dir.mkdir(parents=True, exist_ok=True)
         uploads_dir.joinpath("preview-failure.png").write_bytes(make_image_bytes("PNG"))
 
-        task_store, artifact_store, engine = build_engine(tmp_path, uploads_dir=uploads_dir)
+        task_store, artifact_store, engine = build_engine(
+            tmp_path,
+            uploads_dir=uploads_dir,
+            preview_renderer_service=FailingPreviewRendererService(),
+        )
         await task_store.initialize()
         await artifact_store.initialize()
         await engine.start()

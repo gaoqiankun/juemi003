@@ -56,6 +56,10 @@ from gen3d.security import (
     TaskSubmissionValidationError,
     TokenRateLimiter,
 )
+from gen3d.stages.export.preview_renderer_service import (
+    PreviewRendererService,
+    PreviewRendererServiceProtocol,
+)
 from gen3d.stages.export.stage import ExportStage
 from gen3d.stages.gpu.scheduler import GPUSlotScheduler
 from gen3d.stages.gpu.stage import GPUStage
@@ -106,6 +110,7 @@ class AppContainer:
     task_store: TaskStore
     api_key_store: ApiKeyStore
     artifact_store: ArtifactStore
+    preview_renderer_service: PreviewRendererServiceProtocol
     model_registry: ModelRegistry
     pipeline: PipelineCoordinator
     engine: AsyncGen3DEngine
@@ -298,6 +303,7 @@ def _merge_preview_artifacts(
 async def _render_preview_artifact_on_demand(
     task_id: str,
     artifact_store: ArtifactStore,
+    preview_renderer_service: PreviewRendererServiceProtocol,
 ) -> None:
     model_path: Path | None = None
     preview_staging_path: Path | None = None
@@ -320,11 +326,10 @@ async def _render_preview_artifact_on_demand(
             ExportStage._create_preview_temp_path,
             model_path,
         )
-        await asyncio.to_thread(
-            ExportStage._render_preview_png,
-            model_path,
-            preview_staging_path,
+        preview_png = await preview_renderer_service.render_preview_png(
+            model_path=model_path,
         )
+        await asyncio.to_thread(preview_staging_path.write_bytes, preview_png)
         preview_artifact = await artifact_store.publish_artifact(
             task_id=task_id,
             artifact_type="preview",
@@ -353,6 +358,7 @@ async def _render_preview_artifact_on_demand(
 def _dispatch_preview_render(
     task_id: str,
     artifact_store: ArtifactStore,
+    preview_renderer_service: PreviewRendererServiceProtocol,
 ) -> None:
     if task_id in _preview_rendering:
         return
@@ -360,7 +366,11 @@ def _dispatch_preview_render(
     _preview_rendering.add(task_id)
     try:
         task = asyncio.create_task(
-            _render_preview_artifact_on_demand(task_id, artifact_store),
+            _render_preview_artifact_on_demand(
+                task_id,
+                artifact_store,
+                preview_renderer_service,
+            ),
         )
     except Exception as exc:
         _preview_rendering.discard(task_id)
@@ -422,12 +432,17 @@ def validate_runtime_security_config(config: ServingConfig) -> None:
     del config
 
 
-def create_app(config: ServingConfig | None = None, webhook_sender=None) -> FastAPI:
+def create_app(
+    config: ServingConfig | None = None,
+    webhook_sender=None,
+    preview_renderer_service: PreviewRendererServiceProtocol | None = None,
+) -> FastAPI:
     config = config or ServingConfig()
     validate_runtime_security_config(config)
     task_store = TaskStore(config.database_path)
     api_key_store = ApiKeyStore(config.database_path)
     artifact_store = build_artifact_store(config)
+    preview_renderer_service = preview_renderer_service or PreviewRendererService()
     model_registry = ModelRegistry(lambda model_name: build_model_runtime(config, model_name))
     rate_limiter = TokenRateLimiter(
         max_concurrent=config.rate_limit_concurrent,
@@ -454,6 +469,7 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
             ExportStage(
                 model_registry=model_registry,
                 artifact_store=artifact_store,
+                preview_renderer_service=preview_renderer_service,
                 task_store=task_store,
                 delay_ms=config.mock_export_delay_ms,
             ),
@@ -483,6 +499,7 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
         task_store=task_store,
         api_key_store=api_key_store,
         artifact_store=artifact_store,
+        preview_renderer_service=preview_renderer_service,
         model_registry=model_registry,
         pipeline=pipeline,
         engine=engine,
@@ -497,6 +514,7 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
         await container.task_store.initialize()
         await container.api_key_store.initialize()
         await artifact_store.initialize()
+        await preview_renderer_service.start()
         if config.dev_proxy_target is not None:
             proxy_client = httpx.AsyncClient(
                 follow_redirects=False,
@@ -505,6 +523,7 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
         await container.engine.start()
         yield
         await container.engine.stop()
+        await preview_renderer_service.stop()
         if proxy_client is not None:
             await proxy_client.aclose()
         await container.api_key_store.close()
@@ -1055,6 +1074,7 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
                 _dispatch_preview_render(
                     task_id,
                     app_container.artifact_store,
+                    app_container.preview_renderer_service,
                 )
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,

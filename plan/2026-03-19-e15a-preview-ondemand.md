@@ -14,6 +14,7 @@ pipeline 渲染失败或进程崩溃导致 preview.png 缺失时，前端请求 
 ## Changes
 - `api/server.py` 在 preview artifact 404 分支增加按需补救逻辑：仅当 `preview.png` 缺失且 `model.glb` 可用时，检查 module 级 `_preview_rendering`，未在渲染中则用 `asyncio.create_task` 触发后台渲染；当前请求仍返回 404
 - 后台补救渲染复用 `ExportStage` 的 preview 渲染链路，成功后把 `preview.png` 发布到现有 artifact store，并与已有 artifact manifest 合并；失败只记 warning log，不影响请求返回
+- preview 渲染子进程超时统一收口到 `stages/export/stage.py` 的共享常量，值从 3 秒提高到 60 秒；pipeline 路径和 on-demand 后台补救路径共用这一配置
 - `tests/test_api.py` 新增 3 条 API 测试，覆盖首次触发、重复请求去重、以及 `preview.png`/`model.glb` 同时缺失不触发补救
 - 为保证本机环境下回归稳定，顺手收口了几处脆弱测试：API 轮询/快照 helper 的默认等待窗口放宽，`task detail` 用例改为等待“首任务进入处理态且次任务仍排队”，`test_pipeline_multi_slot_dispatches_tasks_concurrently` 改为验证并发重叠而非固定机器耗时阈值
 

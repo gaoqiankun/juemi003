@@ -1,9 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
-import subprocess
-import sys
 import tempfile
 import time
 from pathlib import Path
@@ -16,6 +13,7 @@ from gen3d.engine.sequence import RequestSequence, TaskStatus
 from gen3d.model.base import GenerationResult, ModelProviderExecutionError
 from gen3d.observability.metrics import observe_stage_duration
 from gen3d.stages.base import BaseStage, StageExecutionError, StageUpdateHandler
+from gen3d.stages.export.preview_renderer_service import PreviewRendererServiceProtocol
 from gen3d.storage.artifact_store import ArtifactStore, ArtifactStoreOperationError
 
 
@@ -27,11 +25,13 @@ class ExportStage(BaseStage):
         *,
         model_registry: ModelRegistry,
         artifact_store: ArtifactStore,
+        preview_renderer_service: PreviewRendererServiceProtocol,
         task_store,
         delay_ms: int = 0,
     ) -> None:
         self._model_registry = model_registry
         self._artifact_store = artifact_store
+        self._preview_renderer_service = preview_renderer_service
         self._task_store = task_store
         self._delay_seconds = max(delay_ms, 0) / 1000
         self._logger = structlog.get_logger(__name__)
@@ -94,11 +94,10 @@ class ExportStage(BaseStage):
                                 self._create_preview_temp_path,
                                 Path(staging_path),
                             )
-                            await asyncio.to_thread(
-                                self._render_preview_png,
-                                Path(staging_path),
-                                preview_staging_path,
+                            preview_png = await self._preview_renderer_service.render_preview_png(
+                                model_path=Path(staging_path),
                             )
+                            await asyncio.to_thread(preview_staging_path.write_bytes, preview_png)
                         except Exception as exc:
                             self._logger.warning(
                                 "stage.preview_render_failed",
@@ -244,47 +243,6 @@ class ExportStage(BaseStage):
             seen_urls.add(artifact_url)
             merged.append(artifact)
         return merged
-
-    @classmethod
-    def _render_preview_png(
-        cls,
-        model_path: Path,
-        output_path: Path,
-    ) -> None:
-        timeout_seconds = 3
-        try:
-            pythonpath_entries = [str(Path(__file__).resolve().parents[3])]
-            existing_pythonpath = os.environ.get("PYTHONPATH")
-            if existing_pythonpath:
-                pythonpath_entries.append(existing_pythonpath)
-
-            completed = subprocess.run(
-                [
-                    sys.executable,
-                    "-m",
-                    "gen3d.stages.export.preview_renderer",
-                    str(model_path),
-                    str(output_path),
-                ],
-                capture_output=True,
-                check=True,
-                env={
-                    **os.environ,
-                    "PYTHONPATH": os.pathsep.join(pythonpath_entries),
-                },
-                text=True,
-                timeout=timeout_seconds,
-            )
-            _ = completed
-        except subprocess.TimeoutExpired as exc:
-            raise RuntimeError(
-                f"preview renderer timed out after {timeout_seconds} seconds"
-            ) from exc
-        except subprocess.CalledProcessError as exc:
-            details = (exc.stderr or exc.stdout or "").strip()
-            if not details:
-                details = f"preview renderer exited with code {exc.returncode}"
-            raise RuntimeError(details) from exc
 
     @staticmethod
     def _create_preview_temp_path(model_path: Path) -> Path:
