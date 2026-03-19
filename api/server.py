@@ -15,6 +15,7 @@ from urllib.parse import quote, urlsplit, urlunsplit
 from datetime import datetime
 
 import httpx
+import structlog
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -94,6 +95,9 @@ HOP_BY_HOP_HEADERS = {
 }
 PROXY_REQUEST_HEADER_EXCLUSIONS = HOP_BY_HOP_HEADERS | {"host", "content-length"}
 ARTIFACT_STREAM_CHUNK_SIZE = 1024 * 1024
+_preview_rendering: set[str] = set()
+_preview_render_tasks: set[asyncio.Task[None]] = set()
+_logger = structlog.get_logger(__name__)
 
 
 @dataclass(slots=True)
@@ -235,6 +239,142 @@ def build_model_runtime(config: ServingConfig, model_name: str) -> ModelRuntime:
     )
 
 
+def _artifact_file_name_from_url(value: Any) -> str | None:
+    if not value:
+        return None
+    return Path(urlsplit(str(value)).path).name or None
+
+
+def _artifact_matches_file_name(
+    artifact: dict[str, Any],
+    file_name: str,
+) -> bool:
+    return _artifact_file_name_from_url(artifact.get("url")) == file_name
+
+
+async def _artifact_exists(
+    artifact_store: ArtifactStore,
+    *,
+    task_id: str,
+    file_name: str,
+) -> bool:
+    if artifact_store.mode == "local":
+        return await artifact_store.get_local_artifact_path(task_id, file_name) is not None
+
+    artifacts = await artifact_store.list_artifacts(task_id)
+    return any(
+        _artifact_matches_file_name(artifact, file_name)
+        for artifact in artifacts
+    )
+
+
+def _merge_preview_artifacts(
+    existing_artifacts: list[dict[str, Any]],
+    preview_artifact: dict[str, Any],
+) -> list[dict[str, Any]]:
+    artifacts_without_preview = [
+        artifact
+        for artifact in existing_artifacts
+        if not _artifact_matches_file_name(artifact, "preview.png")
+    ]
+    primary_artifacts = [
+        artifact
+        for artifact in artifacts_without_preview
+        if artifact.get("type") == "glb" or _artifact_matches_file_name(artifact, "model.glb")
+    ]
+    primary_artifact_ids = {id(artifact) for artifact in primary_artifacts}
+    remaining_artifacts = [
+        artifact
+        for artifact in artifacts_without_preview
+        if id(artifact) not in primary_artifact_ids
+    ]
+    return ExportStage._merge_artifacts(
+        primary_artifacts=primary_artifacts,
+        supplemental_artifacts=[preview_artifact],
+        existing_artifacts=remaining_artifacts,
+    )
+
+
+async def _render_preview_artifact_on_demand(
+    task_id: str,
+    artifact_store: ArtifactStore,
+) -> None:
+    model_path: Path | None = None
+    preview_staging_path: Path | None = None
+    model_is_temporary = False
+    try:
+        if await _artifact_exists(
+            artifact_store,
+            task_id=task_id,
+            file_name="preview.png",
+        ):
+            return
+
+        existing_artifacts = await artifact_store.list_artifacts(task_id)
+        model_download = await artifact_store.prepare_download(task_id, "model.glb")
+        if model_download is None:
+            return
+
+        model_path, _, model_is_temporary = model_download
+        preview_staging_path = await asyncio.to_thread(
+            ExportStage._create_preview_temp_path,
+            model_path,
+        )
+        await asyncio.to_thread(
+            ExportStage._render_preview_png,
+            model_path,
+            preview_staging_path,
+        )
+        preview_artifact = await artifact_store.publish_artifact(
+            task_id=task_id,
+            artifact_type="preview",
+            file_name="preview.png",
+            staging_path=preview_staging_path,
+            content_type="image/png",
+        )
+        await artifact_store.replace_artifacts(
+            task_id,
+            _merge_preview_artifacts(existing_artifacts, preview_artifact),
+        )
+    except Exception as exc:
+        _logger.warning(
+            "artifact.preview_render_failed",
+            task_id=task_id,
+            error=str(exc),
+        )
+    finally:
+        if preview_staging_path is not None and preview_staging_path.exists():
+            await asyncio.to_thread(_cleanup_temporary_artifact, preview_staging_path)
+        if model_path is not None and model_is_temporary:
+            await asyncio.to_thread(_cleanup_temporary_artifact, model_path)
+        _preview_rendering.discard(task_id)
+
+
+def _dispatch_preview_render(
+    task_id: str,
+    artifact_store: ArtifactStore,
+) -> None:
+    if task_id in _preview_rendering:
+        return
+
+    _preview_rendering.add(task_id)
+    try:
+        task = asyncio.create_task(
+            _render_preview_artifact_on_demand(task_id, artifact_store),
+        )
+    except Exception as exc:
+        _preview_rendering.discard(task_id)
+        _logger.warning(
+            "artifact.preview_render_schedule_failed",
+            task_id=task_id,
+            error=str(exc),
+        )
+        return
+
+    _preview_render_tasks.add(task)
+    task.add_done_callback(_preview_render_tasks.discard)
+
+
 async def run_real_mode_preflight(config: ServingConfig) -> dict[str, Any]:
     provider_mode = config.provider_mode.strip().lower()
     if provider_mode != "real":
@@ -307,6 +447,7 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
                 max_image_bytes=config.preprocess_max_image_bytes,
                 allow_local_inputs=config.is_mock_provider,
                 uploads_dir=config.uploads_dir,
+                artifact_store=artifact_store,
                 task_store=task_store,
             ),
             gpu_stage,
@@ -906,6 +1047,15 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
             filename,
         )
         if artifact_download is None:
+            if Path(filename).name.lower() == "preview.png" and await _artifact_exists(
+                app_container.artifact_store,
+                task_id=task_id,
+                file_name="model.glb",
+            ):
+                _dispatch_preview_render(
+                    task_id,
+                    app_container.artifact_store,
+                )
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="artifact not found",

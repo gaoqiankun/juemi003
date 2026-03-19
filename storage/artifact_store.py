@@ -375,6 +375,13 @@ class ArtifactStore:
         await self._write_manifest(task_id, [artifact])
         return artifact
 
+    async def replace_artifacts(
+        self,
+        task_id: str,
+        artifacts: list[dict[str, Any]],
+    ) -> None:
+        await self._write_manifest(task_id, artifacts)
+
     async def list_artifacts(self, task_id: str) -> list[dict[str, Any]]:
         manifest_path = self._manifest_dir / f"{task_id}.json"
         if manifest_path.exists():
@@ -420,7 +427,18 @@ class ArtifactStore:
             artifact_path = await self.get_local_artifact_path(task_id, safe_file_name)
             if artifact_path is None:
                 return None
-            return artifact_path, _guess_content_type(safe_file_name, "file"), False
+            artifact = await self._find_artifact_record(task_id, safe_file_name)
+            artifact_type = (
+                str(artifact.get("type") or "file")
+                if artifact is not None
+                else self._infer_artifact_type(safe_file_name)
+            )
+            content_type = (
+                str(artifact.get("content_type"))
+                if artifact is not None and artifact.get("content_type")
+                else _guess_content_type(safe_file_name, artifact_type)
+            )
+            return artifact_path, content_type, False
 
         artifact = await self._find_artifact_record(task_id, safe_file_name)
         if artifact is None:
@@ -622,7 +640,7 @@ class ArtifactStore:
                 if not artifact_path.is_file():
                     continue
                 stat_result = artifact_path.stat()
-                artifact_type = "glb" if artifact_path.suffix.lower() == ".glb" else "file"
+                artifact_type = self._infer_artifact_type(artifact_path.name)
                 artifacts.append(
                     self._build_local_artifact_record(
                         task_id=task_id,
@@ -752,6 +770,17 @@ class ArtifactStore:
             return None
         parsed = urlparse(str(value))
         return Path(parsed.path or str(value)).name or None
+
+    @staticmethod
+    def _infer_artifact_type(file_name: str) -> str:
+        normalized_name = file_name.strip().lower()
+        if Path(normalized_name).suffix == ".glb":
+            return "glb"
+        if normalized_name == "preview.png":
+            return "preview"
+        if normalized_name == "input.png":
+            return "input"
+        return "file"
 
     async def _find_artifact_record(
         self,

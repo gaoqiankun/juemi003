@@ -1,5 +1,9 @@
 -r requirements.txt
 
+# Export-stage preview rendering runs inside the same service/runtime image.
+trimesh>=4.6,<5.0
+pyrender>=0.1.45,<0.2
+
 # Real-mode helper/runtime packages used on the GPU server.
 # A CUDA-compatible torch build and the TRELLIS2 runtime still need to be
 # installed explicitly per the target server image and driver stack.

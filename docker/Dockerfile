@@ -30,7 +30,10 @@ WORKDIR /app
 
 COPY requirements.txt requirements-worker.txt ./
 
-RUN python -m pip install --upgrade pip setuptools wheel && \
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends libegl1-mesa && \
+    rm -rf /var/lib/apt/lists/* && \
+    python -m pip install --upgrade pip setuptools wheel && \
     python -m pip install -r requirements-worker.txt
 
 # Keep the checkout under /app/gen3d so `python serve.py` sees the same

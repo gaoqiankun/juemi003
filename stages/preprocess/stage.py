@@ -16,6 +16,7 @@ from gen3d.engine.sequence import RequestSequence, TaskStatus
 from gen3d.observability.metrics import observe_stage_duration
 from gen3d.security import TaskSubmissionValidationError, validate_image_url
 from gen3d.stages.base import BaseStage, StageExecutionError, StageUpdateHandler
+from gen3d.storage.artifact_store import ArtifactStore, ArtifactStoreOperationError
 
 
 class PreprocessStage(BaseStage):
@@ -29,6 +30,7 @@ class PreprocessStage(BaseStage):
         max_image_bytes: int = 10 * 1024 * 1024,
         allow_local_inputs: bool = True,
         uploads_dir: Path = Path("./data/uploads"),
+        artifact_store: ArtifactStore | None = None,
         task_store=None,
     ) -> None:
         self._delay_seconds = max(delay_ms, 0) / 1000
@@ -36,6 +38,7 @@ class PreprocessStage(BaseStage):
         self._max_image_bytes = max(max_image_bytes, 1)
         self._allow_local_inputs = allow_local_inputs
         self._uploads_dir = Path(uploads_dir)
+        self._artifact_store = artifact_store
         self._task_store = task_store
         self._logger = structlog.get_logger(__name__)
 
@@ -57,13 +60,25 @@ class PreprocessStage(BaseStage):
                 if self._delay_seconds:
                     await asyncio.sleep(self._delay_seconds)
 
+                image_bytes = await self._read_input_bytes(sequence.input_url)
+                input_content_type = await asyncio.to_thread(
+                    self._detect_image_content_type,
+                    image_bytes,
+                )
+                input_artifact = await self._persist_input_artifact(
+                    sequence.task_id,
+                    image_bytes,
+                    input_content_type,
+                )
+                if input_artifact is not None:
+                    sequence.artifacts = [input_artifact]
+
                 if sequence.options.get("mock_failure_stage") == TaskStatus.PREPROCESSING.value:
                     raise StageExecutionError(
                         stage_name=TaskStatus.PREPROCESSING.value,
                         message="mock failure injected at preprocessing",
                     )
 
-                image_bytes = await self._read_input_bytes(sequence.input_url)
                 normalized_image = await asyncio.to_thread(
                     self._decode_and_normalize_image,
                     image_bytes,
@@ -233,6 +248,28 @@ class PreprocessStage(BaseStage):
             )
         return content
 
+    async def _persist_input_artifact(
+        self,
+        task_id: str,
+        image_bytes: bytes,
+        content_type: str | None,
+    ) -> dict | None:
+        if self._artifact_store is None:
+            return None
+
+        async with self._artifact_store.create_staging_path(task_id, "input.png") as staging_path:
+            await asyncio.to_thread(staging_path.write_bytes, image_bytes)
+            try:
+                return await self._artifact_store.publish_artifact(
+                    task_id=task_id,
+                    artifact_type="input",
+                    file_name="input.png",
+                    staging_path=staging_path,
+                    content_type=content_type,
+                )
+            except ArtifactStoreOperationError as exc:
+                raise StageExecutionError(exc.stage_name, str(exc)) from exc
+
     @staticmethod
     def _decode_and_normalize_image(image_bytes: bytes):
         try:
@@ -267,3 +304,15 @@ class PreprocessStage(BaseStage):
                 message="decoded image has invalid dimensions",
             )
         return image
+
+    @staticmethod
+    def _detect_image_content_type(image_bytes: bytes) -> str | None:
+        if image_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+            return "image/png"
+        if image_bytes.startswith(b"\xff\xd8\xff"):
+            return "image/jpeg"
+        if image_bytes.startswith((b"GIF87a", b"GIF89a")):
+            return "image/gif"
+        if image_bytes.startswith(b"RIFF") and image_bytes[8:12] == b"WEBP":
+            return "image/webp"
+        return None

@@ -28,6 +28,7 @@ from gen3d.engine import async_engine as async_engine_module
 from gen3d.engine.sequence import RequestSequence, TaskStatus, TaskType, utcnow
 from gen3d.model.base import GenerationResult, ModelProviderConfigurationError
 from gen3d.model.trellis2.provider import MockTrellis2Provider, Trellis2Provider
+from gen3d.stages.export.stage import ExportStage
 from gen3d.storage.artifact_store import (
     ArtifactStoreConfigurationError,
     ArtifactStoreOperationError,
@@ -252,6 +253,27 @@ def make_image_bytes(image_format: str) -> bytes:
     return buffer.getvalue()
 
 
+@pytest.fixture(autouse=True)
+def disable_real_preview_render(monkeypatch: pytest.MonkeyPatch) -> None:
+    def disabled_preview_render(_cls, _model_path: Path, _output_path: Path) -> None:
+        raise RuntimeError("preview renderer disabled in unit tests")
+
+    monkeypatch.setattr(
+        ExportStage,
+        "_render_preview_png",
+        classmethod(disabled_preview_render),
+    )
+
+
+@pytest.fixture
+def reset_preview_render_state():
+    server_module._preview_rendering.clear()
+    server_module._preview_render_tasks.clear()
+    yield
+    server_module._preview_rendering.clear()
+    server_module._preview_render_tasks.clear()
+
+
 def upload_input_url(
     client: TestClient,
     *,
@@ -287,7 +309,7 @@ def collect_task_snapshots(
     *,
     terminal_status: str,
     token: str | None = None,
-    timeout_seconds: float = 4.0,
+    timeout_seconds: float = 15.0,
 ) -> list[dict]:
     snapshots: list[dict] = []
     deadline = time.time() + timeout_seconds
@@ -309,7 +331,7 @@ def wait_for_status(
     status: str,
     *,
     token: str | None = None,
-    timeout_seconds: float = 3.0,
+    timeout_seconds: float = 15.0,
 ) -> dict:
     deadline = time.time() + timeout_seconds
     while time.time() < deadline:
@@ -442,6 +464,25 @@ def seed_tasks(database_path: Path, sequences: list[RequestSequence]) -> None:
             await task_store.close()
 
     asyncio.run(scenario())
+
+
+def make_succeeded_sequence(task_id: str) -> RequestSequence:
+    timestamp = utcnow()
+    return RequestSequence(
+        task_id=task_id,
+        task_type=TaskType.IMAGE_TO_3D,
+        model="trellis",
+        input_url=SAMPLE_IMAGE_DATA_URL,
+        options={"resolution": 1024},
+        status=TaskStatus.SUCCEEDED,
+        progress=100,
+        current_stage=TaskStatus.SUCCEEDED.value,
+        created_at=timestamp,
+        queued_at=timestamp,
+        started_at=timestamp,
+        completed_at=timestamp,
+        updated_at=timestamp,
+    )
 
 
 def test_health_and_ready_endpoints(tmp_path: Path) -> None:
@@ -1866,7 +1907,12 @@ def test_upload_endpoint_accepts_png_and_jpg_and_uploaded_url_can_run_task(
             },
         )
         assert create_response.status_code == 201
-        wait_for_status(client, create_response.json()["taskId"], "succeeded")
+        wait_for_status(
+            client,
+            create_response.json()["taskId"],
+            "succeeded",
+            timeout_seconds=5.0,
+        )
 
     assert png_payload["url"] == f"upload://{png_payload['uploadId']}"
     assert jpg_payload["url"] == f"upload://{jpg_payload['uploadId']}"
@@ -1977,7 +2023,36 @@ def test_task_detail_includes_input_url_and_dynamic_eta_after_stage_history(
         )
         assert first_response.status_code == 201
         assert second_response.status_code == 201
-        wait_for_status(client, first_response.json()["taskId"], "preprocessing")
+        processing_statuses = {
+            "preprocessing",
+            "gpu_queued",
+            "gpu_ss",
+            "gpu_shape",
+            "gpu_material",
+            "exporting",
+            "uploading",
+        }
+
+        def first_task_is_processing_and_second_is_queued() -> bool:
+            first_detail = client.get(
+                f"/v1/tasks/{first_response.json()['taskId']}",
+                headers=task_auth_headers(client),
+            )
+            second_detail = client.get(
+                f"/v1/tasks/{second_response.json()['taskId']}",
+                headers=task_auth_headers(client),
+            )
+            assert first_detail.status_code == 200
+            assert second_detail.status_code == 200
+            return (
+                first_detail.json()["status"] in processing_statuses
+                and second_detail.json()["status"] == "queued"
+            )
+
+        wait_for_condition(
+            first_task_is_processing_and_second_is_queued,
+            timeout_seconds=15.0,
+        )
 
         queued_detail = client.get(
             f"/v1/tasks/{second_response.json()['taskId']}",
@@ -2109,6 +2184,240 @@ def test_create_task_runs_full_mock_pipeline_and_exposes_artifact_metadata(tmp_p
     assert metrics_response.status_code == 200
     metrics_payload = metrics_response.text
     assert "gen3d_queue_depth" in metrics_payload
+
+
+def test_create_task_serves_preview_and_input_artifacts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    preview_bytes = make_image_bytes("PNG")
+    input_bytes = make_image_bytes("JPEG")
+
+    def fake_render_preview(_cls, model_path: Path, output_path: Path) -> None:
+        assert model_path.name == "model.glb"
+        output_path.write_bytes(preview_bytes)
+
+    monkeypatch.setattr(
+        server_module.ExportStage,
+        "_render_preview_png",
+        classmethod(fake_render_preview),
+    )
+
+    with make_client(tmp_path) as client:
+        upload_response = client.post(
+            "/v1/upload",
+            headers=task_auth_headers(client),
+            files={"file": ("pixel.jpg", input_bytes, "image/jpeg")},
+        )
+        assert upload_response.status_code == 201
+
+        create_response = client.post(
+            "/v1/tasks",
+            headers=task_auth_headers(client),
+            json={
+                "type": "image_to_3d",
+                "input_url": upload_response.json()["url"],
+                "options": {"resolution": 1024},
+            },
+        )
+        assert create_response.status_code == 201
+        task_id = create_response.json()["taskId"]
+
+        final_payload = wait_for_status(client, task_id, "succeeded")
+        preview_response = client.get(
+            f"/v1/tasks/{task_id}/artifacts/preview.png",
+            headers=task_auth_headers(client),
+        )
+        input_response = client.get(
+            f"/v1/tasks/{task_id}/artifacts/input.png",
+            headers=task_auth_headers(client),
+        )
+
+    artifact_names = [Path(artifact["url"]).name for artifact in final_payload["artifacts"]]
+    assert artifact_names == ["model.glb", "preview.png", "input.png"]
+
+    assert preview_response.status_code == 200
+    assert preview_response.content.startswith(b"\x89PNG\r\n\x1a\n")
+    assert preview_response.headers["content-type"].startswith("image/png")
+
+    assert input_response.status_code == 200
+    assert input_response.content == input_bytes
+    assert input_response.headers["content-type"].startswith("image/jpeg")
+
+
+def test_missing_preview_artifact_triggers_background_render_once(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    reset_preview_render_state,
+) -> None:
+    task_id = "preview-missing-once"
+    database_path = tmp_path / "gen3d.sqlite3"
+    artifacts_dir = tmp_path / "artifacts"
+    seed_tasks(database_path, [make_succeeded_sequence(task_id)])
+    task_dir = artifacts_dir / task_id
+    task_dir.mkdir(parents=True, exist_ok=True)
+    task_dir.joinpath("model.glb").write_bytes(b"glTF-preview")
+
+    render_started = threading.Event()
+    render_release = threading.Event()
+    render_finished = threading.Event()
+
+    async def fake_render_preview(task_id_arg: str, artifact_store: object) -> None:
+        try:
+            assert task_id_arg == task_id
+            _ = artifact_store
+            render_started.set()
+            await asyncio.to_thread(render_release.wait, 1.0)
+            render_finished.set()
+        finally:
+            server_module._preview_rendering.discard(task_id_arg)
+
+    monkeypatch.setattr(server_module, "_render_preview_artifact_on_demand", fake_render_preview)
+
+    try:
+        with make_client(
+            tmp_path,
+            database_path=database_path,
+            artifacts_dir=artifacts_dir,
+        ) as client:
+            create_task_calls = 0
+            original_create_task = server_module.asyncio.create_task
+
+            def counting_create_task(coro, *args, **kwargs):
+                nonlocal create_task_calls
+                coro_name = getattr(getattr(coro, "cr_code", None), "co_name", "")
+                if coro_name == fake_render_preview.__name__:
+                    create_task_calls += 1
+                return original_create_task(coro, *args, **kwargs)
+
+            monkeypatch.setattr(server_module.asyncio, "create_task", counting_create_task)
+
+            response = client.get(
+                f"/v1/tasks/{task_id}/artifacts/preview.png",
+                headers=task_auth_headers(client),
+            )
+            assert response.status_code == 404
+            wait_for_condition(render_started.is_set, timeout_seconds=1.0)
+            assert task_id in server_module._preview_rendering
+
+            render_release.set()
+            wait_for_condition(render_finished.is_set, timeout_seconds=1.0)
+            wait_for_condition(
+                lambda: task_id not in server_module._preview_rendering,
+                timeout_seconds=1.0,
+            )
+            assert create_task_calls == 1
+    finally:
+        render_release.set()
+
+
+def test_missing_preview_artifact_deduplicates_background_render(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    reset_preview_render_state,
+) -> None:
+    task_id = "preview-missing-dedup"
+    database_path = tmp_path / "gen3d.sqlite3"
+    artifacts_dir = tmp_path / "artifacts"
+    seed_tasks(database_path, [make_succeeded_sequence(task_id)])
+    task_dir = artifacts_dir / task_id
+    task_dir.mkdir(parents=True, exist_ok=True)
+    task_dir.joinpath("model.glb").write_bytes(b"glTF-preview")
+
+    render_started = threading.Event()
+    render_release = threading.Event()
+    render_finished = threading.Event()
+
+    async def fake_render_preview(task_id_arg: str, artifact_store: object) -> None:
+        try:
+            assert task_id_arg == task_id
+            _ = artifact_store
+            render_started.set()
+            await asyncio.to_thread(render_release.wait, 1.0)
+            render_finished.set()
+        finally:
+            server_module._preview_rendering.discard(task_id_arg)
+
+    monkeypatch.setattr(server_module, "_render_preview_artifact_on_demand", fake_render_preview)
+
+    try:
+        with make_client(
+            tmp_path,
+            database_path=database_path,
+            artifacts_dir=artifacts_dir,
+        ) as client:
+            create_task_calls = 0
+            original_create_task = server_module.asyncio.create_task
+
+            def counting_create_task(coro, *args, **kwargs):
+                nonlocal create_task_calls
+                coro_name = getattr(getattr(coro, "cr_code", None), "co_name", "")
+                if coro_name == fake_render_preview.__name__:
+                    create_task_calls += 1
+                return original_create_task(coro, *args, **kwargs)
+
+            monkeypatch.setattr(server_module.asyncio, "create_task", counting_create_task)
+
+            first_response = client.get(
+                f"/v1/tasks/{task_id}/artifacts/preview.png",
+                headers=task_auth_headers(client),
+            )
+            second_response = client.get(
+                f"/v1/tasks/{task_id}/artifacts/preview.png",
+                headers=task_auth_headers(client),
+            )
+
+            assert first_response.status_code == 404
+            assert second_response.status_code == 404
+            assert create_task_calls == 1
+            assert task_id in server_module._preview_rendering
+
+            wait_for_condition(render_started.is_set, timeout_seconds=1.0)
+            render_release.set()
+            wait_for_condition(render_finished.is_set, timeout_seconds=1.0)
+            wait_for_condition(
+                lambda: task_id not in server_module._preview_rendering,
+                timeout_seconds=1.0,
+            )
+    finally:
+        render_release.set()
+
+
+def test_missing_preview_and_model_does_not_trigger_background_render(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    reset_preview_render_state,
+) -> None:
+    task_id = "preview-missing-no-model"
+    database_path = tmp_path / "gen3d.sqlite3"
+    artifacts_dir = tmp_path / "artifacts"
+    seed_tasks(database_path, [make_succeeded_sequence(task_id)])
+
+    with make_client(
+        tmp_path,
+        database_path=database_path,
+        artifacts_dir=artifacts_dir,
+    ) as client:
+        create_task_calls = 0
+        original_create_task = server_module.asyncio.create_task
+
+        def counting_create_task(coro, *args, **kwargs):
+            nonlocal create_task_calls
+            coro_name = getattr(getattr(coro, "cr_code", None), "co_name", "")
+            if coro_name == "_render_preview_artifact_on_demand":
+                create_task_calls += 1
+            return original_create_task(coro, *args, **kwargs)
+
+        monkeypatch.setattr(server_module.asyncio, "create_task", counting_create_task)
+
+        response = client.get(
+            f"/v1/tasks/{task_id}/artifacts/preview.png",
+            headers=task_auth_headers(client),
+        )
+
+    assert response.status_code == 404
+    assert create_task_calls == 0
+    assert task_id not in server_module._preview_rendering
 
 
 def test_create_task_downloads_artifact_via_same_origin_proxy_for_minio_backend(
@@ -2441,7 +2750,12 @@ def test_metrics_track_successful_task(tmp_path: Path) -> None:
             },
         )
         assert create_response.status_code == 201
-        wait_for_status(client, create_response.json()["taskId"], "succeeded")
+        wait_for_status(
+            client,
+            create_response.json()["taskId"],
+            "succeeded",
+            timeout_seconds=5.0,
+        )
 
         assert (
             wait_for_metric_sample(

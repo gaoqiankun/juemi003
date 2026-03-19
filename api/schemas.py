@@ -120,6 +120,7 @@ class TaskResponse(BaseModel):
                 message=sequence.error_message,
                 failed_stage=sequence.failed_stage,
             )
+        visible_artifacts = sequence.artifacts if sequence.status == TaskStatus.SUCCEEDED else []
         return cls(
             task_id=sequence.task_id,
             status=sequence.status,
@@ -134,7 +135,7 @@ class TaskResponse(BaseModel):
             started_at=sequence.started_at,
             updated_at=sequence.updated_at,
             error=error,
-            artifacts=[ArtifactPayload(**artifact) for artifact in sequence.artifacts],
+            artifacts=[ArtifactPayload(**artifact) for artifact in visible_artifacts],
         )
 
 
@@ -182,7 +183,7 @@ class TaskSummary(BaseModel):
     @classmethod
     def from_sequence(cls, sequence: RequestSequence) -> "TaskSummary":
         artifact_url = None
-        if sequence.artifacts:
+        if sequence.status == TaskStatus.SUCCEEDED and sequence.artifacts:
             glb_artifact = next(
                 (artifact for artifact in sequence.artifacts if artifact.get("type") == "glb"),
                 sequence.artifacts[0],

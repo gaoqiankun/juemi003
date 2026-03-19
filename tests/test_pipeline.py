@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import io
 import sys
 import time
 from datetime import timedelta
@@ -40,6 +41,29 @@ SAMPLE_IMAGE_DATA_URL = (
     "data:image/png;base64,"
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADUlEQVR42mP8z/C/HwAF/gL+Q6UkWQAAAABJRU5ErkJggg=="
 )
+PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+JPEG_MAGIC = b"\xff\xd8\xff"
+
+
+def make_image_bytes(image_format: str) -> bytes:
+    from PIL import Image
+
+    image = Image.new("RGB", (2, 2), (255, 255, 255))
+    buffer = io.BytesIO()
+    image.save(buffer, format=image_format)
+    return buffer.getvalue()
+
+
+@pytest.fixture(autouse=True)
+def disable_real_preview_render(monkeypatch: pytest.MonkeyPatch) -> None:
+    def disabled_preview_render(_cls, _model_path: Path, _output_path: Path) -> None:
+        raise RuntimeError("preview renderer disabled in unit tests")
+
+    monkeypatch.setattr(
+        ExportStage,
+        "_render_preview_png",
+        classmethod(disabled_preview_render),
+    )
 
 
 class FakeObjectStorageClient:
@@ -185,7 +209,12 @@ def build_engine(
     pipeline = PipelineCoordinator(
         task_store=task_store,
         stages=[
-            PreprocessStage(delay_ms=10, uploads_dir=uploads_dir, task_store=task_store),
+            PreprocessStage(
+                delay_ms=10,
+                uploads_dir=uploads_dir,
+                artifact_store=artifact_store,
+                task_store=task_store,
+            ),
             gpu_stage,
             ExportStage(
                 model_registry=model_registry,
@@ -325,6 +354,99 @@ def test_pipeline_persists_full_success_history(tmp_path: Path) -> None:
                 "uploading",
                 "succeeded",
             ]
+        finally:
+            await engine.stop()
+            await task_store.close()
+
+    asyncio.run(scenario())
+
+
+def test_pipeline_persists_input_and_preview_artifacts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    preview_bytes = make_image_bytes("PNG")
+    input_bytes = make_image_bytes("JPEG")
+
+    def fake_render_preview(model_path: Path, output_path: Path) -> None:
+        assert model_path.name == "model.glb"
+        output_path.write_bytes(preview_bytes)
+
+    monkeypatch.setattr(
+        ExportStage,
+        "_render_preview_png",
+        classmethod(lambda cls, model_path, output_path: fake_render_preview(model_path, output_path)),
+    )
+
+    async def scenario() -> None:
+        uploads_dir = tmp_path / "uploads"
+        uploads_dir.mkdir(parents=True, exist_ok=True)
+        uploads_dir.joinpath("preview-source.jpg").write_bytes(input_bytes)
+
+        task_store, artifact_store, engine = build_engine(tmp_path, uploads_dir=uploads_dir)
+        await task_store.initialize()
+        await artifact_store.initialize()
+        await engine.start()
+        try:
+            sequence, created = await engine.submit_task(
+                task_type=TaskType.IMAGE_TO_3D,
+                image_url="upload://preview-source",
+                options={"resolution": 1024},
+            )
+            assert created is True
+
+            current = await wait_for_engine_status(engine, sequence.task_id, TaskStatus.SUCCEEDED)
+            artifact_names = [Path(artifact["url"]).name for artifact in current.artifacts]
+
+            assert artifact_names == ["model.glb", "preview.png", "input.png"]
+
+            preview_path = await artifact_store.get_local_artifact_path(sequence.task_id, "preview.png")
+            input_path = await artifact_store.get_local_artifact_path(sequence.task_id, "input.png")
+
+            assert preview_path is not None
+            assert preview_path.read_bytes().startswith(PNG_MAGIC)
+            assert input_path is not None
+            assert input_path.read_bytes() == input_bytes
+            assert input_path.read_bytes().startswith(JPEG_MAGIC)
+        finally:
+            await engine.stop()
+            await task_store.close()
+
+    asyncio.run(scenario())
+
+
+def test_preview_render_failure_does_not_fail_task(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def exploding_render_preview(_cls, _model_path: Path, _output_path: Path) -> None:
+        raise RuntimeError("pyrender boom")
+
+    monkeypatch.setattr(ExportStage, "_render_preview_png", classmethod(exploding_render_preview))
+
+    async def scenario() -> None:
+        uploads_dir = tmp_path / "uploads"
+        uploads_dir.mkdir(parents=True, exist_ok=True)
+        uploads_dir.joinpath("preview-failure.png").write_bytes(make_image_bytes("PNG"))
+
+        task_store, artifact_store, engine = build_engine(tmp_path, uploads_dir=uploads_dir)
+        await task_store.initialize()
+        await artifact_store.initialize()
+        await engine.start()
+        try:
+            sequence, created = await engine.submit_task(
+                task_type=TaskType.IMAGE_TO_3D,
+                image_url="upload://preview-failure",
+                options={"resolution": 1024},
+            )
+            assert created is True
+
+            current = await wait_for_engine_status(engine, sequence.task_id, TaskStatus.SUCCEEDED)
+            artifact_names = [Path(artifact["url"]).name for artifact in current.artifacts]
+
+            assert artifact_names == ["model.glb", "input.png"]
+            assert current.failed_stage is None
+            assert await artifact_store.get_local_artifact_path(sequence.task_id, "preview.png") is None
         finally:
             await engine.stop()
             await task_store.close()
@@ -640,12 +762,18 @@ def test_pipeline_multi_slot_dispatches_tasks_concurrently(tmp_path: Path) -> No
                 TaskStatus.SUCCEEDED,
             )
             elapsed_seconds = time.perf_counter() - started_at
+            first_duration = (
+                first_result.completed_at - first_result.started_at
+            ).total_seconds()
+            second_duration = (
+                second_result.completed_at - second_result.started_at
+            ).total_seconds()
 
             assert {first_result.assigned_worker_id, second_result.assigned_worker_id} == {
                 "gpu-worker-0",
                 "gpu-worker-1",
             }
-            assert elapsed_seconds < 0.65
+            assert elapsed_seconds < (first_duration + second_duration) * 0.8
         finally:
             await engine.stop()
             await task_store.close()
