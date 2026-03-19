@@ -25,12 +25,14 @@ export function ThreeViewer({
   message,
   baseUrl,
   token,
+  background = "#2a2a2a",
   className = "",
 }: {
   url?: string | null;
   message?: string;
   baseUrl?: string;
   token?: string;
+  background?: string;
   className?: string;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -41,13 +43,16 @@ export function ThreeViewer({
     if (!container) {
       return;
     }
-    const viewer = new Viewer3D(container, { background: "#050816" });
+    const viewer = new Viewer3D(container, {
+      background,
+      shadowFloor: true,
+    });
     viewerRef.current = viewer;
     return () => {
       viewer.dispose();
       viewerRef.current = null;
     };
-  }, []);
+  }, [background]);
 
   useEffect(() => {
     const viewer = viewerRef.current;
@@ -55,7 +60,7 @@ export function ThreeViewer({
       return;
     }
     if (!url) {
-      viewer.setMessage(message || "任务产物尚未可用");
+      viewer.setMessage(message || "内容准备中");
       return;
     }
     viewer.load(url, getArtifactRequestHeaders(url, baseUrl, token)).catch((error) => {
@@ -63,5 +68,5 @@ export function ThreeViewer({
     });
   }, [baseUrl, message, token, url]);
 
-  return <div ref={containerRef} className={`relative size-full overflow-hidden rounded-[28px] border border-white/10 bg-slate-950 ${className}`} />;
+  return <div ref={containerRef} className={`relative size-full overflow-hidden rounded-[20px] bg-[#2a2a2a] ${className}`} />;
 }

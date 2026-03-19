@@ -1,58 +1,150 @@
-import { Box, ImagePlus } from "lucide-react";
+import { Box, LoaderCircle, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
-import { formatTaskStatus, getTaskShortId } from "@/lib/format";
+import { useGen3d } from "@/app/gen3d-provider";
+import { fetchAuthorizedBlobUrl } from "@/lib/api";
 import type { TaskRecord } from "@/lib/types";
+import { cn } from "@/lib/utils";
 
-export function TaskThumbnail({ task, compact = false }: { task: TaskRecord; compact?: boolean }) {
-  const heightClass = compact ? "h-44" : "h-56";
+function isActiveTask(task: TaskRecord) {
+  return task.status !== "succeeded" && task.status !== "failed" && task.status !== "cancelled";
+}
 
-  if (task.thumbnailUrl) {
-    return (
-      <div className={`relative overflow-hidden rounded-[24px] border border-white/10 bg-slate-950 ${heightClass}`}>
-        <img src={task.thumbnailUrl} alt={`${task.taskId} 3D thumbnail`} className="size-full object-cover" />
-        <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-3 bg-gradient-to-t from-slate-950 via-slate-950/70 to-transparent px-4 py-4 text-xs uppercase tracking-[0.18em] text-slate-200">
-          <span>3D Preview</span>
-          <span>{task.model}</span>
-        </div>
-      </div>
+export function TaskThumbnail({
+  task,
+  className,
+  variant = "default",
+}: {
+  task: TaskRecord;
+  className?: string;
+  variant?: "default" | "gallery" | "recent";
+}) {
+  const { config } = useGen3d();
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [previewArtifactUrl, setPreviewArtifactUrl] = useState("");
+  const [previewArtifactState, setPreviewArtifactState] = useState<"idle" | "loading" | "ready" | "failed">("idle");
+  const [isVisible, setIsVisible] = useState(variant === "default");
+  const usesArtifactPreview = variant === "gallery" || variant === "recent";
+  const canFetchArtifactPreview = usesArtifactPreview && task.status === "succeeded" && Boolean(config.baseUrl) && Boolean(config.token);
+
+  useEffect(() => {
+    if (variant === "default") {
+      setIsVisible(true);
+      return;
+    }
+    const element = containerRef.current;
+    if (!element) {
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setIsVisible(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "240px" },
     );
-  }
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [variant, task.taskId]);
 
-  if (task.previewDataUrl) {
-    return (
-      <div className={`relative overflow-hidden rounded-[24px] border border-white/10 bg-slate-950 ${heightClass}`}>
-        <img src={task.previewDataUrl} alt={`${task.taskId} input preview`} className="size-full object-cover" />
-        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-950 via-slate-950/70 to-transparent px-4 py-4 text-xs uppercase tracking-[0.18em] text-slate-200">
-          Input Preview
-        </div>
-      </div>
-    );
-  }
+  useEffect(() => {
+    if (!canFetchArtifactPreview || !isVisible) {
+      setPreviewArtifactState("idle");
+      setPreviewArtifactUrl((previous) => {
+        if (previous) {
+          URL.revokeObjectURL(previous);
+        }
+        return "";
+      });
+      return;
+    }
+
+    const controller = new AbortController();
+    let objectUrl = "";
+
+    setPreviewArtifactUrl((previous) => {
+      if (previous) {
+        URL.revokeObjectURL(previous);
+      }
+      return "";
+    });
+    setPreviewArtifactState("loading");
+    fetchAuthorizedBlobUrl(
+      { baseUrl: config.baseUrl, token: config.token },
+      `/v1/tasks/${encodeURIComponent(task.taskId)}/artifacts/preview.png`,
+      controller.signal,
+    )
+      .then((url) => {
+        objectUrl = url;
+        setPreviewArtifactUrl((previous) => {
+          if (previous) {
+            URL.revokeObjectURL(previous);
+          }
+          return url;
+        });
+        setPreviewArtifactState("ready");
+      })
+      .catch(() => {
+        if (controller.signal.aborted) {
+          return;
+        }
+        setPreviewArtifactUrl((previous) => {
+          if (previous) {
+            URL.revokeObjectURL(previous);
+          }
+          return "";
+        });
+        setPreviewArtifactState("failed");
+      });
+
+    return () => {
+      controller.abort();
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [canFetchArtifactPreview, config.baseUrl, config.token, isVisible, task.taskId]);
+
+  const isLoading = !usesArtifactPreview && (task.thumbnailState === "loading" || isActiveTask(task));
+  const isFailed = !usesArtifactPreview && (task.status === "failed" || task.status === "cancelled");
+  const renderedThumbnail = usesArtifactPreview
+    ? previewArtifactState === "ready"
+      ? previewArtifactUrl
+      : ""
+    : task.status === "succeeded"
+      ? task.thumbnailUrl
+      : "";
+  const showArtifactPlaceholder = usesArtifactPreview && !renderedThumbnail;
 
   return (
-    <div className={`relative overflow-hidden rounded-[24px] border border-white/10 bg-[radial-gradient(circle_at_top,rgba(56,189,248,0.18),transparent_40%),linear-gradient(180deg,rgba(10,16,30,1),rgba(5,8,18,1))] ${heightClass}`}>
-      <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.05),transparent_40%,rgba(34,197,94,0.08))]" />
-      <div className="relative flex h-full flex-col items-center justify-center gap-4 px-8 text-center">
-        {task.status === "succeeded" ? (
-          <Box className="h-12 w-12 text-cyan-200" />
-        ) : (
-          <ImagePlus className="h-12 w-12 text-slate-300" />
-        )}
-        <div>
-          <div className="font-display text-base font-semibold text-white">{formatTaskStatus(task.status)}</div>
-          <div className="mt-2 text-sm leading-6 text-slate-400">
-            {task.status === "succeeded"
-              ? task.thumbnailState === "loading"
-                ? "正在生成 3D 缩略图…"
-                : "可在详情侧栏查看完整模型"
-              : "等待后端产物完成后展示 3D 缩略图"}
-          </div>
+    <div ref={containerRef} className={cn("relative aspect-square overflow-hidden rounded-[8px] bg-[#111111]", className)}>
+      {renderedThumbnail ? (
+        <img src={renderedThumbnail} alt="模型缩略图" className="absolute inset-0 size-full object-cover" />
+      ) : null}
+
+      {!usesArtifactPreview && !renderedThumbnail && !isLoading && !isFailed && task.previewDataUrl ? (
+        <img src={task.previewDataUrl} alt="上传图片" className="absolute inset-0 size-full object-cover" />
+      ) : null}
+
+      {isLoading ? (
+        <div className="absolute inset-0 flex items-center justify-center bg-[#111111]">
+          <LoaderCircle className="h-6 w-6 animate-spin text-white/72" />
         </div>
-      </div>
-      <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-3 border-t border-white/10 bg-slate-950/70 px-4 py-3 text-xs uppercase tracking-[0.18em] text-slate-300">
-        <span>{getTaskShortId(task.taskId)}</span>
-        <span>{task.model}</span>
-      </div>
+      ) : null}
+
+      {isFailed ? (
+        <div className="absolute inset-0 flex items-center justify-center bg-[#111111]">
+          <X className="h-8 w-8 text-white/46" />
+        </div>
+      ) : null}
+
+      {showArtifactPlaceholder ? (
+        <div className="absolute inset-0 flex items-center justify-center bg-[#111111]">
+          <Box className="h-10 w-10 text-white/24" />
+        </div>
+      ) : null}
     </div>
   );
 }

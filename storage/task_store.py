@@ -45,6 +45,9 @@ class TaskStore:
         self._database_path.parent.mkdir(parents=True, exist_ok=True)
         self._db = await aiosqlite.connect(self._database_path)
         self._db.row_factory = aiosqlite.Row
+        await self._db.execute("PRAGMA journal_mode=WAL")
+        await self._db.execute("PRAGMA synchronous=NORMAL")
+        await self._db.execute("PRAGMA temp_store=MEMORY")
         await self._db.execute(
             """
             CREATE TABLE IF NOT EXISTS tasks (
@@ -645,7 +648,6 @@ class TaskStore:
                         normalized_stage,
                     ),
                 )
-            await db.commit()
 
     async def get_stage_stats(self, model: str) -> dict[str, dict[str, float | int]]:
         normalized_model = model.strip() or "trellis"

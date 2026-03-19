@@ -44,7 +44,7 @@ export function authHeaders(token: string, json = false) {
 
 export async function extractErrorMessage(response: Response) {
   if (response.status === 401) {
-    return "API Key 无效或已停用";
+    return "API 密钥无效或已停用";
   }
   try {
     const payload = await response.json();
@@ -96,6 +96,24 @@ export async function fetchTask(config: ApiConfig, taskId: string) {
     throw new Error(await extractErrorMessage(response));
   }
   return (await response.json()) as TaskSnapshotPayload;
+}
+
+export async function fetchAuthorizedBlobUrl(
+  config: ApiConfig,
+  path: string,
+  signal?: AbortSignal,
+) {
+  const response = await fetch(buildApiUrl(config.baseUrl, path), {
+    headers: authHeaders(config.token, false),
+    cache: "no-store",
+    credentials: "same-origin",
+    signal,
+  });
+  if (!response.ok) {
+    throw new Error(await extractErrorMessage(response));
+  }
+  const blob = await response.blob();
+  return URL.createObjectURL(blob);
 }
 
 export async function createTask(config: ApiConfig, payload: TaskCreatePayload) {
@@ -158,7 +176,7 @@ export function uploadFile(
         return;
       }
       if (xhr.status === 401) {
-        reject(new Error("API Key 无效或已停用"));
+        reject(new Error("API 密钥无效或已停用"));
         return;
       }
       try {

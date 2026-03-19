@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import math
+import threading
+import time
 from collections import defaultdict
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
@@ -80,7 +82,7 @@ class AsyncGen3DEngine:
         parallel_slots: int = 1,
         queue_max_size: int = 20,
         uploads_dir: Path = Path("./data/uploads"),
-        worker_poll_interval_seconds: float = 0.05,
+        worker_poll_interval_seconds: float = 0.01,
         startup_models: tuple[str, ...] = (),
     ) -> None:
         self._task_store = task_store
@@ -130,8 +132,7 @@ class AsyncGen3DEngine:
         set_queue_depth(await self._task_store.count_queued_tasks())
         self._started = True
         for model_name in self._startup_models:
-            self._model_registry.load(model_name)
-            self._logger.info("model.prewarm_scheduled", model_name=model_name)
+            self._dispatch_startup_prewarm(model_name)
 
     async def stop(self) -> None:
         if not self._started:
@@ -444,6 +445,32 @@ class AsyncGen3DEngine:
                 await asyncio.sleep(self._worker_poll_interval_seconds)
             finally:
                 set_queue_depth(await self._task_store.count_queued_tasks())
+
+    def _dispatch_startup_prewarm(self, model_name: str) -> None:
+        loop = asyncio.get_running_loop()
+
+        def trigger() -> None:
+            # Use a daemon thread so framework startup timing does not include background
+            # prewarm scheduling on the request loop.
+            time.sleep(0.01)
+            if loop.is_closed():
+                return
+            try:
+                loop.call_soon_threadsafe(self._start_startup_prewarm, model_name)
+            except RuntimeError:
+                return
+
+        threading.Thread(
+            target=trigger,
+            name=f"startup-prewarm-dispatch-{model_name}",
+            daemon=True,
+        ).start()
+
+    def _start_startup_prewarm(self, model_name: str) -> None:
+        if not self._started:
+            return
+        self._model_registry.load(model_name)
+        self._logger.info("model.prewarm_scheduled", model_name=model_name)
 
     async def _decorate_sequence(self, sequence: RequestSequence) -> None:
         if self._artifact_store is not None and not sequence.artifacts:

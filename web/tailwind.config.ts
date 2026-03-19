@@ -61,8 +61,8 @@ const config: Config = {
         mesh: "radial-gradient(circle at top, rgba(75,114,255,0.2), transparent 32%), radial-gradient(circle at 18% 24%, rgba(249,115,22,0.14), transparent 26%), radial-gradient(circle at 78% 18%, rgba(16,185,129,0.12), transparent 24%), linear-gradient(180deg, rgba(6,10,18,0.96), rgba(3,7,15,1))",
       },
       fontFamily: {
-        sans: ["'Manrope'", "'Segoe UI'", "sans-serif"],
-        display: ["'Space Grotesk'", "'Segoe UI'", "sans-serif"],
+        sans: ["-apple-system", '"SF Pro Display"', '"PingFang SC"', "sans-serif"],
+        display: ["-apple-system", '"SF Pro Display"', '"PingFang SC"', "sans-serif"],
       },
       keyframes: {
         float: {

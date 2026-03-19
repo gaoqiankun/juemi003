@@ -1,31 +1,29 @@
-@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap");
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
   :root {
-    --background: 224 44% 5%;
+    --background: 0 0% 0%;
     --foreground: 210 40% 98%;
-    --card: 222 42% 9%;
+    --card: 0 0% 7%;
     --card-foreground: 210 40% 98%;
-    --popover: 222 42% 9%;
+    --popover: 0 0% 7%;
     --popover-foreground: 210 40% 98%;
-    --primary: 191 96% 67%;
-    --primary-foreground: 222 47% 10%;
-    --secondary: 213 32% 92%;
-    --secondary-foreground: 222 47% 10%;
-    --muted: 217 28% 16%;
-    --muted-foreground: 215 18% 70%;
-    --accent: 24 95% 62%;
-    --accent-foreground: 222 47% 10%;
-    --destructive: 350 89% 60%;
+    --primary: 0 0% 100%;
+    --primary-foreground: 0 0% 0%;
+    --secondary: 0 0% 100%;
+    --secondary-foreground: 0 0% 0%;
+    --muted: 0 0% 10%;
+    --muted-foreground: 0 0% 53%;
+    --accent: 0 0% 100%;
+    --accent-foreground: 0 0% 0%;
+    --destructive: 0 72% 54%;
     --destructive-foreground: 210 40% 98%;
-    --border: 216 26% 18%;
-    --input: 216 26% 18%;
-    --ring: 191 96% 67%;
-    --radius: 1.25rem;
+    --border: 0 0% 12%;
+    --input: 0 0% 12%;
+    --ring: 0 0% 100%;
+    --radius: 0.5rem;
   }
 
   * {
@@ -40,6 +38,7 @@
 
   body {
     @apply bg-background text-foreground font-sans;
+    font-family: -apple-system, "SF Pro Display", "PingFang SC", sans-serif;
     background-attachment: fixed;
   }
 
@@ -49,19 +48,11 @@
 }
 
 @layer components {
-  .hero-card {
-    @apply rounded-[32px] border border-white/10 bg-[linear-gradient(160deg,rgba(10,18,34,0.98),rgba(7,11,22,0.94))] shadow-halo backdrop-blur-xl;
-  }
+  .hero-card {}
 
-  .surface-card {
-    @apply rounded-[28px] border border-white/10 bg-white/5 backdrop-blur-xl;
-  }
+  .surface-card {}
 
-  .soft-grid {
-    background-image: linear-gradient(rgba(255,255,255,0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.05) 1px, transparent 1px);
-    background-size: 28px 28px;
-    background-position: center;
-  }
+  .soft-grid {}
 }
 
 @layer utilities {

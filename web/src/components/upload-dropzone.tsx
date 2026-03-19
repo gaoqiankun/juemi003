@@ -1,4 +1,4 @@
-import { ImagePlus, Sparkles, UploadCloud, X } from "lucide-react";
+import { ImagePlus, UploadCloud, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 
@@ -26,7 +26,7 @@ export function UploadDropzone({
     >
       <input
         type="file"
-        accept="image/png,image/jpeg,image/webp,image/gif"
+        accept="image/png,image/jpeg,image/webp"
         className="hidden"
         disabled={disabled}
         onChange={(event) => onFileSelect(event.target.files?.[0] || null)}
@@ -34,15 +34,11 @@ export function UploadDropzone({
 
       <div className="grid gap-6 md:grid-cols-[1.04fr_0.96fr] md:items-center">
         <div>
-          <div className="inline-flex items-center gap-2 rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1.5 text-xs uppercase tracking-[0.22em] text-cyan-100">
-            <Sparkles className="h-3.5 w-3.5" />
-            Upload Input
-          </div>
           <h2 className="mt-4 font-display text-3xl font-semibold tracking-[-0.04em] text-white md:text-4xl">
-            把输入图像直接拖进来。
+            拖拽图片到这里，或点击选择
           </h2>
           <p className="mt-4 max-w-xl text-sm leading-7 text-slate-300 md:text-base">
-            上传后会自动走 /v1/upload，再创建 /v1/tasks。整个主屏只保留一个当前任务视图，用于高密度关注生成过程。
+            支持 JPG、PNG、WEBP
           </p>
           <div className="mt-6 flex flex-wrap gap-3">
             <Button type="button" variant="secondary" disabled={disabled}>
@@ -61,13 +57,13 @@ export function UploadDropzone({
 
         <div className="relative overflow-hidden rounded-[28px] border border-white/10 bg-slate-950 min-h-[260px]">
           {previewUrl ? (
-            <img src={previewUrl} alt="input preview" className="size-full object-cover" />
+            <img src={previewUrl} alt="上传图片预览" className="size-full object-cover" />
           ) : (
             <div className="flex h-full min-h-[260px] flex-col items-center justify-center gap-4 px-8 text-center">
               <ImagePlus className="h-12 w-12 text-slate-300" />
               <div>
-                <div className="font-display text-lg font-semibold text-white">当前还没选图</div>
-                <div className="mt-2 text-sm leading-6 text-slate-400">建议主体明确、背景简单，优先 1:1 或近似方图。</div>
+                <div className="font-display text-lg font-semibold text-white">上传一张主图</div>
+                <div className="mt-2 text-sm leading-6 text-slate-400">主体清晰、背景干净的图片更容易生成稳定结果。</div>
               </div>
             </div>
           )}

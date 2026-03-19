@@ -61,8 +61,8 @@ const POLL_INTERVAL_MS = 3000;
 
 const defaultConnectionState: ConnectionState = {
   tone: "error",
-  label: "连接未检测",
-  detail: "保存配置后使用 /health 检测服务状态。",
+  label: "连接失败",
+  detail: "服务暂不可用",
 };
 
 const defaultGenerateState = (token = "", currentTaskId = ""): GenerateState => ({
@@ -76,8 +76,8 @@ const defaultGenerateState = (token = "", currentTaskId = ""): GenerateState => 
   uploadProgress: 0,
   isSubmitting: false,
   statusMessage: token
-    ? "图片就绪后会自动上传，然后直接开始生成。"
-    : "请先到设置页配置连接。",
+    ? "图片就绪后即可开始生成。"
+    : "请先到设置页填写连接信息。",
   statusTone: token ? "info" : "error",
   currentTaskId,
 });
@@ -156,7 +156,7 @@ interface SubscriptionHandle {
   timer?: number;
 }
 
-interface Gen3dContextValue {
+export interface Gen3dContextValue {
   config: ApiConfig;
   connection: ConnectionState;
   tasks: TaskRecord[];
@@ -182,7 +182,7 @@ interface Gen3dContextValue {
   setCurrentTaskId: (taskId: string) => void;
 }
 
-const Gen3dContext = createContext<Gen3dContextValue | null>(null);
+export const Gen3dContext = createContext<Gen3dContextValue | null>(null);
 
 export function Gen3dProvider({ children }: { children: ReactNode }) {
   const [config, setConfig] = useState<ApiConfig>(() => readStoredConfig());
@@ -439,9 +439,9 @@ export function Gen3dProvider({ children }: { children: ReactNode }) {
     }
     upsertTask(taskId, { thumbnailState: "loading" });
     const job = renderModelThumbnail(url, {
-      width: 480,
-      height: 320,
-      background: "#09101f",
+      width: 560,
+      height: 560,
+      background: "#101317",
       requestHeaders: getArtifactRequestHeaders(url),
     })
       .then((dataUrl) => {
@@ -494,7 +494,7 @@ export function Gen3dProvider({ children }: { children: ReactNode }) {
     if (!glb || !glb.url) {
       upsertTask(task.taskId, {
         resolvedArtifactUrl: "",
-        note: "任务已完成，但未返回可用 artifact URL。",
+        note: "模型已生成。",
       });
       return;
     }
@@ -507,9 +507,9 @@ export function Gen3dProvider({ children }: { children: ReactNode }) {
         resolvedArtifactUrl: browserArtifactUrl,
         rawArtifactUrl,
         note: rawArtifactUrl.startsWith("/")
-          ? "artifact 使用相对路径返回，页面已按 API Base URL 自动补全。"
+          ? "模型已生成。"
           : glb.expires_at
-            ? "artifact 为临时 URL，过期后可刷新任务重新获取。"
+            ? "模型已生成。"
             : task.note || "",
       });
       queueThumbnailGeneration(task.taskId, browserArtifactUrl);
@@ -520,7 +520,7 @@ export function Gen3dProvider({ children }: { children: ReactNode }) {
       upsertTask(task.taskId, {
         resolvedArtifactUrl: browserArtifactUrl,
         rawArtifactUrl,
-        note: "artifact URL 不是常见的 http(s) / file 协议，请按实际部署环境确认。",
+        note: "模型已生成。",
       });
       return;
     }
@@ -532,7 +532,7 @@ export function Gen3dProvider({ children }: { children: ReactNode }) {
         upsertTask(task.taskId, {
           resolvedArtifactUrl: candidate,
           rawArtifactUrl,
-          note: "artifact 原始返回为 file://，页面已自动切换到可访问的同源地址。",
+          note: "模型已生成。",
         });
         queueThumbnailGeneration(task.taskId, candidate);
         return;
@@ -542,7 +542,7 @@ export function Gen3dProvider({ children }: { children: ReactNode }) {
     upsertTask(task.taskId, {
       resolvedArtifactUrl: rawArtifactUrl,
       rawArtifactUrl,
-      note: "artifact 当前是 file:// 本地路径，浏览器通常无法直接预览；建议改用 MinIO presigned URL 或同源 HTTP 代理。",
+      note: "模型已生成。",
     });
   }, [buildLocalArtifactCandidates, probeUrl, queueThumbnailGeneration, resolveArtifactUrl, upsertTask]);
 
@@ -613,7 +613,7 @@ export function Gen3dProvider({ children }: { children: ReactNode }) {
     if (hydratedTask.status === "succeeded" && !hydratedTask.resolvedArtifactUrl && !hydratedTask.successRefreshScheduled) {
       upsertTask(taskId, {
         successRefreshScheduled: true,
-        note: hydratedTask.note || "模型已完成，正在补拉 artifact 详情…",
+        note: hydratedTask.note || "模型已生成。",
       });
       fetchTask(configRef.current, taskId)
         .then((response) => applyTaskSnapshot(taskId, response, "snapshot"))
@@ -700,40 +700,43 @@ export function Gen3dProvider({ children }: { children: ReactNode }) {
 
   const refreshTaskListAction = useCallback(async ({ append = false, resubscribe = false, silent = false } = {}) => {
     if (!configRef.current.baseUrl) {
-      throw new Error("请先填写 API Base URL");
+      throw new Error("请先填写服务地址");
     }
     if (!configRef.current.token) {
       setConnection((previous) => ({
         ...previous,
         tone: "empty",
-        label: "未配置 API Key",
-        detail: "打开设置页以保存连接信息",
+        label: "等待连接",
+        detail: "请先到设置页填写连接信息",
       }));
       resetTaskState();
       return;
     }
 
     updateTaskPage((previous) => ({ ...previous, isLoading: true }));
-    const payload = await fetchTaskList(configRef.current, append ? taskPageRef.current.nextCursor : "", taskPageRef.current.limit) as TaskListPayload;
-    await replaceTasksFromServer(Array.isArray(payload.items) ? payload.items : [], append);
-    updateTaskPage((previous) => ({
-      ...previous,
-      isLoading: false,
-      nextCursor: String(payload.nextCursor || payload.next_cursor || ""),
-      hasMore: Boolean(payload.hasMore ?? payload.has_more),
-    }));
-    if (resubscribe) {
-      const sorted = Object.values(tasksRef.current).sort(compareTaskRecords);
-      for (const task of sorted) {
-        if (isActiveStatus(task.status)) {
-          await subscribeToTask(task.taskId, true);
+    try {
+      const payload = await fetchTaskList(configRef.current, append ? taskPageRef.current.nextCursor : "", taskPageRef.current.limit) as TaskListPayload;
+      await replaceTasksFromServer(Array.isArray(payload.items) ? payload.items : [], append);
+      updateTaskPage((previous) => ({
+        ...previous,
+        nextCursor: String(payload.nextCursor || payload.next_cursor || ""),
+        hasMore: Boolean(payload.hasMore ?? payload.has_more),
+      }));
+      if (resubscribe) {
+        const sorted = Object.values(tasksRef.current).sort(compareTaskRecords);
+        for (const task of sorted) {
+          if (isActiveStatus(task.status)) {
+            await subscribeToTask(task.taskId, true);
+          }
         }
       }
-    }
-    if (!silent) {
-      toast.success(append ? "更多任务已加载" : "图库已刷新", {
-        description: `当前共有 ${Object.keys(tasksRef.current).length} 条任务记录。`,
-      });
+      if (!silent) {
+        toast.success(append ? "更多内容已加载" : "图库已刷新", {
+          description: `当前共有 ${Object.keys(tasksRef.current).length} 条内容。`,
+        });
+      }
+    } finally {
+      updateTaskPage((previous) => ({ ...previous, isLoading: false }));
     }
   }, [replaceTasksFromServer, resetTaskState, updateTaskPage]);
 
@@ -741,8 +744,8 @@ export function Gen3dProvider({ children }: { children: ReactNode }) {
     const payload = await fetchTask(configRef.current, taskId);
     await applyTaskSnapshot(taskId, payload, "snapshot");
     if (!silent) {
-      toast.success("任务已刷新", {
-        description: `任务 ${taskId.slice(-8)} 的详情已更新。`,
+      toast.success("已刷新", {
+        description: "内容已更新。",
       });
     }
   }, [applyTaskSnapshot]);
@@ -775,7 +778,7 @@ export function Gen3dProvider({ children }: { children: ReactNode }) {
         console.warn("polling refresh failed", error);
         upsertTask(taskId, {
           transport: "polling",
-          note: `轮询失败：${error instanceof Error ? error.message : String(error)}`,
+          note: "更新失败，请稍后再试。",
         });
       });
     }, POLL_INTERVAL_MS);
@@ -790,7 +793,7 @@ export function Gen3dProvider({ children }: { children: ReactNode }) {
     });
     upsertTask(taskId, {
       transport: "sse",
-      note: "SSE 已连接。",
+      note: "正在生成中。",
     });
 
     const response = await fetch(buildApiUrl(configRef.current.baseUrl, `/v1/tasks/${encodeURIComponent(taskId)}/events`), {
@@ -799,10 +802,10 @@ export function Gen3dProvider({ children }: { children: ReactNode }) {
       cache: "no-store",
     });
     if (!response.ok) {
-      throw new Error(`SSE 订阅失败：${await extractErrorMessage(response)}`);
+      throw new Error(`连接失败：${await extractErrorMessage(response)}`);
     }
     if (!response.body || !response.body.getReader) {
-      throw new Error("当前浏览器不支持 SSE 流式读取");
+      throw new Error("当前浏览器暂不支持连续更新");
     }
 
     const reader = response.body.getReader();
@@ -816,7 +819,7 @@ export function Gen3dProvider({ children }: { children: ReactNode }) {
       }
       upsertTask(taskId, {
         transport: "polling",
-        note: "SSE 已连接但长时间未收到事件，已降级为轮询。",
+        note: "正在生成中。",
       });
       startPolling(taskId);
     }, 2500);
@@ -882,20 +885,20 @@ export function Gen3dProvider({ children }: { children: ReactNode }) {
         });
       upsertTask(taskId, {
         transport: "complete",
-        note: tasksRef.current[taskId]?.note || "任务已进入终态。",
+        note: tasksRef.current[taskId]?.note || "模型已生成。",
       });
       stopSubscription(taskId);
       return;
     }
-    throw new Error("SSE 已断开，任务尚未结束");
+    throw new Error("连接已中断，请稍后刷新");
   }, [applyEventPayload, parseSseEvent, startPolling, stopSubscription, upsertTask]);
 
   const subscribeToTask = useCallback(async (taskId: string, force = false) => {
     if (!configRef.current.baseUrl) {
-      throw new Error("请先填写 API Base URL");
+      throw new Error("请先填写服务地址");
     }
     if (!configRef.current.token) {
-      throw new Error("请先配置 API Key");
+      throw new Error("请先填写 API 密钥");
     }
     if (!force && subscriptionsRef.current.has(taskId)) {
       return;
@@ -903,7 +906,7 @@ export function Gen3dProvider({ children }: { children: ReactNode }) {
     stopSubscription(taskId);
     upsertTask(taskId, {
       transport: "connecting",
-      note: "正在连接实时进度流…",
+      note: "正在准备中。",
     });
 
     try {
@@ -918,7 +921,7 @@ export function Gen3dProvider({ children }: { children: ReactNode }) {
       console.warn("falling back to polling", error);
       upsertTask(taskId, {
         transport: "polling",
-        note: "SSE 连接失败，已降级为每 3 秒轮询。",
+        note: "正在生成中。",
       });
       startPolling(taskId);
     }
@@ -929,12 +932,12 @@ export function Gen3dProvider({ children }: { children: ReactNode }) {
       const payload = await fetchHealth(configRef.current);
       setConnection({
         tone: "ready",
-        label: "服务在线",
-        detail: `进程存活 · ${payload.service}`,
+        label: "已连接",
+        detail: "服务正常",
       });
       if (!silent) {
-        toast.success("服务在线", {
-          description: `已连接到 ${payload.service}。`,
+        toast.success("已连接", {
+          description: "服务正常。",
         });
       }
       return payload;
@@ -942,11 +945,11 @@ export function Gen3dProvider({ children }: { children: ReactNode }) {
       const message = error instanceof Error ? error.message : String(error);
       setConnection({
         tone: "error",
-        label: "服务离线",
+        label: "连接失败",
         detail: message,
       });
       if (!silent) {
-        toast.error("服务检查失败", {
+        toast.error("连接失败", {
           description: message,
         });
       }
@@ -966,7 +969,7 @@ export function Gen3dProvider({ children }: { children: ReactNode }) {
       statusMessage: keepStatus
         ? previous.statusMessage
         : configRef.current.token
-          ? "图片就绪后会自动上传，然后直接开始生成。"
+          ? "图片就绪后即可开始生成。"
           : "请先到设置页配置连接。",
       statusTone: keepStatus ? previous.statusTone : configRef.current.token ? "info" : "error",
     }));
@@ -986,18 +989,18 @@ export function Gen3dProvider({ children }: { children: ReactNode }) {
       uploadId: "",
       name: file.name,
       statusMessage: configRef.current.token
-        ? "图片已准备；提交后会自动上传并创建任务。"
-        : "图片预览已就绪；请先配置 API Key。",
+        ? "图片已准备；确认后会自动上传并开始生成。"
+        : "图片预览已就绪；请先填写 API 密钥。",
       statusTone: configRef.current.token ? "info" : "error",
     }));
   }, [clearSelectedFile]);
 
   const ensureUploadedInput = useCallback(async () => {
     if (!configRef.current.baseUrl) {
-      throw new Error("请先填写 API Base URL");
+      throw new Error("请先填写服务地址");
     }
     if (!configRef.current.token) {
-      throw new Error("请先配置 API Key");
+      throw new Error("请先填写 API 密钥");
     }
     if (!generateRef.current.file) {
       throw new Error("请先选择一张输入图片");
@@ -1025,7 +1028,7 @@ export function Gen3dProvider({ children }: { children: ReactNode }) {
         ...previous,
         uploadedUrl: result.url,
         uploadId: String(result.uploadId || result.upload_id || ""),
-        statusMessage: "上传完成，正在创建任务…",
+        statusMessage: "上传完成，正在开始生成…",
         statusTone: "success",
       }));
       return result.url;
@@ -1050,7 +1053,7 @@ export function Gen3dProvider({ children }: { children: ReactNode }) {
     setGenerate((previous) => ({
       ...previous,
       isSubmitting: true,
-      statusMessage: "正在创建任务…",
+      statusMessage: "正在开始生成…",
       statusTone: "info",
     }));
 
@@ -1073,7 +1076,7 @@ export function Gen3dProvider({ children }: { children: ReactNode }) {
         updatedAt: new Date().toISOString(),
         lastSeenAt: new Date().toISOString(),
         transport: "connecting",
-        note: "任务已提交，正在连接实时进度流。",
+        note: "正在生成中。",
         previewDataUrl: previewDataUrl || generateRef.current.previewDataUrl,
         artifacts: [],
         events: [],
@@ -1083,12 +1086,12 @@ export function Gen3dProvider({ children }: { children: ReactNode }) {
       });
       subscribeToTask(taskId, true).catch((error) => {
         console.warn("background subscription failed after submit", error);
-        toast.error("实时连接失败", {
+        toast.error("连接失败", {
           description: error instanceof Error ? error.message : String(error),
         });
       });
-      toast.success("任务已创建", {
-        description: `任务 ${taskId.slice(-8)} 已提交，正在建立实时连接。`,
+      toast.success("已开始生成", {
+        description: "模型正在生成中。",
       });
       return taskId;
     } finally {
@@ -1110,7 +1113,7 @@ export function Gen3dProvider({ children }: { children: ReactNode }) {
   const retryCurrentTask = useCallback(async () => {
     const currentTask = tasksRef.current[generateRef.current.currentTaskId];
     if (!currentTask?.inputUrl) {
-      throw new Error("当前任务缺少 input_url，无法重试。请重新上传图片。");
+      throw new Error("当前记录缺少原图，请重新上传图片。");
     }
     return submitNewTask(currentTask.inputUrl, currentTask.previewDataUrl || generateRef.current.previewDataUrl);
   }, [submitNewTask]);
@@ -1120,8 +1123,8 @@ export function Gen3dProvider({ children }: { children: ReactNode }) {
     try {
       const payload = await requestTaskCancel(configRef.current, taskId);
       await applyTaskSnapshot(taskId, payload, "snapshot");
-      toast.success("任务已取消", {
-        description: `任务 ${taskId.slice(-8)} 已进入 cancelled 状态。`,
+      toast.success("已取消", {
+        description: "本次生成已取消。",
       });
     } finally {
       if (tasksRef.current[taskId]) {
@@ -1135,8 +1138,8 @@ export function Gen3dProvider({ children }: { children: ReactNode }) {
     try {
       await requestTaskDelete(configRef.current, taskId);
       removeTask(taskId);
-      toast.success("任务已删除", {
-        description: `任务 ${taskId.slice(-8)} 已从列表中移除。`,
+      toast.success("已删除", {
+        description: "这条记录已从图库中移除。",
       });
     } finally {
       if (tasksRef.current[taskId]) {
@@ -1152,20 +1155,48 @@ export function Gen3dProvider({ children }: { children: ReactNode }) {
       token: String(next.token ?? configRef.current.token).trim(),
     };
     configRef.current = merged;
-    const results = await Promise.allSettled([
-      pingHealthAction(true),
-      merged.token ? refreshTaskListAction({ append: false, resubscribe: true, silent: true }) : Promise.resolve(),
-    ]);
-    const refreshResult = results[1];
-    if (refreshResult?.status === "rejected") {
-      toast.success("配置已保存", {
-        description: `API Key 与 Base URL 已更新，但任务列表刷新失败：${refreshResult.reason instanceof Error ? refreshResult.reason.message : String(refreshResult.reason)}`,
+
+    if (!merged.token) {
+      setConnection({
+        tone: "empty",
+        label: "等待连接",
+        detail: "请先到设置页填写连接信息",
+      });
+      resetTaskState();
+      toast.success("已保存", {
+        description: "连接信息已更新。",
       });
       return;
     }
-    toast.success("配置已保存", {
-      description: "API Key 与 Base URL 已更新。",
+
+    toast.success("已保存", {
+      description: "连接信息已更新，正在后台验证连接并刷新内容。",
     });
+
+    void (async () => {
+      const [healthResult, refreshResult] = await Promise.allSettled([
+        pingHealthAction(true),
+        refreshTaskListAction({ append: false, resubscribe: true, silent: true }),
+      ]);
+
+      if (refreshResult.status === "rejected") {
+        toast.error("后台刷新失败", {
+          description: refreshResult.reason instanceof Error ? refreshResult.reason.message : String(refreshResult.reason),
+        });
+        return;
+      }
+
+      if (healthResult.status === "rejected") {
+        toast.error("连接验证失败", {
+          description: healthResult.reason instanceof Error ? healthResult.reason.message : String(healthResult.reason),
+        });
+        return;
+      }
+
+      toast.success("同步完成", {
+        description: "连接验证和内容刷新已完成。",
+      });
+    })();
   }, [persistConfig, pingHealthAction, refreshTaskListAction]);
 
   useEffect(() => {
@@ -1174,7 +1205,7 @@ export function Gen3dProvider({ children }: { children: ReactNode }) {
     }
     if (config.baseUrl && config.token) {
       refreshTaskListAction({ append: false, resubscribe: true, silent: true }).catch((error) => {
-        toast.error("加载任务失败", {
+        toast.error("加载失败", {
           description: error instanceof Error ? error.message : String(error),
         });
       });

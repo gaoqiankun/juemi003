@@ -4,6 +4,7 @@ import asyncio
 import json
 import mimetypes
 import shutil
+import tempfile
 from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
@@ -499,11 +500,29 @@ class ArtifactStore:
     ) -> None:
         manifest_path = self._manifest_dir / f"{task_id}.json"
         payload = json.dumps(artifacts, ensure_ascii=False, indent=2)
-        await asyncio.to_thread(manifest_path.write_text, payload, "utf-8")
+        temp_manifest_path = await asyncio.to_thread(
+            self._write_manifest_temp_file,
+            manifest_path,
+            payload,
+        )
+        await asyncio.to_thread(temp_manifest_path.replace, manifest_path)
 
     @staticmethod
     def _read_manifest(manifest_path: Path) -> list[dict[str, Any]]:
         return json.loads(manifest_path.read_text("utf-8"))
+
+    @staticmethod
+    def _write_manifest_temp_file(manifest_path: Path, payload: str) -> Path:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=manifest_path.parent,
+            prefix=f"{manifest_path.stem}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            handle.write(payload)
+            return Path(handle.name)
 
     @staticmethod
     def _prune_empty_dir(path: Path) -> None:

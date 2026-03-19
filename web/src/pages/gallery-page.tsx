@@ -1,9 +1,8 @@
+import { CheckCircle2, Eye, Grid3X3, LoaderCircle, OctagonX } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { Eye, GalleryHorizontalEnd, RefreshCcw, Trash2 } from "lucide-react";
 
 import { useGen3d } from "@/app/gen3d-provider";
 import { TaskSheet } from "@/components/task-sheet";
-import { TaskStatusBadge } from "@/components/task-status-badge";
 import { TaskThumbnail } from "@/components/task-thumbnail";
 import {
   AlertDialog,
@@ -16,21 +15,32 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { formatRelativeTime, formatTime, getTaskShortId } from "@/lib/format";
+import { formatRelativeTime } from "@/lib/format";
 import type { GalleryFilter } from "@/lib/types";
 
-const filters: Array<{ value: GalleryFilter; label: string }> = [
-  { value: "all", label: "全部" },
-  { value: "processing", label: "处理中" },
-  { value: "completed", label: "完成" },
-  { value: "failed", label: "失败" },
+const filters: Array<{ value: GalleryFilter; label: string; icon: typeof Grid3X3 }> = [
+  { value: "all", label: "全部", icon: Grid3X3 },
+  { value: "processing", label: "生成中", icon: LoaderCircle },
+  { value: "completed", label: "已完成", icon: CheckCircle2 },
+  { value: "failed", label: "失败", icon: OctagonX },
 ];
 
-export function GalleryPage() {
+function getStatusDotClass(status?: string) {
+  if (status === "succeeded") {
+    return "bg-[#16a34a]";
+  }
+  if (status === "failed" || status === "cancelled") {
+    return "bg-[#dc2626]";
+  }
+  return "bg-[#ca8a04]";
+}
+
+function isTerminal(status?: string) {
+  return status === "succeeded" || status === "failed" || status === "cancelled";
+}
+
+export function GalleryPage({ initialSelectedTaskId = "" }: { initialSelectedTaskId?: string }) {
   const {
-    tasks,
     taskMap,
     taskPage,
     galleryFilter,
@@ -41,7 +51,7 @@ export function GalleryPage() {
     subscribeToTask,
     deleteTask,
   } = useGen3d();
-  const [selectedTaskId, setSelectedTaskId] = useState("");
+  const [selectedTaskId, setSelectedTaskId] = useState(initialSelectedTaskId);
   const [confirmTaskId, setConfirmTaskId] = useState("");
 
   const filteredTasks = useMemo(() => getFilteredTasks(galleryFilter), [galleryFilter, getFilteredTasks]);
@@ -49,93 +59,102 @@ export function GalleryPage() {
   const confirmTask = confirmTaskId ? taskMap[confirmTaskId] || null : null;
 
   useEffect(() => {
+    if (initialSelectedTaskId) {
+      setSelectedTaskId(initialSelectedTaskId);
+    }
+  }, [initialSelectedTaskId]);
+
+  useEffect(() => {
     if (!selectedTaskId) {
       return;
     }
     refreshTask(selectedTaskId, { silent: true }).catch(() => undefined);
-    if (selectedTask && selectedTask.status !== "succeeded" && selectedTask.status !== "failed" && selectedTask.status !== "cancelled") {
+    if (selectedTask && !isTerminal(selectedTask.status)) {
       subscribeToTask(selectedTaskId, true).catch(() => undefined);
     }
-  }, [refreshTask, selectedTask?.status, selectedTaskId, subscribeToTask]);
+  }, [refreshTask, selectedTask, selectedTaskId, subscribeToTask]);
 
   return (
-    <section className="space-y-6">
-      <Card className="bg-[linear-gradient(160deg,rgba(10,18,34,0.98),rgba(7,11,22,0.94))]">
-        <CardHeader className="md:flex-row md:items-end md:justify-between">
-          <div>
-            <div className="text-xs uppercase tracking-[0.26em] text-slate-500">Gallery</div>
-            <CardTitle className="mt-3 text-4xl md:text-5xl">历史任务工作台。</CardTitle>
-            <CardDescription className="mt-4 max-w-3xl text-base text-slate-300">
-              用卡片网格统一浏览历史生成记录，完成态任务支持直接预览和下载，处理中任务可以继续追踪进度。
-            </CardDescription>
-          </div>
-          <Button variant="outline" onClick={() => refreshTaskList({ append: false, resubscribe: true, silent: false }).catch(() => undefined)}>
-            <RefreshCcw className="h-4 w-4" />
-            刷新图库
-          </Button>
-        </CardHeader>
-      </Card>
-
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <Tabs value={galleryFilter} onValueChange={(value) => setGalleryFilter(value as GalleryFilter)}>
-          <TabsList>
-            {filters.map((filter) => (
-              <TabsTrigger key={filter.value} value={filter.value}>
-                {filter.label} · {getFilteredTasks(filter.value).length}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
-        <div className="text-sm text-slate-400">共 {tasks.length} 条任务记录</div>
+    <section className="min-h-[calc(100vh-48px)] bg-[#000000]">
+      <div className="px-6 pb-3 pt-5">
+        <div className="flex flex-wrap items-center gap-2">
+          {filters.map((filter) => {
+            const active = galleryFilter === filter.value;
+            const Icon = filter.icon;
+            return (
+              <button
+                key={filter.value}
+                type="button"
+                className={[
+                  "inline-flex h-9 items-center gap-2 rounded-full border px-4 text-[13px] transition",
+                  active
+                    ? "border-white bg-white text-black"
+                    : "border-[#2a2a2a] bg-transparent text-[#888888] hover:border-[#3a3a3a] hover:text-white",
+                ].join(" ")}
+                onClick={() => setGalleryFilter(filter.value)}
+              >
+                <Icon className="h-4 w-4" />
+                {filter.label}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {filteredTasks.length ? (
-        <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+        <div
+          className="grid gap-2 px-6 pb-6"
+          style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}
+        >
           {filteredTasks.map((task) => (
-            <button
+            <article
               key={task.taskId}
-              type="button"
+              className="group relative cursor-pointer overflow-hidden rounded-[10px] bg-[#111111] transition-transform duration-150 ease-out hover:scale-[1.02]"
+              style={{ aspectRatio: "1 / 1" }}
               onClick={() => setSelectedTaskId(task.taskId)}
-              className="group text-left"
             >
-              <Card className="h-full overflow-hidden transition duration-200 hover:-translate-y-1 hover:border-cyan-400/20 hover:bg-white/[0.08]">
-                <CardContent className="space-y-4 p-4">
-                  <TaskThumbnail task={task} compact />
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="font-display text-xl font-semibold text-white">{getTaskShortId(task.taskId)}</div>
-                      <div className="mt-1 text-sm text-slate-400">{formatTime(task.createdAt)} · {formatRelativeTime(task.createdAt)}</div>
-                    </div>
-                    <TaskStatusBadge task={task} />
-                  </div>
-                  <div className="flex items-center justify-between gap-3 rounded-[22px] border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-300">
-                    <span className="inline-flex items-center gap-2">
-                      <Eye className="h-4 w-4 text-cyan-200" />
-                      查看详情
-                    </span>
-                    <span className="text-xs uppercase tracking-[0.18em] text-slate-500">{task.model}</span>
-                  </div>
-                </CardContent>
-              </Card>
-            </button>
+              <TaskThumbnail task={task} variant="gallery" className="!aspect-auto size-full rounded-[10px] bg-[#111111]" />
+
+              <div className="absolute inset-0 flex items-center justify-center bg-[rgba(0,0,0,0.4)] opacity-0 transition-opacity duration-150 group-hover:opacity-100">
+                <button
+                  type="button"
+                  className="inline-flex h-10 items-center justify-center rounded-full bg-white px-5 text-[13px] font-medium text-black transition hover:bg-[#f3f3f3]"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setSelectedTaskId(task.taskId);
+                  }}
+                >
+                  <Eye className="mr-2 h-4 w-4" />
+                  查看
+                </button>
+              </div>
+
+              <div className="absolute inset-x-0 bottom-0 bg-[linear-gradient(180deg,rgba(0,0,0,0),rgba(0,0,0,0.8))] px-[10px] pb-2 pt-5">
+                <div className="flex items-end justify-between">
+                  <div className="text-[11px] text-[#aaaaaa]">{formatRelativeTime(task.createdAt)}</div>
+                  <span className={`h-2 w-2 rounded-full ${getStatusDotClass(task.status)}`} />
+                </div>
+              </div>
+            </article>
           ))}
         </div>
       ) : (
-        <Card>
-          <CardContent className="flex min-h-[280px] flex-col items-center justify-center gap-4 text-center">
-            <GalleryHorizontalEnd className="h-12 w-12 text-slate-400" />
-            <div>
-              <div className="font-display text-2xl font-semibold text-white">当前筛选下暂无任务</div>
-              <div className="mt-3 max-w-md text-sm leading-7 text-slate-400">创建新任务后，历史记录会自动汇总到这里，支持分页加载与详情预览。</div>
-            </div>
-          </CardContent>
-        </Card>
+        <div className="px-6 pb-6">
+          <div className="flex min-h-[320px] items-center justify-center rounded-[10px] bg-[#111111] text-[13px] text-[#444444]">
+            暂无内容
+          </div>
+        </div>
       )}
 
       {taskPage.hasMore ? (
-        <div className="flex justify-center">
-          <Button variant="outline" disabled={taskPage.isLoading} onClick={() => refreshTaskList({ append: true, resubscribe: false, silent: false }).catch(() => undefined)}>
-            {taskPage.isLoading ? "加载中…" : "加载更多任务"}
+        <div className="flex justify-center px-6 pb-8">
+          <Button
+            variant="outline"
+            className="h-10 rounded-[8px] border-[#2a2a2a] bg-[#111111] px-4 text-white hover:bg-[#1a1a1a]"
+            disabled={taskPage.isLoading}
+            onClick={() => refreshTaskList({ append: true, resubscribe: false, silent: false }).catch(() => undefined)}
+          >
+            {taskPage.isLoading ? "加载中…" : "加载更多"}
           </Button>
         </div>
       ) : null}
@@ -151,25 +170,30 @@ export function GalleryPage() {
         onDeleteRequest={(taskId) => setConfirmTaskId(taskId)}
       />
 
-      <AlertDialog open={Boolean(confirmTask)} onOpenChange={(open) => {
-        if (!open) {
-          setConfirmTaskId("");
-        }
-      }}>
-        <AlertDialogContent>
+      <AlertDialog
+        open={Boolean(confirmTask)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setConfirmTaskId("");
+          }
+        }}
+      >
+        <AlertDialogContent className="border-[#1f1f1f] bg-[#111111]">
           <AlertDialogHeader>
-            <AlertDialogTitle>删除当前任务？</AlertDialogTitle>
-            <AlertDialogDescription>
-              {confirmTask ? `任务 ${getTaskShortId(confirmTask.taskId)} 将从图库实时移除，并触发后端 artifact 清理。` : ""}
+            <AlertDialogTitle className="text-white">删除这条记录？</AlertDialogTitle>
+            <AlertDialogDescription className="text-[#888888]">
+              删除后，这条记录会从图库中移除。
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel asChild>
-              <Button variant="outline" onClick={() => setConfirmTaskId("")}>取消</Button>
+              <Button variant="outline" className="border-[#333333] bg-transparent text-white hover:bg-[#1a1a1a]">
+                取消
+              </Button>
             </AlertDialogCancel>
             <AlertDialogAction asChild>
               <Button
-                variant="destructive"
+                className="bg-white text-black shadow-none hover:bg-[#eeeeee]"
                 onClick={() => {
                   const deletingTaskId = confirmTaskId;
                   deleteTask(deletingTaskId)
@@ -182,8 +206,7 @@ export function GalleryPage() {
                     .catch(() => undefined);
                 }}
               >
-                <Trash2 className="h-4 w-4" />
-                删除任务
+                删除
               </Button>
             </AlertDialogAction>
           </AlertDialogFooter>
