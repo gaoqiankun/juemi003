@@ -19,12 +19,15 @@ Date / Status: 2026-03-18 / done / Commits: uncommitted
 - 新建三个页面：`web/src/pages/generate-page.tsx`、`web/src/pages/gallery-page.tsx`、`web/src/pages/settings-page.tsx`
 - 新建 `web/src/components/three-viewer.tsx`、`web/src/lib/viewer.ts`，把 Three.js / GLTFLoader 预览逻辑迁移为 React 可复用组件
 - 更新 `api/server.py`：静态资源挂载改为 `web/dist/`，`GET /` 返回 SPA `index.html`，未命中 API 的客户端路由回退到 `index.html`
+- 补充 `api/server.py` 的 `/static/*` SPA fallback：`/static/gallery`、`/static/settings` 等客户端路由刷新时改为返回 `index.html`，静态资源路径仍保持文件直出
+- 规范入口 URL：`/static` 统一 308 重定向到 `/static/`，避免用户手输地址时因为缺少尾部 `/` 进入错误语义
 - 更新 `docker/Dockerfile`：增加 Node builder stage，在镜像构建时执行 `npm ci` / `npm run build` 并复制 `web/dist/`
 - 新增 `.dockerignore`，避免把 `web/node_modules`、`web/dist` 和本地验收工件打进 Docker context
 - 删除旧 `static/` 目录，保留 `/static/*` URL 仅作为 React 构建产物的挂载前缀
 - 更新 `.gitignore` 忽略 `web/node_modules/` 与 `web/dist/`
 - 更新 `AGENTS.md`，补充 `web/` 的本地 build / dev 说明
 - 更新 `tests/test_api.py`，覆盖 SPA 根路由、客户端路由回退、以及启用 dev proxy 时不转发前端路由
+- 补充 `tests/test_api.py`，覆盖 `/static/` 与 `/static/*` 客户端路由刷新，以及真实静态资源仍可直接访问
 
 ## Notes
 - `npm run build` 通过；当前生产包主 JS 约 939 kB，Vite 会给出 chunk size warning，但不影响构建成功

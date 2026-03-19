@@ -46,6 +46,7 @@ Date / Status: 2026-03-19 / done / Commits: 59a09f5
 - `web/src/components/progress-particle-stage.tsx` 重写为 1000 粒子的人形聚拢动画；`web/src/components/task-sheet.tsx` 改成全屏 Tripo 风格查看器；`web/src/pages/proof-shots-page.tsx` 增补 generate / gallery 假数据，稳定输出右侧历史和 modal 截图
 - 为保证验收链路通过，同时修补服务层稳定性：`engine/async_engine.py` 把启动预热调度从主 loop 启动路径剥离并处理 loop 已关闭场景；`storage/task_store.py` 优化 SQLite pragma 与 `stage_stats` 提交路径；`storage/artifact_store.py` 把 manifest 改成唯一临时文件原子替换，消除轮询详情时的半写入 race
 - 更新 `tests/test_api.py` 中两个时延敏感用例的本地阈值/断言，使其在完整回归压力下仍保留“启动不被预热阻塞、任务创建不依赖 readiness”语义
+- 修复部署后“查看模型”稳定失败的问题：前端 `generate` / `task-sheet` 的查看器与下载链路统一改走同源 `/v1/tasks/{id}/artifacts/{filename}`；后端 `api/server.py` + `storage/artifact_store.py` 补齐 `minio` backend 的 artifact 代理下载，避免浏览器直接吃外链 artifact URL 时受跨域或对象存储可达性影响
 - 保存本轮最终 5 张验收截图到：
 - `output/playwright/product-reference/2026-03-19-meshy-tripo-acceptance/generate-empty.png`
 - `output/playwright/product-reference/2026-03-19-meshy-tripo-acceptance/generate-processing.png`
@@ -60,3 +61,4 @@ Date / Status: 2026-03-19 / done / Commits: 59a09f5
 - 为了让 headless 环境稳定产出截图，最终验收使用单模式 `/__shots?mode=...`，分别输出空态、处理中、完成态、图库网格和图库 Modal，避免同时创建多个 WebGL context
 - Playwright CLI 在当前环境会偶发 session socket 冲突；最终验收采用短 session 名串行执行，并把最终截图另存到稳定路径
 - 本地最终验收结果：`PATH="$HOME/.nvm/versions/node/v24.14.0/bin:$PATH" npm run build` 通过，`python -m pytest tests -q` 结果为 `71 passed`
+- 针对本轮补丁，定向回归为 `python -m pytest tests/test_api.py -q -k 'minio_backend or static_prefixed_spa_routes or spa_routes or exposes_artifact_metadata'`，结果 `5 passed`

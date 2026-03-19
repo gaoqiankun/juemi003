@@ -32,7 +32,6 @@ import {
   formatTaskStatus,
   TERMINAL_STATUSES,
 } from "@/lib/format";
-import { renderModelThumbnail } from "@/lib/viewer";
 import { readFileAsDataUrl } from "@/lib/utils";
 import type {
   ApiConfig,
@@ -103,10 +102,6 @@ function readStoredConfig(): ApiConfig {
       token: "",
     };
   }
-}
-
-function isPreviewableUrl(url?: string | null) {
-  return /^https?:\/\//i.test(String(url || ""));
 }
 
 function isActiveStatus(status?: string): status is TaskStatus {
@@ -202,8 +197,6 @@ export function Gen3dProvider({ children }: { children: ReactNode }) {
   const taskPageRef = useRef(taskPage);
   const generateRef = useRef(generate);
   const subscriptionsRef = useRef<Map<string, SubscriptionHandle>>(new Map());
-  const thumbnailCacheRef = useRef<Map<string, string>>(new Map());
-  const thumbnailJobsRef = useRef<Map<string, Promise<void>>>(new Map());
 
   useEffect(() => {
     configRef.current = config;
@@ -395,92 +388,6 @@ export function Gen3dProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const getArtifactRequestHeaders = useCallback((url: string): Record<string, string> => {
-    const token = configRef.current.token;
-    if (!token) {
-      return {};
-    }
-    try {
-      const resource = new URL(url);
-      const apiRoot = new URL(configRef.current.baseUrl);
-      if (resource.origin !== apiRoot.origin) {
-        return {};
-      }
-      return {
-        Authorization: `Bearer ${token}`,
-      };
-    } catch {
-      return {};
-    }
-  }, []);
-
-  const queueThumbnailGeneration = useCallback((taskId: string, url: string) => {
-    if (!isPreviewableUrl(url)) {
-      return;
-    }
-    const currentTask = tasksRef.current[taskId];
-    if (!currentTask) {
-      return;
-    }
-    if (currentTask.thumbnailUrl && currentTask.thumbnailState === "ready") {
-      return;
-    }
-    const cached = thumbnailCacheRef.current.get(url);
-    if (cached) {
-      upsertTask(taskId, {
-        thumbnailUrl: cached,
-        thumbnailState: "ready",
-      });
-      return;
-    }
-    if (thumbnailJobsRef.current.has(url)) {
-      upsertTask(taskId, { thumbnailState: "loading" });
-      return;
-    }
-    upsertTask(taskId, { thumbnailState: "loading" });
-    const job = renderModelThumbnail(url, {
-      width: 560,
-      height: 560,
-      background: "#101317",
-      requestHeaders: getArtifactRequestHeaders(url),
-    })
-      .then((dataUrl) => {
-        thumbnailCacheRef.current.set(url, dataUrl);
-        updateTasks((previous) => {
-          const next = { ...previous };
-          Object.values(next).forEach((task) => {
-            if (task.resolvedArtifactUrl === url) {
-              next[task.taskId] = normalizeTaskRecord({
-                ...task,
-                thumbnailUrl: dataUrl,
-                thumbnailState: "ready",
-              });
-            }
-          });
-          return next;
-        });
-      })
-      .catch((error) => {
-        console.warn("thumbnail generation failed", error);
-        updateTasks((previous) => {
-          const next = { ...previous };
-          Object.values(next).forEach((task) => {
-            if (task.resolvedArtifactUrl === url) {
-              next[task.taskId] = normalizeTaskRecord({
-                ...task,
-                thumbnailState: "failed",
-              });
-            }
-          });
-          return next;
-        });
-      })
-      .finally(() => {
-        thumbnailJobsRef.current.delete(url);
-      });
-    thumbnailJobsRef.current.set(url, job);
-  }, [getArtifactRequestHeaders, updateTasks, upsertTask]);
-
   const hydrateArtifact = useCallback(async (task: TaskRecord) => {
     if (task.status !== "succeeded" || !Array.isArray(task.artifacts) || task.artifacts.length === 0) {
       upsertTask(task.taskId, {
@@ -512,7 +419,6 @@ export function Gen3dProvider({ children }: { children: ReactNode }) {
             ? "模型已生成。"
             : task.note || "",
       });
-      queueThumbnailGeneration(task.taskId, browserArtifactUrl);
       return;
     }
 
@@ -534,7 +440,6 @@ export function Gen3dProvider({ children }: { children: ReactNode }) {
           rawArtifactUrl,
           note: "模型已生成。",
         });
-        queueThumbnailGeneration(task.taskId, candidate);
         return;
       }
     }
@@ -544,7 +449,7 @@ export function Gen3dProvider({ children }: { children: ReactNode }) {
       rawArtifactUrl,
       note: "模型已生成。",
     });
-  }, [buildLocalArtifactCandidates, probeUrl, queueThumbnailGeneration, resolveArtifactUrl, upsertTask]);
+  }, [buildLocalArtifactCandidates, probeUrl, resolveArtifactUrl, upsertTask]);
 
   const appendTaskEvent = useCallback((taskId: string, payload: Record<string, any>, source: string) => {
     updateTasks((previous) => {

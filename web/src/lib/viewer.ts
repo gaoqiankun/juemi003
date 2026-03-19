@@ -9,12 +9,63 @@ const DEFAULT_BACKGROUND = "#2a2a2a";
 const THUMBNAIL_BACKGROUND = "#2a2a2a";
 const loader = new GLTFLoader();
 
+function hasFiniteBox(box: THREE.Box3) {
+  return Number.isFinite(box.min.x)
+    && Number.isFinite(box.min.y)
+    && Number.isFinite(box.min.z)
+    && Number.isFinite(box.max.x)
+    && Number.isFinite(box.max.y)
+    && Number.isFinite(box.max.z);
+}
+
 function getObjectBounds(object: THREE.Object3D) {
-  const box = new THREE.Box3().setFromObject(object);
+  const box = new THREE.Box3();
+  let hasBounds = false;
+  object.updateWorldMatrix(true, true);
+  object.traverse((child: any) => {
+    if (!child.isMesh && !child.isLine && !child.isPoints) {
+      return;
+    }
+    const geometry = child.geometry as THREE.BufferGeometry | undefined;
+    if (!geometry) {
+      return;
+    }
+    geometry.computeBoundingBox?.();
+    if (!geometry.boundingBox) {
+      return;
+    }
+    const childBox = geometry.boundingBox.clone().applyMatrix4(child.matrixWorld);
+    if (!hasFiniteBox(childBox)) {
+      return;
+    }
+    if (!hasBounds) {
+      box.copy(childBox);
+      hasBounds = true;
+      return;
+    }
+    box.union(childBox);
+  });
+  if (!hasBounds) {
+    box.setFromObject(object);
+  }
   const size = box.getSize(new THREE.Vector3());
   const center = box.getCenter(new THREE.Vector3());
   const maxDim = Math.max(size.x, size.y, size.z) || 1;
   return { box, size, center, maxDim };
+}
+
+function normalizeModelRoot(root: THREE.Object3D) {
+  const { center, maxDim } = getObjectBounds(root);
+  if (!Number.isFinite(maxDim) || maxDim <= 0) {
+    throw new Error("模型边界无效");
+  }
+  root.position.sub(center);
+
+  const frame = new THREE.Group();
+  frame.add(root);
+  frame.scale.setScalar(2 / maxDim);
+  frame.updateMatrixWorld(true);
+  return frame;
 }
 
 function disposeMaterial(material: any) {
@@ -178,7 +229,76 @@ function createRenderer({
   return renderer;
 }
 
-async function fetchModelBlobUrl(url: string, requestHeaders: Record<string, string> = {}) {
+function formatBytes(bytes: number) {
+  if (!Number.isFinite(bytes) || bytes <= 0) {
+    return "0 B";
+  }
+  const units = ["B", "KB", "MB", "GB"];
+  let value = bytes;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+  const precision = value >= 100 || unitIndex === 0 ? 0 : value >= 10 ? 1 : 2;
+  return `${value.toFixed(precision)} ${units[unitIndex]}`;
+}
+
+async function readModelBlob(
+  response: Response,
+  onStatus?: (message: string) => void,
+) {
+  const contentType = response.headers.get("content-type") || "model/gltf-binary";
+  const totalBytes = Number(response.headers.get("content-length") || 0);
+
+  if (!response.body || typeof response.body.getReader !== "function") {
+    onStatus?.(
+      totalBytes > 0
+        ? `正在接收模型数据… ${formatBytes(totalBytes)}`
+        : "正在接收模型数据…",
+    );
+    return response.blob();
+  }
+
+  const reader = response.body.getReader();
+  const chunks: ArrayBuffer[] = [];
+  let receivedBytes = 0;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      if (!value) {
+        continue;
+      }
+
+      const chunk = new Uint8Array(value.byteLength);
+      chunk.set(value);
+      chunks.push(chunk.buffer);
+      receivedBytes += value.byteLength;
+
+      if (totalBytes > 0) {
+        const percent = Math.min(99, Math.round((receivedBytes / totalBytes) * 100));
+        onStatus?.(`正在下载模型… ${percent}%`);
+      } else {
+        onStatus?.(`正在接收模型数据… ${formatBytes(receivedBytes)}`);
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  onStatus?.("模型数据已接收，正在解析…");
+  return new Blob(chunks, { type: contentType });
+}
+
+async function fetchModelBlobUrl(
+  url: string,
+  requestHeaders: Record<string, string> = {},
+  onStatus?: (message: string) => void,
+) {
   const response = await fetch(url, {
     headers: requestHeaders,
     cache: "no-store",
@@ -187,21 +307,34 @@ async function fetchModelBlobUrl(url: string, requestHeaders: Record<string, str
   if (!response.ok) {
     throw new Error(`模型文件请求失败：${response.status} ${response.statusText}`);
   }
-  const blob = await response.blob();
+  const totalBytes = Number(response.headers.get("content-length") || 0);
+  onStatus?.(
+    totalBytes > 0
+      ? `正在下载模型… 0%（${formatBytes(totalBytes)}）`
+      : "正在接收模型数据…",
+  );
+  const blob = await readModelBlob(response, onStatus);
   return URL.createObjectURL(blob);
 }
 
-async function loadScene(url: string, requestHeaders: Record<string, string> = {}) {
+async function loadScene(
+  url: string,
+  requestHeaders: Record<string, string> = {},
+  onStatus?: (message: string) => void,
+) {
   let lastError: unknown = null;
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     let objectUrl = "";
     try {
-      objectUrl = await fetchModelBlobUrl(url, requestHeaders);
+      onStatus?.(attempt === 1 ? "正在请求模型…" : `正在重试请求模型（${attempt}/3）…`);
+      objectUrl = await fetchModelBlobUrl(url, requestHeaders, onStatus);
+      onStatus?.("正在解析模型结构…");
       const gltf = await loader.loadAsync(objectUrl);
       const root = gltf.scene || gltf.scenes?.[0];
       if (!root) {
         throw new Error("模型文件内容不完整");
       }
+      onStatus?.("正在准备视图…");
       root.traverse((child: any) => {
         if (child.isMesh && child.material) {
           child.castShadow = true;
@@ -224,7 +357,7 @@ async function loadScene(url: string, requestHeaders: Record<string, string> = {
           });
         }
       });
-      return root;
+      return normalizeModelRoot(root);
     } catch (error) {
       lastError = error;
       if (attempt === 3) {
@@ -238,6 +371,17 @@ async function loadScene(url: string, requestHeaders: Record<string, string> = {
     }
   }
   throw lastError || new Error("模型加载失败");
+}
+
+function formatViewerErrorMessage(error: unknown) {
+  if (error instanceof Error) {
+    const detail = error.message.trim();
+    if (!detail) {
+      return "模型预览加载失败";
+    }
+    return detail.startsWith("模型") ? detail : `模型预览加载失败：${detail}`;
+  }
+  return "模型预览加载失败";
 }
 
 export class Viewer3D {
@@ -350,11 +494,15 @@ export class Viewer3D {
     }
 
     const currentToken = ++this.loadToken;
-    this.overlay.hidden = true;
-    this.overlay.style.display = "none";
+    this.setMessage("正在请求模型…", "loading");
     let root: THREE.Object3D | null = null;
     try {
-      root = await loadScene(url, requestHeaders);
+      root = await loadScene(url, requestHeaders, (nextMessage) => {
+        if (currentToken !== this.loadToken) {
+          return;
+        }
+        this.setMessage(nextMessage, "loading");
+      });
       if (currentToken !== this.loadToken) {
         disposeObject(root);
         return;
@@ -382,7 +530,7 @@ export class Viewer3D {
       if (this.shadowFloor) {
         this.shadowFloor.visible = false;
       }
-      this.setMessage("模型预览加载失败", "error");
+      this.setMessage(formatViewerErrorMessage(error), "error");
       throw error;
     }
   }

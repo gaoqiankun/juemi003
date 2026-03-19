@@ -42,6 +42,10 @@ class ServingConfig(BaseSettings):
         default=None,
         alias="DEV_PROXY_TARGET",
     )
+    dev_local_model_path: Path | None = Field(
+        default=None,
+        alias="DEV_LOCAL_MODEL_PATH",
+    )
     object_store_endpoint: str | None = Field(
         default=None,
         alias="OBJECT_STORE_ENDPOINT",
@@ -180,6 +184,14 @@ class ServingConfig(BaseSettings):
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
             raise ValueError("DEV_PROXY_TARGET must be a valid http(s) URL")
         return value
+
+    @field_validator("dev_local_model_path", mode="before")
+    @classmethod
+    def _normalize_dev_local_model_path(cls, value: Any) -> str | None:
+        if value is None:
+            return None
+        normalized = str(value).strip()
+        return normalized or None
 
     @field_validator("allowed_callback_domains", mode="before")
     @classmethod

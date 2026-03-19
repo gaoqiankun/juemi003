@@ -6,6 +6,7 @@ import { TaskStatusBadge } from "@/components/task-status-badge";
 import { useGen3d } from "@/app/gen3d-provider";
 import { Button } from "@/components/ui/button";
 import { formatTime } from "@/lib/format";
+import { getTaskArtifactProxyUrl } from "@/lib/task-artifacts";
 import type { TaskRecord } from "@/lib/types";
 
 export function TaskSheet({
@@ -20,7 +21,7 @@ export function TaskSheet({
   onDeleteRequest: (taskId: string) => void;
 }) {
   const { config } = useGen3d();
-  const viewerUrl = task?.resolvedArtifactUrl || task?.rawArtifactUrl || "";
+  const viewerUrl = getTaskArtifactProxyUrl(task, config.baseUrl);
 
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>

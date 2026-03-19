@@ -8,6 +8,7 @@ import { TaskThumbnail } from "@/components/task-thumbnail";
 import { ThreeViewer } from "@/components/three-viewer";
 import { Button } from "@/components/ui/button";
 import { formatRelativeTime, getVisualStatus } from "@/lib/format";
+import { getTaskArtifactProxyUrl } from "@/lib/task-artifacts";
 import { cn } from "@/lib/utils";
 import type { TaskRecord } from "@/lib/types";
 
@@ -83,7 +84,7 @@ export function GeneratePage() {
   const isProcessing = generateView === "processing" || generateView === "uploading";
   const canCancel = Boolean(currentTask && !isTerminal(currentTask.status) && !currentTask.pendingCancel);
   const canStart = Boolean(generate.previewDataUrl) && !generate.isSubmitting && !generate.isUploading;
-  const downloadUrl = currentTask?.resolvedArtifactUrl || currentTask?.rawArtifactUrl || "";
+  const downloadUrl = getTaskArtifactProxyUrl(currentTask, config.baseUrl);
   const currentTaskInfo = currentTask?.artifacts?.[0]?.type?.toUpperCase() || "GLB";
 
   const handlePrimaryAction = () => {

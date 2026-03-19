@@ -54,6 +54,12 @@ def make_client(
     database_path: Path | None = None,
     artifacts_dir: Path | None = None,
     uploads_dir: Path | None = None,
+    artifact_store_mode: str = "local",
+    object_store_endpoint: str | None = None,
+    object_store_external_endpoint: str | None = None,
+    object_store_bucket: str | None = None,
+    object_store_access_key: str | None = None,
+    object_store_secret_key: str | None = None,
     gpu_device_ids: tuple[str, ...] = ("0",),
     queue_max_size: int = 20,
     preprocess_max_image_bytes: int = 10 * 1024 * 1024,
@@ -64,8 +70,14 @@ def make_client(
     config = ServingConfig(
         admin_token=admin_token,
         database_path=database_path,
+        artifact_store_mode=artifact_store_mode,
         artifacts_dir=artifacts_dir,
         uploads_dir=uploads_dir,
+        object_store_endpoint=object_store_endpoint,
+        object_store_external_endpoint=object_store_external_endpoint,
+        object_store_bucket=object_store_bucket,
+        object_store_access_key=object_store_access_key,
+        object_store_secret_key=object_store_secret_key,
         preprocess_delay_ms=40,
         preprocess_max_image_bytes=preprocess_max_image_bytes,
         queue_delay_ms=queue_delay_ms,
@@ -569,6 +581,59 @@ def test_dev_proxy_forwards_non_static_requests(tmp_path: Path, monkeypatch: pyt
     assert proxy_clients and proxy_clients[0].closed is True
 
 
+def test_dev_proxy_serves_local_model_override_for_artifact_request(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    forwarded_requests: list[str] = []
+    local_model = tmp_path / "model.glb"
+    local_model.write_bytes(b"glTF-local-model")
+
+    class FakeProxyClient:
+        def __init__(self, *args, **kwargs) -> None:
+            self.closed = False
+
+        def build_request(self, method: str, url: str, headers=None, content=None) -> httpx.Request:
+            return httpx.Request(method, url, headers=headers, content=content)
+
+        async def send(self, request: httpx.Request, stream: bool = False) -> httpx.Response:
+            forwarded_requests.append(str(request.url))
+            payload = {
+                "proxied": True,
+                "path": request.url.path,
+            }
+            return httpx.Response(
+                status_code=200,
+                headers={"content-type": "application/json", "x-dev-proxy": "1"},
+                stream=httpx.ByteStream(json.dumps(payload).encode("utf-8")),
+                request=request,
+            )
+
+        async def aclose(self) -> None:
+            self.closed = True
+
+    monkeypatch.setattr(server_module.httpx, "AsyncClient", FakeProxyClient)
+
+    config = ServingConfig(
+        database_path=tmp_path / "gen3d.sqlite3",
+        artifacts_dir=tmp_path / "artifacts",
+        uploads_dir=tmp_path / "uploads",
+        dev_proxy_target="https://gen3d.frps.zhifouai.com",
+        dev_local_model_path=local_model,
+    )
+
+    with TestClient(create_app(config)) as client:
+        model_response = client.get("/v1/tasks/remote-task/artifacts/model.glb")
+        ready_response = client.get("/ready")
+
+    assert model_response.status_code == 200
+    assert model_response.content == b"glTF-local-model"
+    assert model_response.headers["content-type"].startswith("model/gltf-binary")
+    assert ready_response.status_code == 200
+    assert ready_response.headers["x-dev-proxy"] == "1"
+    assert forwarded_requests == ["https://gen3d.frps.zhifouai.com/ready"]
+
+
 def test_root_and_spa_routes_serve_built_index_when_present(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -589,6 +654,37 @@ def test_root_and_spa_routes_serve_built_index_when_present(
     assert "gen3d spa" in gallery_response.text
     assert settings_response.status_code == 200
     assert "gen3d spa" in settings_response.text
+
+
+def test_static_prefixed_spa_routes_serve_built_index_when_present(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    spa_dist = tmp_path / "dist"
+    spa_index = spa_dist / "index.html"
+    spa_dist.mkdir(parents=True, exist_ok=True)
+    spa_index.write_text("<!doctype html><html><body>gen3d static spa</body></html>", encoding="utf-8")
+    (spa_dist / "favicon.svg").write_text("<svg></svg>", encoding="utf-8")
+    monkeypatch.setattr(server_module, "WEB_DIST_DIR", spa_dist)
+    monkeypatch.setattr(server_module, "SPA_INDEX_PATH", spa_index)
+
+    with make_client(tmp_path) as client:
+        static_redirect_response = client.get("/static", follow_redirects=False)
+        static_root_response = client.get("/static/")
+        gallery_response = client.get("/static/gallery")
+        settings_response = client.get("/static/settings")
+        asset_response = client.get("/static/favicon.svg")
+
+    assert static_redirect_response.status_code == 308
+    assert static_redirect_response.headers["location"] == "/static/"
+    assert static_root_response.status_code == 200
+    assert "gen3d static spa" in static_root_response.text
+    assert gallery_response.status_code == 200
+    assert "gen3d static spa" in gallery_response.text
+    assert settings_response.status_code == 200
+    assert "gen3d static spa" in settings_response.text
+    assert asset_response.status_code == 200
+    assert asset_response.text == "<svg></svg>"
 
 
 def test_dev_proxy_does_not_forward_spa_routes(
@@ -2012,12 +2108,113 @@ def test_create_task_runs_full_mock_pipeline_and_exposes_artifact_metadata(tmp_p
     assert metrics_response.status_code == 200
     metrics_payload = metrics_response.text
     assert "gen3d_queue_depth" in metrics_payload
-    assert "gen3d_task_duration_seconds" in metrics_payload
-    assert "gen3d_stage_duration_seconds" in metrics_payload
-    assert "gen3d_task_total" in metrics_payload
-    assert "gen3d_webhook_total" in metrics_payload
-    assert 'gen3d_task_total{status="succeeded"}' in metrics_payload
-    assert 'gen3d_task_duration_seconds_count{status="succeeded"}' in metrics_payload
+
+
+def test_create_task_downloads_artifact_via_same_origin_proxy_for_minio_backend(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeObjectStoreClient:
+        def __init__(self) -> None:
+            self.objects: dict[tuple[str, str], bytes] = {}
+
+        def ensure_bucket_exists(self, bucket: str) -> None:
+            _ = bucket
+
+        def upload_file(
+            self,
+            *,
+            bucket: str,
+            key: str,
+            source_path: Path,
+            content_type: str | None = None,
+        ) -> None:
+            _ = content_type
+            self.objects[(bucket, key)] = source_path.read_bytes()
+
+        def generate_presigned_get_url(
+            self,
+            *,
+            bucket: str,
+            key: str,
+            expires_in_seconds: int,
+        ) -> str:
+            _ = expires_in_seconds
+            return f"https://artifacts.example.com/{bucket}/{key}?signature=fake"
+
+        def download_file(
+            self,
+            *,
+            bucket: str,
+            key: str,
+            destination_path: Path,
+        ) -> None:
+            destination_path.parent.mkdir(parents=True, exist_ok=True)
+            destination_path.write_bytes(self.objects[(bucket, key)])
+
+        def list_object_keys(
+            self,
+            *,
+            bucket: str,
+            prefix: str,
+        ) -> list[str]:
+            return [
+                key
+                for stored_bucket, key in self.objects
+                if stored_bucket == bucket and key.startswith(prefix)
+            ]
+
+        def delete_objects(
+            self,
+            *,
+            bucket: str,
+            keys: list[str],
+        ) -> None:
+            for key in keys:
+                self.objects.pop((bucket, key), None)
+
+    fake_object_store_client = FakeObjectStoreClient()
+    monkeypatch.setattr(
+        server_module,
+        "build_boto3_object_storage_client",
+        lambda **_: fake_object_store_client,
+    )
+
+    with make_client(
+        tmp_path,
+        artifact_store_mode="minio",
+        object_store_endpoint="http://minio:9000",
+        object_store_bucket="gen3d-artifacts",
+        object_store_access_key="minioadmin",
+        object_store_secret_key="minioadmin",
+    ) as client:
+        create_response = client.post(
+            "/v1/tasks",
+            headers=task_auth_headers(client),
+            json={
+                "type": "image_to_3d",
+                "input_url": upload_input_url(client),
+                "options": {"resolution": 1024},
+            },
+        )
+        assert create_response.status_code == 201
+        payload = create_response.json()
+
+        snapshots = collect_task_snapshots(
+            client,
+            payload["taskId"],
+            terminal_status="succeeded",
+        )
+        download_response = client.get(
+            f"/v1/tasks/{payload['taskId']}/artifacts/model.glb",
+            headers=task_auth_headers(client),
+        )
+
+    final_payload = snapshots[-1]
+    assert final_payload["artifacts"][0]["backend"] == "minio"
+    assert final_payload["artifacts"][0]["url"].startswith("https://artifacts.example.com/")
+    assert download_response.status_code == 200
+    assert download_response.content.startswith(b"glTF")
 
 
 def test_metrics_track_successful_task(tmp_path: Path) -> None:

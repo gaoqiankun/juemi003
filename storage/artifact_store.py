@@ -47,6 +47,14 @@ class ObjectStorageClient(Protocol):
         expires_in_seconds: int,
     ) -> str: ...
 
+    def download_file(
+        self,
+        *,
+        bucket: str,
+        key: str,
+        destination_path: Path,
+    ) -> None: ...
+
     def list_object_keys(
         self,
         *,
@@ -150,6 +158,16 @@ class Boto3ObjectStorageClient:
             Params={"Bucket": bucket, "Key": key},
             ExpiresIn=expires_in_seconds,
         )
+
+    def download_file(
+        self,
+        *,
+        bucket: str,
+        key: str,
+        destination_path: Path,
+    ) -> None:
+        destination_path.parent.mkdir(parents=True, exist_ok=True)
+        self._upload_client.download_file(bucket, key, str(destination_path))
 
     def list_object_keys(
         self,
@@ -344,6 +362,51 @@ class ArtifactStore:
         if not artifact_path.is_file():
             return None
         return artifact_path
+
+    async def prepare_download(
+        self,
+        task_id: str,
+        file_name: str,
+    ) -> tuple[Path, str | None, bool] | None:
+        safe_file_name = self._sanitize_file_name(file_name)
+        if safe_file_name is None:
+            return None
+
+        if self._mode == "local":
+            artifact_path = await self.get_local_artifact_path(task_id, safe_file_name)
+            if artifact_path is None:
+                return None
+            return artifact_path, _guess_content_type(safe_file_name, "file"), False
+
+        artifact = await self._find_artifact_record(task_id, safe_file_name)
+        if artifact is None:
+            return None
+
+        download_dir = self._staging_dir / "_downloads" / task_id
+        await asyncio.to_thread(download_dir.mkdir, parents=True, exist_ok=True)
+        temp_path = await asyncio.to_thread(
+            self._create_temp_download_path,
+            download_dir,
+            safe_file_name,
+        )
+        try:
+            await asyncio.to_thread(
+                self._require_object_store_client().download_file,
+                bucket=self._require_object_store_bucket(),
+                key=f"{self._object_store_prefix}/{task_id}/{safe_file_name}",
+                destination_path=temp_path,
+            )
+        except Exception as exc:
+            raise ArtifactStoreOperationError(
+                "downloading",
+                f"failed to download artifact from object store: {exc}",
+            ) from exc
+
+        content_type = artifact.get("content_type") or _guess_content_type(
+            safe_file_name,
+            str(artifact.get("type") or "file"),
+        )
+        return temp_path, content_type, True
 
     async def delete_artifacts(self, task_id: str) -> None:
         manifest_path = self._manifest_dir / f"{task_id}.json"
@@ -602,6 +665,28 @@ class ArtifactStore:
             return None
         parsed = urlparse(str(value))
         return Path(parsed.path or str(value)).name or None
+
+    async def _find_artifact_record(
+        self,
+        task_id: str,
+        file_name: str,
+    ) -> dict[str, Any] | None:
+        artifacts = await self.list_artifacts(task_id)
+        for artifact in artifacts:
+            if self._artifact_file_name_from_url(artifact.get("url")) == file_name:
+                return artifact
+        return None
+
+    @staticmethod
+    def _create_temp_download_path(download_dir: Path, file_name: str) -> Path:
+        suffix = Path(file_name).suffix
+        with tempfile.NamedTemporaryFile(
+            dir=download_dir,
+            prefix=f"{Path(file_name).stem or 'artifact'}.",
+            suffix=suffix,
+            delete=False,
+        ) as handle:
+            return Path(handle.name)
 
     def _require_object_store_client(self) -> ObjectStorageClient:
         if self._object_store_client is None:

@@ -16,10 +16,12 @@ from datetime import datetime
 
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
-from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.types import Scope
 
 from gen3d.api.schemas import (
     AdminApiKeyCreateRequest,
@@ -102,6 +104,56 @@ class AppContainer:
     model_registry: ModelRegistry
     pipeline: PipelineCoordinator
     engine: AsyncGen3DEngine
+
+
+class SPAStaticFiles(StaticFiles):
+    def __init__(self, *args, spa_index_path: Path, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._spa_index_path = spa_index_path
+
+    async def get_response(self, path: str, scope: Scope) -> Response:
+        fallback = None
+        normalized_path = path.strip("/.")
+        request_path = f"/{normalized_path}" if normalized_path else "/"
+        if (
+            scope.get("method") in {"GET", "HEAD"}
+            and self._spa_index_path.is_file()
+            and _should_serve_static_spa_route(request_path)
+        ):
+            fallback = FileResponse(self._spa_index_path)
+        try:
+            response = await super().get_response(path, scope)
+        except StarletteHTTPException as exc:
+            if exc.status_code != status.HTTP_404_NOT_FOUND or fallback is None:
+                raise
+            return fallback
+        if response.status_code == status.HTTP_404_NOT_FOUND and fallback is not None:
+            return fallback
+        return response
+
+
+def _extract_artifact_filename(path: str) -> str | None:
+    parts = [part for part in path.split("/") if part]
+    if len(parts) != 5:
+        return None
+    if parts[0] != "v1" or parts[1] != "tasks" or parts[3] != "artifacts":
+        return None
+    return parts[4]
+
+
+def _resolve_dev_local_model_path(config: ServingConfig, filename: str | None) -> Path | None:
+    if config.dev_proxy_target is None or filename is None:
+        return None
+    if Path(filename).name.lower() != "model.glb":
+        return None
+    if config.dev_local_model_path is None:
+        return None
+    candidate = config.dev_local_model_path.expanduser()
+    if not candidate.is_absolute():
+        candidate = (Path(__file__).resolve().parents[1] / candidate).resolve()
+    if not candidate.is_file():
+        return None
+    return candidate
 
 
 def build_provider(config: ServingConfig):
@@ -317,11 +369,6 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
         await container.task_store.close()
 
     app = FastAPI(title=config.service_name, lifespan=lifespan)
-    app.mount(
-        "/static",
-        StaticFiles(directory=str(WEB_DIST_DIR), check_dir=False),
-        name="static",
-    )
     auth_scheme = HTTPBearer(auto_error=False)
 
     @app.middleware("http")
@@ -804,6 +851,14 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
         filename: str,
         app_container: AppContainer = Depends(get_container),
     ) -> FileResponse:
+        local_model_path = _resolve_dev_local_model_path(app_container.config, filename)
+        if local_model_path is not None:
+            return FileResponse(
+                path=local_model_path,
+                filename=Path(filename).name,
+                media_type="model/gltf-binary",
+            )
+
         sequence = await app_container.engine.get_task(task_id)
         if sequence is None:
             raise HTTPException(
@@ -815,22 +870,49 @@ def create_app(config: ServingConfig | None = None, webhook_sender=None) -> Fast
                 status_code=status.HTTP_409_CONFLICT,
                 detail="artifacts are only available for succeeded tasks",
             )
-        artifact_path = await app_container.artifact_store.get_local_artifact_path(
+        artifact_download = await app_container.artifact_store.prepare_download(
             task_id,
             filename,
         )
-        if artifact_path is None:
+        if artifact_download is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="artifact not found",
             )
-        return FileResponse(path=artifact_path, filename=artifact_path.name)
+        artifact_path, content_type, is_temporary = artifact_download
+        background = BackgroundTask(_cleanup_temporary_artifact, artifact_path) if is_temporary else None
+        return FileResponse(
+            path=artifact_path,
+            filename=Path(filename).name,
+            media_type=content_type,
+            background=background,
+        )
 
     @app.get("/", include_in_schema=False)
     async def root() -> Response:
         if SPA_INDEX_PATH.is_file():
             return FileResponse(SPA_INDEX_PATH)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    @app.get("/static", include_in_schema=False)
+    async def static_root_redirect() -> Response:
+        return RedirectResponse(url="/static/", status_code=status.HTTP_308_PERMANENT_REDIRECT)
+
+    @app.get("/static/", include_in_schema=False)
+    async def static_root() -> Response:
+        if SPA_INDEX_PATH.is_file():
+            return FileResponse(SPA_INDEX_PATH)
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="not found")
+
+    app.mount(
+        "/static",
+        SPAStaticFiles(
+            directory=str(WEB_DIST_DIR),
+            check_dir=False,
+            spa_index_path=SPA_INDEX_PATH,
+        ),
+        name="static",
+    )
 
     @app.api_route(
         "/{proxy_path:path}",
@@ -883,11 +965,29 @@ def _should_proxy_dev_request(request: Request, config: ServingConfig) -> bool:
     path = request.url.path
     if path.startswith("/static"):
         return False
+    if _resolve_dev_local_model_path(config, _extract_artifact_filename(path)) is not None:
+        return False
     return (
         path.startswith("/v1/")
         or path.startswith("/admin/")
         or path in {"/health", "/readiness", "/ready", "/metrics", "/docs", "/redoc", "/openapi.json"}
     )
+
+
+def _cleanup_temporary_artifact(path: Path) -> None:
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
+
+
+def _should_serve_static_spa_route(path: str) -> bool:
+    normalized = path.strip() or "/"
+    if normalized in {"/", ""}:
+        return True
+    if normalized.startswith("/assets/"):
+        return False
+    return "." not in normalized.rsplit("/", 1)[-1]
 
 
 def _should_serve_spa_route(request: Request) -> bool:
