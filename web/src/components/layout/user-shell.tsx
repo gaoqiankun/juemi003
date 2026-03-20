@@ -47,10 +47,10 @@ export function UserShell() {
               aria-label={connection.label}
             />
 
-            <div className="flex items-center gap-1 rounded-lg border border-outline bg-surface-glass p-1 backdrop-blur-xl">
+            <div className="flex items-center gap-1">
               <button
                 type="button"
-                className="inline-flex h-8 w-8 items-center justify-center rounded-md text-text-primary transition-colors hover:bg-surface-container-highest"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-transparent text-text-secondary transition-colors hover:bg-surface-container-highest hover:text-text-primary"
                 onClick={toggleTheme}
                 aria-label={t("shell.themeToggle")}
                 title={currentThemeLabel}
@@ -60,7 +60,7 @@ export function UserShell() {
 
               <button
                 type="button"
-                className="inline-flex h-8 w-8 items-center justify-center rounded-md text-text-primary transition-colors hover:bg-surface-container-highest"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-transparent text-text-secondary transition-colors hover:bg-surface-container-highest hover:text-text-primary"
                 onClick={toggleLanguage}
                 aria-label={t("shell.languageToggle")}
                 title={currentLanguageLabel}

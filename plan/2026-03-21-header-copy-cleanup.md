@@ -16,10 +16,12 @@ Date / Status: 2026-03-21 / done / Commits: not committed in this session
 - `web/src/components/layout/user-shell.tsx`
   - 主题切换改为纯图标按钮
   - 语言切换改为纯图标按钮，tooltip 显示当前语言
+  - 去掉主题/语言按钮外层 wrapper 的背景和边框，按钮默认透明，仅 hover 显示底色
 - `web/src/components/layout/admin-shell.tsx`
   - 顶部右侧 controls 改成与 user-shell 一致
   - 去掉主题/语言文字标签与环境按钮
   - 去掉 shell 内部品牌 copy 和 deploy copy
+  - 去掉主题/语言按钮共同 wrapper 的背景和边框，按钮默认透明，仅 hover 显示底色
 - `web/src/pages/dashboard-page.tsx`
   - 移除页面顶部描述和 GPU 卡片副说明
 - `web/src/pages/tasks-page.tsx`

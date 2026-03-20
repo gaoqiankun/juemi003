@@ -365,6 +365,7 @@
       "uploadReady": "参考图已更新，本次任务将使用最新上传的图片。"
     },
     "gallery": {
+      "title": "生成历史",
       "filters": {
         "all": "全部",
         "processing": "生成中",
@@ -378,7 +379,8 @@
       "deleteTitle": "删除这条记录？",
       "deleteDescription": "删除后，这条记录会从模型库中移除。",
       "cancel": "取消",
-      "delete": "删除"
+      "delete": "删除",
+      "create": "前往生成"
     },
     "generations": {
       "title": "我的生成",

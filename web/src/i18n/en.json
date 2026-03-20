@@ -365,6 +365,7 @@
       "uploadReady": "Reference image updated. This task will use your latest upload."
     },
     "gallery": {
+      "title": "Generation History",
       "filters": {
         "all": "All",
         "processing": "Processing",
@@ -378,7 +379,8 @@
       "deleteTitle": "Delete this record?",
       "deleteDescription": "After deletion, this record will be removed from the model library.",
       "cancel": "Cancel",
-      "delete": "Delete"
+      "delete": "Delete",
+      "create": "Create generation"
     },
     "generations": {
       "title": "My Generations",

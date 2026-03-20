@@ -1,6 +1,7 @@
-import { CheckCircle2, Eye, Grid3X3, LoaderCircle, OctagonX } from "lucide-react";
+import { Eye, Plus } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { Link } from "react-router-dom";
 
 import { useGen3d } from "@/app/gen3d-provider";
 import { TaskSheet } from "@/components/task-sheet";
@@ -19,11 +20,11 @@ import { Button } from "@/components/ui/button";
 import { formatRelativeTime } from "@/lib/format";
 import type { GalleryFilter } from "@/lib/types";
 
-const filters: Array<{ value: GalleryFilter; labelKey: string; icon: typeof Grid3X3 }> = [
-  { value: "all", labelKey: "user.gallery.filters.all", icon: Grid3X3 },
-  { value: "processing", labelKey: "user.gallery.filters.processing", icon: LoaderCircle },
-  { value: "completed", labelKey: "user.gallery.filters.completed", icon: CheckCircle2 },
-  { value: "failed", labelKey: "user.gallery.filters.failed", icon: OctagonX },
+const filters: Array<{ value: GalleryFilter; labelKey: string }> = [
+  { value: "all", labelKey: "user.gallery.filters.all" },
+  { value: "processing", labelKey: "user.gallery.filters.processing" },
+  { value: "completed", labelKey: "user.gallery.filters.completed" },
+  { value: "failed", labelKey: "user.gallery.filters.failed" },
 ];
 
 function getStatusDotClass(status?: string) {
@@ -77,30 +78,36 @@ export function GalleryPage({ initialSelectedTaskId = "" }: { initialSelectedTas
   }, [refreshTask, selectedTask, selectedTaskId, subscribeToTask]);
 
   return (
-    <section className="grid gap-4">
-      <div className="overflow-x-auto pb-1">
-        <div className="flex min-w-max items-center gap-2 rounded-[24px] border border-outline bg-surface-glass p-2 shadow-float backdrop-blur-xl">
+    <section className="grid gap-4 pb-20">
+      <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-[-0.03em] text-text-primary">
+            {t("user.gallery.title")}
+          </h1>
+        </div>
+
+        <div className="overflow-x-auto pb-1 md:pb-0">
+          <div className="inline-flex min-w-max items-center rounded-xl bg-surface-container-low p-1">
           {filters.map((filter) => {
             const active = galleryFilter === filter.value;
-            const Icon = filter.icon;
             return (
               <button
                 key={filter.value}
                 type="button"
                 className={[
-                  "inline-flex h-10 items-center gap-2 rounded-full border px-4 text-sm font-medium tracking-[-0.02em] transition-all duration-200",
+                  "inline-flex h-9 items-center rounded-lg px-4 text-xs font-semibold transition-colors duration-200",
                   active
-                    ? "border-[color:color-mix(in_srgb,var(--accent)_32%,transparent)] bg-[color:color-mix(in_srgb,var(--accent)_14%,var(--surface-container-highest))] text-accent-strong shadow-float"
-                    : "border-transparent bg-transparent text-text-secondary hover:border-outline hover:bg-surface-container-low hover:text-text-primary",
+                    ? "bg-surface-container-highest text-accent-strong shadow-soft"
+                    : "text-text-secondary hover:text-text-primary",
                 ].join(" ")}
                 onClick={() => setGalleryFilter(filter.value)}
               >
-                <Icon className="h-4 w-4" />
                 {t(filter.labelKey)}
               </button>
             );
           })}
         </div>
+      </div>
       </div>
 
       {filteredTasks.length ? (
@@ -214,6 +221,20 @@ export function GalleryPage({ initialSelectedTaskId = "" }: { initialSelectedTas
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Button
+        asChild
+        size="icon"
+        className="fixed bottom-8 right-8 z-40 h-14 w-14 rounded-full border-0 bg-accent text-accent-ink shadow-float transition-transform duration-200 hover:scale-105 hover:bg-accent-strong"
+      >
+        <Link
+          to="/generate"
+          aria-label={t("user.gallery.create")}
+          title={t("user.gallery.create")}
+        >
+          <Plus className="h-6 w-6" />
+        </Link>
+      </Button>
     </section>
   );
 }

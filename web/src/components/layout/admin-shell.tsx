@@ -106,7 +106,7 @@ export function AdminShell() {
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
-              <Card tone="glass" className="flex items-center gap-1 p-1">
+              <div className="flex items-center gap-1">
                 <span
                   className={clsx("mx-1 h-2 w-2 rounded-full", toneClass)}
                   title={connection.detail}
@@ -115,7 +115,7 @@ export function AdminShell() {
 
                 <button
                   type="button"
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-text-primary transition-colors hover:bg-surface-container-highest"
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-transparent text-text-secondary transition-colors hover:bg-surface-container-highest hover:text-text-primary"
                   onClick={toggleTheme}
                   aria-label={t("shell.themeToggle")}
                   title={currentThemeLabel}
@@ -125,7 +125,7 @@ export function AdminShell() {
 
                 <button
                   type="button"
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-text-primary transition-colors hover:bg-surface-container-highest"
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-transparent text-text-secondary transition-colors hover:bg-surface-container-highest hover:text-text-primary"
                   onClick={toggleLanguage}
                   aria-label={t("shell.languageToggle")}
                   title={currentLanguageLabel}
@@ -146,7 +146,7 @@ export function AdminShell() {
                 >
                   <Settings2 className="h-4 w-4" />
                 </NavLink>
-              </Card>
+              </div>
             </div>
           </div>
         </header>
