@@ -5,43 +5,43 @@ from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram, gene
 REGISTRY = CollectorRegistry(auto_describe=True)
 
 _READY = Gauge(
-    "gen3d_ready",
-    "Whether the gen3d service is ready.",
+    "cubify3d_ready",
+    "Whether the Cubify 3D service is ready.",
     registry=REGISTRY,
 )
 _QUEUE_DEPTH = Gauge(
-    "gen3d_queue_depth",
+    "cubify3d_queue_depth",
     "Current number of queued tasks waiting to be processed.",
     registry=REGISTRY,
 )
 _GPU_SLOT_ACTIVE = Gauge(
-    "gen3d_gpu_slot_active",
+    "cubify3d_gpu_slot_active",
     "Whether a GPU slot is actively running a task.",
     labelnames=("device",),
     registry=REGISTRY,
 )
 _TASK_DURATION = Histogram(
-    "gen3d_task_duration_seconds",
+    "cubify3d_task_duration_seconds",
     "End-to-end task duration in seconds.",
     labelnames=("status",),
     buckets=(0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300),
     registry=REGISTRY,
 )
 _STAGE_DURATION = Histogram(
-    "gen3d_stage_duration_seconds",
+    "cubify3d_stage_duration_seconds",
     "Per-stage execution time in seconds.",
     labelnames=("stage",),
     buckets=(0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60),
     registry=REGISTRY,
 )
 _TASK_TOTAL = Counter(
-    "gen3d_task_total",
+    "cubify3d_task_total",
     "Total number of tasks by terminal status.",
     labelnames=("status",),
     registry=REGISTRY,
 )
 _WEBHOOK_TOTAL = Counter(
-    "gen3d_webhook_total",
+    "cubify3d_webhook_total",
     "Webhook delivery results.",
     labelnames=("result",),
     registry=REGISTRY,

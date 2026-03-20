@@ -23,3 +23,7 @@ tmp/
 web/node_modules/
 web/dist/
 web/tsconfig.tsbuildinfo
+
+# Test artifacts
+.playwright-cli/
+output/

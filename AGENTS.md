@@ -1,18 +1,18 @@
-# gen3d AI Coder 执行指南
+# Cubify 3D AI Coder 执行指南
 
 > 本文档给执行代码的 AI Coder 使用。开始任何开发前，先读 `docs/PLAN.md`、本文件和相关 `plan/*.md`。
 
 ## 1. 工作方式
 
 - 设计以 `docs/PLAN.md` 为基准，不要自行发明架构
-- 根目录 `hey3d/` 不是 git 仓库，只在 `gen3d/` 内提交
+- 工作区根目录不是 git 仓库，只在当前子仓库内提交
 - 不执行任何修改 git 树的操作（`git add`、`git commit`、`git push`、`git rebase` 等），完成任务后只汇报结果；只读操作（`git status`、`git log`、`git diff` 等）不受此限。
 - 不要修改 `ios/` 和 `server/` 的文件
 - 完成任务后更新对应 `plan/` 文件，或新建 plan 文件，并与代码一起提交
 
 ## 2. 当前仓库状态
 
-- `gen3d` 已落地，不是从零开始的空仓库
+- Cubify 3D 已落地，不是从零开始的空仓库
 - 当前阶段：
   - Phase A：完成
   - Phase B：完成
@@ -24,14 +24,14 @@
   - artifact backend：`local` / `minio`
   - API：任务提交、查询、SSE、取消、webhook、artifacts
   - Docker + `deploy.sh` 部署材料齐全，真实链路已在 GPU 服务器跑通
-- 当前测试基线：`python -m pytest tests -q` 为 `71 passed`
+- 当前测试基线：`python -m pytest tests -q` 为 `85 passed`
 - Web 前端已迁移到 `web/`（React + Vite + TypeScript），FastAPI 直接服务 `web/dist/`
 - `Hunyuan3DProvider` 仍未实现
 
 ## 3. 实际目录结构
 
 ```text
-gen3d/
+gen3d/  (本地目录名暂保留)
 ├── config.py
 ├── serve.py
 ├── requirements.txt
@@ -71,11 +71,10 @@ gen3d/
 
 ## 5. 本地开发与测试
 
-仓库通过 `.python-version` 固定到 `hey3d_gen3d`：
+仓库通过 `.python-version` 固定 Python 版本：
 
 ```bash
-cd /Users/gqk/work/hey3d/gen3d
-pyenv local hey3d_gen3d
+cd ./gen3d
 python -m pip install -r requirements.txt
 python serve.py
 python serve.py --check-real-env
@@ -83,14 +82,15 @@ python -m pytest tests -q
 ```
 
 说明：
-- `.python-version` 当前内容是 `hey3d_gen3d`
+- `.python-version` 当前内容为 `3.12.7`
+- 若本机需要隔离依赖，请在 Python 3.12.7 上自行创建虚拟环境
 - real mode 还需要 `requirements-worker.txt` 里说明的 GPU/TRELLIS2 依赖、模型目录，以及可选的对象存储配置
 - smoke helper 在 `scripts/bench.py`
 
 ### Web 前端（React SPA）
 
 ```bash
-cd /Users/gqk/work/hey3d/gen3d/web
+cd ./gen3d/web
 export PATH="$HOME/.nvm/versions/node/v24.14.0/bin:$PATH"
 npm ci
 npm run build
@@ -114,4 +114,4 @@ npm run build
 - `docs/PLAN.md`
 - `plan/`
 - `CLAUDE.md`
-- `/Users/gqk/work/hey3d/AGENTS.md`
+- `../AGENTS.md`

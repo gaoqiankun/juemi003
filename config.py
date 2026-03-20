@@ -11,7 +11,7 @@ class ServingConfigurationError(RuntimeError):
 
 
 class ServingConfig(BaseSettings):
-    service_name: str = "gen3d"
+    service_name: str = "cubify3d"
     host: str = "0.0.0.0"
     port: int = 18001
     log_level: str = "info"
@@ -26,7 +26,7 @@ class ServingConfig(BaseSettings):
         alias="ADMIN_TOKEN",
     )
     database_path: Path = Field(
-        default=Path("./data/gen3d.sqlite3"),
+        default=Path("./data/cubify3d.sqlite3"),
         alias="DATABASE_PATH",
     )
     artifact_store_mode: str = Field(default="local", alias="ARTIFACT_STORE_MODE")

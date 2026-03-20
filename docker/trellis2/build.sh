@@ -3,9 +3,9 @@ set -euo pipefail
 
 # Usage:
 #   ./docker/trellis2/build.sh
-#   ./docker/trellis2/build.sh --image hey3d/trellis2:20260315
-#   ./docker/trellis2/build.sh --image hey3d/trellis2:20260315 --platform linux/amd64
-#   ./docker/trellis2/build.sh --image hey3d/trellis2:20260315 --push
+#   ./docker/trellis2/build.sh --image cubify3d/trellis2:20260315
+#   ./docker/trellis2/build.sh --image cubify3d/trellis2:20260315 --platform linux/amd64
+#   ./docker/trellis2/build.sh --image cubify3d/trellis2:20260315 --push
 #
 # Optional environment build args:
 #   FLASHATTN_DEVEL_IMAGE
@@ -15,8 +15,8 @@ set -euo pipefail
 #   TORCH_CUDA_ARCH_LIST
 
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
-DEFAULT_IMAGE="hey3d/trellis2:latest"
-LATEST_IMAGE="hey3d/trellis2:latest"
+DEFAULT_IMAGE="cubify3d/trellis2:latest"
+LATEST_IMAGE="cubify3d/trellis2:latest"
 IMAGE="$DEFAULT_IMAGE"
 DO_PUSH="0"
 PLATFORM="linux/amd64"
@@ -25,16 +25,16 @@ usage() {
   cat <<'EOF'
 Usage:
   ./docker/trellis2/build.sh
-  ./docker/trellis2/build.sh --image hey3d/trellis2:20260315
-  ./docker/trellis2/build.sh --image hey3d/trellis2:20260315 --platform linux/amd64
-  ./docker/trellis2/build.sh --image hey3d/trellis2:20260315 --push
+  ./docker/trellis2/build.sh --image cubify3d/trellis2:20260315
+  ./docker/trellis2/build.sh --image cubify3d/trellis2:20260315 --platform linux/amd64
+  ./docker/trellis2/build.sh --image cubify3d/trellis2:20260315 --push
 
 Options:
-  --image IMAGE       target image name (default: hey3d/trellis2:latest)
-                      if IMAGE is not tagged :latest, also tag hey3d/trellis2:latest
+  --image IMAGE       target image name (default: cubify3d/trellis2:latest)
+                      if IMAGE is not tagged :latest, also tag cubify3d/trellis2:latest
                       and push that latest tag too when --push is set
   --platform VALUE    docker build platform (default: linux/amd64)
-  --push              push IMAGE; if auto-tagged, also push hey3d/trellis2:latest
+  --push              push IMAGE; if auto-tagged, also push cubify3d/trellis2:latest
   -h, --help          show this help
 
 Optional environment build args:

@@ -125,7 +125,7 @@ class AsyncGen3DEngine:
         self._worker_tasks = [
             asyncio.create_task(
                 self._run_worker_loop(worker_index),
-                name=f"gen3d-worker-{worker_index}",
+                name=f"cubify3d-worker-{worker_index}",
             )
             for worker_index in range(self._worker_count)
         ]

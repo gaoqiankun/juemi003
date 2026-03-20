@@ -277,7 +277,7 @@ export function ProofShotsPage() {
       setGalleryFilter: (_filter: GalleryFilter) => undefined,
       getFilteredTasks: () => tasks,
       saveConfig: async () => {},
-      pingHealth: async () => ({ status: "ready", service: "gen3d" }),
+      pingHealth: async () => ({ status: "ready", service: "cubify3d" }),
       refreshTaskList: async () => {},
       refreshTask: async () => {},
       selectFile: async () => {},
@@ -315,7 +315,7 @@ export function ProofShotsPage() {
       return galleryTasks.filter((task) => task.status === "failed" || task.status === "cancelled");
     },
     saveConfig: async () => {},
-    pingHealth: async () => ({ status: "ready", service: "gen3d" }),
+    pingHealth: async () => ({ status: "ready", service: "cubify3d" }),
     refreshTaskList: async () => {},
     refreshTask: async () => {},
     selectFile: async () => {},
