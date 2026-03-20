@@ -116,7 +116,15 @@ function buildParticles(width: number, height: number) {
   return particles;
 }
 
-export function ProgressParticleStage({ progress }: { progress: number }) {
+export function ProgressParticleStage({
+  progress,
+  background = "#000000",
+  particleColor = "#ffffff",
+}: {
+  progress: number;
+  background?: string;
+  particleColor?: string;
+}) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const particlesRef = useRef<Particle[]>([]);
 
@@ -153,7 +161,7 @@ export function ProgressParticleStage({ progress }: { progress: number }) {
       const easedProgress = easeOutCubic(Math.min(Math.max(progress / 100, 0), 1));
 
       context.clearRect(0, 0, width, height);
-      context.fillStyle = "#000000";
+      context.fillStyle = background;
       context.fillRect(0, 0, width, height);
 
       particlesRef.current.forEach((particle) => {
@@ -165,10 +173,12 @@ export function ProgressParticleStage({ progress }: { progress: number }) {
           + Math.sin(time * 0.0013 + particle.phase) * drift;
 
         context.beginPath();
-        context.fillStyle = `rgba(255,255,255,${particle.alpha * pulse})`;
+        context.globalAlpha = particle.alpha * pulse;
+        context.fillStyle = particleColor;
         context.arc(x, y, particle.size, 0, TAU);
         context.fill();
       });
+      context.globalAlpha = 1;
 
       frameHandle = window.requestAnimationFrame(render);
     };
@@ -183,7 +193,7 @@ export function ProgressParticleStage({ progress }: { progress: number }) {
       resizeObserver.disconnect();
       window.cancelAnimationFrame(frameHandle);
     };
-  }, [progress]);
+  }, [background, particleColor, progress]);
 
   return <canvas ref={canvasRef} className="absolute inset-0 size-full" />;
 }

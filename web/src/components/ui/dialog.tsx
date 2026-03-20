@@ -15,7 +15,7 @@ const DialogOverlay = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <DialogPrimitive.Overlay
     ref={ref}
-    className={cn("fixed inset-0 z-50 bg-slate-950/78 backdrop-blur-sm", className)}
+    className={cn("fixed inset-0 z-50 bg-black/55 backdrop-blur-sm", className)}
     {...props}
   />
 ));
@@ -30,13 +30,13 @@ const DialogContent = React.forwardRef<
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
-        "fixed left-1/2 top-1/2 z-50 grid w-[min(92vw,980px)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-[32px] border border-white/10 bg-[rgba(7,11,22,0.94)] p-6 shadow-[0_30px_90px_rgba(0,0,0,0.55)]",
+        "fixed left-1/2 top-1/2 z-50 grid w-[min(92vw,980px)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-lg border border-outline bg-surface-glass p-6 text-text-primary shadow-float backdrop-blur-xl",
         className,
       )}
       {...props}
     >
       {children}
-      <DialogPrimitive.Close className="absolute right-5 top-5 rounded-full border border-white/10 p-2 text-slate-400 transition hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/40">
+      <DialogPrimitive.Close className="absolute right-4 top-4 rounded-full border border-outline p-2 text-text-secondary transition hover:bg-surface-container-low hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
         <X className="h-4 w-4" />
         <span className="sr-only">关闭</span>
       </DialogPrimitive.Close>
@@ -50,11 +50,11 @@ function DialogHeader({ className, ...props }: React.HTMLAttributes<HTMLDivEleme
 }
 
 function DialogTitle({ className, ...props }: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Title>) {
-  return <DialogPrimitive.Title className={cn("font-display text-2xl font-semibold text-white", className)} {...props} />;
+  return <DialogPrimitive.Title className={cn("font-display text-2xl font-semibold text-text-primary", className)} {...props} />;
 }
 
 function DialogDescription({ className, ...props }: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Description>) {
-  return <DialogPrimitive.Description className={cn("text-sm leading-6 text-slate-400", className)} {...props} />;
+  return <DialogPrimitive.Description className={cn("text-sm leading-6 text-text-secondary", className)} {...props} />;
 }
 
 export {

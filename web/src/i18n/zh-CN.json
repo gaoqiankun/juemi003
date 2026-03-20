@@ -1,21 +1,21 @@
 {
   "shell": {
     "brandEyebrow": "Cubie 3D",
-    "brandCopy": "面向队列健康、模型库存和部署控制的运营管理工作台。",
+    "brandCopy": "在一个工作区内管理队列状态、模型可用性和访问控制。",
     "navigation": "工作区",
-    "deployLabel": "部署环境",
-    "deployValue": "Mock 预览栈",
-    "deployCopy": "当前面板全部走占位 hook，后续可以直接替换为真实接口。",
+    "deployLabel": "环境",
+    "deployValue": "主部署",
+    "deployCopy": "在一个界面中查看系统容量、模型状态和访问设置。",
     "themeToggle": "切换主题",
     "languageToggle": "切换语言",
     "themeDark": "深色",
     "themeLight": "浅色",
-    "environment": "stitch 已对齐",
+    "environment": "主集群",
     "nav": {
       "dashboard": "总览",
       "tasks": "任务",
       "models": "模型",
-      "apiKeys": "API Keys",
+      "apiKeys": "API 密钥",
       "settings": "设置"
     }
   },
@@ -24,23 +24,23 @@
     "viewAll": "查看全部",
     "saveChanges": "保存变更",
     "resetDefaults": "恢复默认",
-    "createKey": "创建 Key",
-    "importModel": "导入模型清单",
-    "scope": "Scope",
+    "createKey": "创建密钥",
+    "importModel": "导入模型包",
+    "scope": "权限范围",
     "owner": "负责人",
     "status": {
-      "live": "live",
-      "queued": "queued",
-      "completed": "completed",
-      "failed": "failed",
-      "online": "online",
-      "warning": "warning",
-      "offline": "offline",
-      "ready": "ready",
-      "syncing": "syncing",
-      "paused": "paused",
-      "active": "active",
-      "rotating": "rotating"
+      "live": "运行中",
+      "queued": "排队中",
+      "completed": "已完成",
+      "failed": "失败",
+      "online": "在线",
+      "warning": "告警",
+      "offline": "离线",
+      "ready": "就绪",
+      "syncing": "同步中",
+      "paused": "已暂停",
+      "active": "启用中",
+      "rotating": "轮换中"
     },
     "subjects": {
       "sneaker": "运动鞋概念稿",
@@ -94,7 +94,8 @@
       "cuda": "CUDA",
       "driver": "驱动",
       "activeJobs": "活跃任务",
-      "avgLatency": "平均耗时"
+      "avgLatency": "平均耗时",
+      "busyChip": "负载 {{value}}"
     },
     "recentTasks": {
       "title": "最近任务",
@@ -135,7 +136,7 @@
     "searchPlaceholder": "按任务 ID、负责人或主题搜索",
     "table": {
       "title": "队列积压",
-      "subtitle": "所有任务数据都由占位 hook 提供，后续可直接替换为真实 API。",
+      "subtitle": "查看优先队列和默认队列中的当前任务。",
       "columns": {
         "task": "任务",
         "subject": "主题",
@@ -149,13 +150,13 @@
     },
     "logs": {
       "title": "操作日志",
-      "subtitle": "模拟系统日志，语气与严重级别与真实环境对齐。",
-      "allocateGpu": "allocator 已将 cubie-gpu-01 分配给任务 tsk_6fe91b4c",
-      "materialStage": "材质阶段已到 82%，预览渲染已缓存",
-      "queueDepth": "experiments 队列深度超过软阈值",
-      "previewReady": "预览产物已上传对象存储并完成索引",
-      "edgeNode": "边缘节点 cubie-edge-01 心跳失败，流量已排空",
-      "downloadCache": "HunYuan3D-2 模型缓存预热完成"
+      "subtitle": "最近系统事件，覆盖调度、渲染和交付。",
+      "allocateGpu": "已将 cubie-gpu-01 分配给任务 tsk_6fe91b4c。",
+      "materialStage": "材质阶段达到 82%，预览渲染已缓存。",
+      "queueDepth": "实验通道的队列深度超过建议阈值。",
+      "previewReady": "预览文件已上传并建立索引。",
+      "edgeNode": "边缘节点 cubie-edge-01 心跳中断，流量已切走。",
+      "downloadCache": "HunYuan3D-2 模型缓存已就绪。"
     }
   },
   "models": {
@@ -177,11 +178,15 @@
       "syncProgress": "同步进度"
     },
     "importTitle": "导入新的模型包",
-    "importCopy": "附加 manifest，校验 checksum 元数据，并把资源排进分阶段发布队列。"
+    "importCopy": "附加 manifest，校验 checksum 元数据，并把资源排进分阶段发布队列。",
+    "importMeta": {
+      "manifest": "manifest.json",
+      "checksums": "SHA-256 校验信息"
+    }
   },
   "apiKeys": {
-    "title": "API Key 管理",
-    "description": "查看租户用量、轮换凭据，并尽量收紧 Scope 暴露面。",
+    "title": "API 密钥管理",
+    "description": "查看使用情况、轮换凭据，并尽量收紧权限范围。",
     "usage": {
       "requests": "月请求量",
       "projects": "活跃项目",
@@ -189,26 +194,28 @@
       "errorRate": "错误率"
     },
     "table": {
-      "title": "已签发 Key",
-      "subtitle": "只展示遮罩后的凭据和运营元数据。",
+      "title": "已发放密钥",
+      "subtitle": "仅显示脱敏密钥和运营信息。",
       "columns": {
         "name": "名称",
-        "token": "Token",
+        "token": "密钥",
         "created": "创建时间",
         "lastUsed": "最近使用",
         "requests": "请求量",
-        "scopes": "Scopes",
+        "scopes": "权限",
         "status": "状态",
         "owner": "负责人"
       }
     },
     "actions": {
-      "rotate": "轮换",
-      "disable": "停用"
+      "rotate": "轮换密钥",
+      "disable": "停用密钥",
+      "rotateHelper": "24 小时平滑切换期",
+      "disableHelper": "立即撤销访问权限"
     },
     "createPanel": {
-      "title": "创建受限 Key",
-      "copy": "为 CI、渲染自动化或合作方流量创建遮罩后的 token，不在 UI 中暴露完整密钥。",
+      "title": "创建受限密钥",
+      "copy": "为自动化流程、系统集成或合作方访问创建受限密钥，避免在界面中暴露完整凭据。",
       "scopes": {
         "tasksRead": "tasks:read",
         "tasksWrite": "tasks:write",
@@ -281,7 +288,7 @@
       },
       "allowedOrigins": {
         "label": "允许来源",
-        "description": "允许访问管理面的控制平面来源，使用逗号分隔。"
+        "description": "允许访问管理面的域名，使用逗号分隔。"
       }
     },
     "options": {
@@ -292,14 +299,14 @@
       "local": "本地磁盘"
     },
     "preview": {
-      "title": "部署备注",
-      "copy": "当前设置仍是本地 mock state，但每个字段的数据结构都已经对齐未来 API 载荷边界。",
-      "cluster": "集群档位",
+      "title": "系统概览",
+      "copy": "保存更改前，先确认当前集群配置、存储策略和流量状态。",
+      "cluster": "集群配置",
       "clusterValue": "3 个 GPU 节点 / 1 个边缘中继",
       "storage": "产物模式",
-      "storageValue": "MinIO 主存储，本地回退",
+      "storageValue": "对象存储，支持本地回退",
       "traffic": "流量姿态",
-      "trafficValue": "优先队列已开启"
+      "trafficValue": "优先通道已启用"
     }
   },
   "user": {
@@ -308,8 +315,9 @@
       "navigation": "用户工作区",
       "nav": {
         "generate": "生成",
+        "gallery": "模型库",
         "generations": "我的生成",
-        "setup": "初始化"
+        "setup": "连接设置"
       }
     },
     "status": {
@@ -317,42 +325,29 @@
       "completed": "已完成",
       "failed": "失败"
     },
-    "mockTitles": {
-      "sneaker": "极简运动鞋方案",
-      "headset": "录音室耳机概念",
-      "lamp": "陶瓷台灯版本",
-      "chair": "胡桃木休闲椅"
-    },
-    "mockPrompts": {
-      "sneaker": "极简运动鞋，分层泡棉中底，透明后跟支撑。",
-      "headset": "高端头戴耳机，哑光铝合金支架，织物耳垫。",
-      "lamp": "陶瓷台灯，带竖向凹槽灯体、缎面釉和宽檐布罩。",
-      "chair": "胡桃木休闲椅，编织座面，圆润扶手和轻微倒角。"
-    },
     "generate": {
       "title": "创建新的 3D 资产",
-      "description": "上传参考图、补充 prompt，并在派发任务前确定质量与导出格式。",
+      "description": "上传参考图、补充提示词，并在提交任务前确定质量与输出格式。",
       "uploadLabel": "输入",
       "uploadTitle": "参考图片",
-      "dropTitle": "拖入参考图，或加载一个示例源文件",
-      "sampleFile": "当前占位输入为 ui-test-input.png。",
-      "mockUploadReady": "Mock 上传已刷新，新的占位源文件只保存在本地 UI 状态。",
-      "promptLabel": "细化 Prompt",
+      "dropTitle": "上传参考图，或选择一张示例图片",
+      "sampleFile": "参考图已就绪，可直接开始生成。",
+      "promptLabel": "提示词",
       "promptPlaceholder": "描述材质、轮廓、拓扑或风格细节。",
       "promptPreset": "极简运动鞋，分层泡棉中底，透明后跟支撑，缝线细节明确。",
       "qualityLabel": "质量",
       "formatLabel": "输出",
       "seedLabel": "Seed",
-      "usePreset": "使用示例 Prompt",
-      "createButton": "创建 Mock 任务",
-      "progressLabel": "流水线",
-      "progressTitle": "实时进度",
+      "usePreset": "使用推荐提示词",
+      "createButton": "开始生成",
+      "progressLabel": "进度",
+      "progressTitle": "生成进度",
       "activeTaskLabel": "当前任务",
       "previewLabel": "最新结果",
-      "previewTitle": "可直接进入 Viewer",
-      "latestResult": "精选任务",
+      "previewTitle": "可在 3D Viewer 中查看",
+      "latestResult": "最近结果",
       "updatedAt": "更新时间",
-      "openViewer": "打开 Viewer",
+      "openViewer": "打开 3D Viewer",
       "options": {
         "qualityDraft": "草稿",
         "qualityProduction": "正式",
@@ -366,11 +361,28 @@
         "geometry": "几何阶段",
         "materials": "材质投射",
         "packaging": "导出封装"
-      }
+      },
+      "uploadReady": "参考图已更新，本次任务将使用最新上传的图片。"
+    },
+    "gallery": {
+      "filters": {
+        "all": "全部",
+        "processing": "生成中",
+        "completed": "已完成",
+        "failed": "失败"
+      },
+      "empty": "暂无内容",
+      "loadMore": "加载更多",
+      "loadingMore": "加载中…",
+      "view": "查看",
+      "deleteTitle": "删除这条记录？",
+      "deleteDescription": "删除后，这条记录会从模型库中移除。",
+      "cancel": "取消",
+      "delete": "删除"
     },
     "generations": {
       "title": "我的生成",
-      "description": "查看所有占位任务，跟踪状态，并把已完成资产重新打开到 Viewer。",
+      "description": "查看近期任务、跟踪进度，并在 3D Viewer 中重新打开已完成结果。",
       "filters": {
         "all": "全部",
         "processing": "处理中",
@@ -378,20 +390,20 @@
         "failed": "失败"
       },
       "card": {
-        "prompt": "Prompt"
+        "prompt": "提示词"
       },
       "actions": {
         "view": "查看",
         "download": "下载"
       },
       "emptyTitle": "当前筛选下没有结果",
-      "emptyCopy": "可以切换筛选条件，或者回到生成页创建新的占位任务。"
+      "emptyCopy": "尝试其他筛选条件，或返回生成页开始新任务。"
     },
     "viewer": {
       "title": "3D Viewer",
-      "panelLabel": "资产详情",
-      "previewPlaceholder": "3D Preview",
-      "backButton": "返回我的生成",
+      "panelLabel": "模型详情",
+      "previewPlaceholder": "3D 预览",
+      "backButton": "返回模型库",
       "downloadFormat": "下载 {{format}}",
       "details": {
         "quality": "质量",
@@ -399,17 +411,30 @@
         "polygons": "面数",
         "fileSize": "文件大小",
         "updated": "更新时间"
-      }
+      },
+      "previewLabel": "预览"
     },
     "setup": {
-      "title": "配置你的引擎",
-      "description": "进入生成流程前，先连接 Cubie 服务地址并填写 API Key。",
+      "title": "连接你的实例",
+      "description": "输入 API Key 和服务地址以连接你的 Cubie 3D 实例。API Key 可在管理面板的 API Keys 页面创建。",
       "apiKeyLabel": "API Key",
-      "apiKeyPlaceholder": "粘贴你的 Cubie API Key",
+      "apiKeyPlaceholder": "输入 API Key",
       "serverUrlLabel": "服务地址",
-      "noteLabel": "说明",
-      "helper": "当前配置只保存在 localStorage，用于 mock 链路。没有 API Key 时，受保护页面会自动跳回这里。",
+      "noteLabel": "连接说明",
+      "helper": "这些设置会保存在当前设备上，你可以随时返回此页更新。",
       "connectButton": "保存并连接"
+    },
+    "sampleTitles": {
+      "sneaker": "极简运动鞋方案",
+      "headset": "录音室耳机概念",
+      "lamp": "陶瓷台灯版本",
+      "chair": "胡桃木休闲椅"
+    },
+    "samplePrompts": {
+      "sneaker": "极简运动鞋，分层泡棉中底，透明后跟支撑。",
+      "headset": "高端头戴耳机，哑光铝合金支架，织物耳垫。",
+      "lamp": "陶瓷台灯，带竖向凹槽灯体、缎面釉和宽檐布罩。",
+      "chair": "胡桃木休闲椅，编织座面，圆润扶手和轻微倒角。"
     }
   }
 }

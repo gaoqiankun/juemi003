@@ -1,5 +1,6 @@
 import { CheckCircle2, Eye, Grid3X3, LoaderCircle, OctagonX } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 import { useGen3d } from "@/app/gen3d-provider";
 import { TaskSheet } from "@/components/task-sheet";
@@ -18,21 +19,21 @@ import { Button } from "@/components/ui/button";
 import { formatRelativeTime } from "@/lib/format";
 import type { GalleryFilter } from "@/lib/types";
 
-const filters: Array<{ value: GalleryFilter; label: string; icon: typeof Grid3X3 }> = [
-  { value: "all", label: "全部", icon: Grid3X3 },
-  { value: "processing", label: "生成中", icon: LoaderCircle },
-  { value: "completed", label: "已完成", icon: CheckCircle2 },
-  { value: "failed", label: "失败", icon: OctagonX },
+const filters: Array<{ value: GalleryFilter; labelKey: string; icon: typeof Grid3X3 }> = [
+  { value: "all", labelKey: "user.gallery.filters.all", icon: Grid3X3 },
+  { value: "processing", labelKey: "user.gallery.filters.processing", icon: LoaderCircle },
+  { value: "completed", labelKey: "user.gallery.filters.completed", icon: CheckCircle2 },
+  { value: "failed", labelKey: "user.gallery.filters.failed", icon: OctagonX },
 ];
 
 function getStatusDotClass(status?: string) {
   if (status === "succeeded") {
-    return "bg-[#16a34a]";
+    return "bg-success-text";
   }
   if (status === "failed" || status === "cancelled") {
-    return "bg-[#dc2626]";
+    return "bg-danger-text";
   }
-  return "bg-[#ca8a04]";
+  return "bg-warning-text";
 }
 
 function isTerminal(status?: string) {
@@ -40,6 +41,7 @@ function isTerminal(status?: string) {
 }
 
 export function GalleryPage({ initialSelectedTaskId = "" }: { initialSelectedTaskId?: string }) {
+  const { t } = useTranslation();
   const {
     taskMap,
     taskPage,
@@ -75,9 +77,9 @@ export function GalleryPage({ initialSelectedTaskId = "" }: { initialSelectedTas
   }, [refreshTask, selectedTask, selectedTaskId, subscribeToTask]);
 
   return (
-    <section className="min-h-[calc(100vh-48px)] bg-[#000000]">
-      <div className="px-6 pb-3 pt-5">
-        <div className="flex flex-wrap items-center gap-2">
+    <section className="grid gap-4">
+      <div className="overflow-x-auto pb-1">
+        <div className="flex min-w-max items-center gap-2 rounded-[24px] border border-outline bg-surface-glass p-2 shadow-float backdrop-blur-xl">
           {filters.map((filter) => {
             const active = galleryFilter === filter.value;
             const Icon = filter.icon;
@@ -86,15 +88,15 @@ export function GalleryPage({ initialSelectedTaskId = "" }: { initialSelectedTas
                 key={filter.value}
                 type="button"
                 className={[
-                  "inline-flex h-9 items-center gap-2 rounded-full border px-4 text-[13px] transition",
+                  "inline-flex h-10 items-center gap-2 rounded-full border px-4 text-sm font-medium tracking-[-0.02em] transition-all duration-200",
                   active
-                    ? "border-white bg-white text-black"
-                    : "border-[#2a2a2a] bg-transparent text-[#888888] hover:border-[#3a3a3a] hover:text-white",
+                    ? "border-[color:color-mix(in_srgb,var(--accent)_32%,transparent)] bg-[color:color-mix(in_srgb,var(--accent)_14%,var(--surface-container-highest))] text-accent-strong shadow-float"
+                    : "border-transparent bg-transparent text-text-secondary hover:border-outline hover:bg-surface-container-low hover:text-text-primary",
                 ].join(" ")}
                 onClick={() => setGalleryFilter(filter.value)}
               >
                 <Icon className="h-4 w-4" />
-                {filter.label}
+                {t(filter.labelKey)}
               </button>
             );
           })}
@@ -103,58 +105,58 @@ export function GalleryPage({ initialSelectedTaskId = "" }: { initialSelectedTas
 
       {filteredTasks.length ? (
         <div
-          className="grid gap-2 px-6 pb-6"
+          className="grid gap-4"
           style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}
         >
           {filteredTasks.map((task) => (
             <article
               key={task.taskId}
-              className="group relative cursor-pointer overflow-hidden rounded-[10px] bg-[#111111] transition-transform duration-150 ease-out hover:scale-[1.02]"
+              className="group relative cursor-pointer overflow-hidden rounded-[24px] border border-outline bg-surface-container-lowest transition-all duration-200 ease-out hover:-translate-y-1 hover:shadow-float"
               style={{ aspectRatio: "1 / 1" }}
               onClick={() => setSelectedTaskId(task.taskId)}
             >
-              <TaskThumbnail task={task} variant="gallery" className="!aspect-auto size-full rounded-[10px] bg-[#111111]" />
+              <TaskThumbnail task={task} variant="gallery" className="!aspect-auto size-full rounded-[24px] bg-surface-container-lowest" />
 
-              <div className="absolute inset-0 flex items-center justify-center bg-[rgba(0,0,0,0.4)] opacity-0 transition-opacity duration-150 group-hover:opacity-100">
+              <div className="absolute inset-0 flex items-center justify-center bg-[color:color-mix(in_srgb,var(--surface-container-lowest)_42%,transparent)] opacity-0 transition-opacity duration-200 group-hover:opacity-100">
                 <button
                   type="button"
-                  className="inline-flex h-10 items-center justify-center rounded-full bg-white px-5 text-[13px] font-medium text-black transition hover:bg-[#f3f3f3]"
+                  className="inline-flex h-11 items-center justify-center rounded-full border border-outline bg-surface px-5 text-sm font-medium text-text-primary shadow-float transition hover:bg-surface-container-high"
                   onClick={(event) => {
                     event.stopPropagation();
                     setSelectedTaskId(task.taskId);
                   }}
                 >
                   <Eye className="mr-2 h-4 w-4" />
-                  查看
+                  {t("user.gallery.view")}
                 </button>
               </div>
 
-              <div className="absolute inset-x-0 bottom-0 bg-[linear-gradient(180deg,rgba(0,0,0,0),rgba(0,0,0,0.8))] px-[10px] pb-2 pt-5">
-                <div className="flex items-end justify-between">
-                  <div className="text-[11px] text-[#aaaaaa]">{formatRelativeTime(task.createdAt)}</div>
-                  <span className={`h-2 w-2 rounded-full ${getStatusDotClass(task.status)}`} />
+              <div className="absolute inset-x-0 bottom-0 bg-[linear-gradient(180deg,transparent,color-mix(in_srgb,var(--surface-container-lowest)_92%,transparent))] px-4 pb-4 pt-10">
+                <div className="flex items-end justify-between gap-3">
+                  <div className="text-xs font-medium text-text-secondary">{formatRelativeTime(task.createdAt)}</div>
+                  <span
+                    className={`h-2.5 w-2.5 rounded-full ring-4 ring-[color:color-mix(in_srgb,var(--surface-container-lowest)_78%,transparent)] ${getStatusDotClass(task.status)}`}
+                  />
                 </div>
               </div>
             </article>
           ))}
         </div>
       ) : (
-        <div className="px-6 pb-6">
-          <div className="flex min-h-[320px] items-center justify-center rounded-[10px] bg-[#111111] text-[13px] text-[#444444]">
-            暂无内容
-          </div>
+        <div className="flex min-h-[320px] items-center justify-center rounded-[24px] border border-dashed border-outline bg-[image:var(--page-gradient)] bg-surface-container-low px-6 text-sm text-text-secondary">
+          {t("user.gallery.empty")}
         </div>
       )}
 
       {taskPage.hasMore ? (
-        <div className="flex justify-center px-6 pb-8">
+        <div className="flex justify-center pt-1">
           <Button
             variant="outline"
-            className="h-10 rounded-[8px] border-[#2a2a2a] bg-[#111111] px-4 text-white hover:bg-[#1a1a1a]"
+            className="h-11 rounded-xl bg-surface-container-lowest px-5 shadow-soft hover:border-[color:color-mix(in_srgb,var(--accent)_26%,transparent)] hover:bg-surface-container-low hover:text-accent-strong"
             disabled={taskPage.isLoading}
             onClick={() => refreshTaskList({ append: true, resubscribe: false, silent: false }).catch(() => undefined)}
           >
-            {taskPage.isLoading ? "加载中…" : "加载更多"}
+            {taskPage.isLoading ? t("user.gallery.loadingMore") : t("user.gallery.loadMore")}
           </Button>
         </div>
       ) : null}
@@ -178,22 +180,22 @@ export function GalleryPage({ initialSelectedTaskId = "" }: { initialSelectedTas
           }
         }}
       >
-        <AlertDialogContent className="border-[#1f1f1f] bg-[#111111]">
+        <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle className="text-white">删除这条记录？</AlertDialogTitle>
-            <AlertDialogDescription className="text-[#888888]">
-              删除后，这条记录会从图库中移除。
+            <AlertDialogTitle>{t("user.gallery.deleteTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("user.gallery.deleteDescription")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel asChild>
-              <Button variant="outline" className="border-[#333333] bg-transparent text-white hover:bg-[#1a1a1a]">
-                取消
+              <Button variant="outline">
+                {t("user.gallery.cancel")}
               </Button>
             </AlertDialogCancel>
             <AlertDialogAction asChild>
               <Button
-                className="bg-white text-black shadow-none hover:bg-[#eeeeee]"
+                variant="destructive"
                 onClick={() => {
                   const deletingTaskId = confirmTaskId;
                   deleteTask(deletingTaskId)
@@ -206,7 +208,7 @@ export function GalleryPage({ initialSelectedTaskId = "" }: { initialSelectedTas
                     .catch(() => undefined);
                 }}
               >
-                删除
+                {t("user.gallery.delete")}
               </Button>
             </AlertDialogAction>
           </AlertDialogFooter>

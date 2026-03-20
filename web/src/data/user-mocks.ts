@@ -37,11 +37,13 @@ export interface SetupData {
   helperKey: string;
 }
 
+const defaultServerUrl = typeof window === "undefined" ? "" : window.location.origin;
+
 export const generationRecords: GenerationRecord[] = [
   {
     id: "gen_8de14a11",
-    titleKey: "user.mockTitles.sneaker",
-    promptKey: "user.mockPrompts.sneaker",
+    titleKey: "user.sampleTitles.sneaker",
+    promptKey: "user.samplePrompts.sneaker",
     status: "processing",
     createdAt: "2026-03-20T16:10:00+08:00",
     updatedAt: "2026-03-20T16:18:00+08:00",
@@ -54,8 +56,8 @@ export const generationRecords: GenerationRecord[] = [
   },
   {
     id: "gen_04f92c7b",
-    titleKey: "user.mockTitles.headset",
-    promptKey: "user.mockPrompts.headset",
+    titleKey: "user.sampleTitles.headset",
+    promptKey: "user.samplePrompts.headset",
     status: "completed",
     createdAt: "2026-03-20T14:52:00+08:00",
     updatedAt: "2026-03-20T15:03:00+08:00",
@@ -68,8 +70,8 @@ export const generationRecords: GenerationRecord[] = [
   },
   {
     id: "gen_6caefcd2",
-    titleKey: "user.mockTitles.lamp",
-    promptKey: "user.mockPrompts.lamp",
+    titleKey: "user.sampleTitles.lamp",
+    promptKey: "user.samplePrompts.lamp",
     status: "completed",
     createdAt: "2026-03-20T12:34:00+08:00",
     updatedAt: "2026-03-20T12:44:00+08:00",
@@ -82,8 +84,8 @@ export const generationRecords: GenerationRecord[] = [
   },
   {
     id: "gen_c31d02ff",
-    titleKey: "user.mockTitles.chair",
-    promptKey: "user.mockPrompts.chair",
+    titleKey: "user.sampleTitles.chair",
+    promptKey: "user.samplePrompts.chair",
     status: "completed",
     createdAt: "2026-03-19T20:18:00+08:00",
     updatedAt: "2026-03-19T20:31:00+08:00",
@@ -144,6 +146,6 @@ export function resolveViewerData(taskId: string): ViewerData {
 }
 
 export const setupData: SetupData = {
-  defaultServerUrl: "http://127.0.0.1:19001",
+  defaultServerUrl,
   helperKey: "user.setup.helper",
 };

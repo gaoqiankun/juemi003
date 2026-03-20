@@ -3,15 +3,16 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 const badgeVariants = cva(
-  "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+  "inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
   {
     variants: {
       variant: {
-        default: "border-cyan-400/20 bg-cyan-400/10 text-cyan-100",
-        secondary: "border-white/10 bg-white/8 text-slate-200",
-        success: "border-emerald-400/20 bg-emerald-400/10 text-emerald-100",
-        warning: "border-amber-400/20 bg-amber-400/10 text-amber-100",
-        destructive: "border-rose-400/20 bg-rose-400/10 text-rose-100",
+        default: "border-outline bg-surface-container-low text-text-secondary",
+        secondary: "border-outline bg-surface-container-highest text-text-primary",
+        success: "border-[color:color-mix(in_srgb,var(--success)_28%,transparent)] bg-[color:color-mix(in_srgb,var(--success)_14%,transparent)] text-success-text",
+        warning: "border-[color:color-mix(in_srgb,var(--warning)_28%,transparent)] bg-[color:color-mix(in_srgb,var(--warning)_14%,transparent)] text-warning-text",
+        destructive: "border-[color:color-mix(in_srgb,var(--danger)_28%,transparent)] bg-[color:color-mix(in_srgb,var(--danger)_14%,transparent)] text-danger-text",
+        accent: "border-[color:color-mix(in_srgb,var(--accent)_24%,transparent)] bg-[color:color-mix(in_srgb,var(--accent)_12%,transparent)] text-accent-strong",
       },
     },
     defaultVariants: {

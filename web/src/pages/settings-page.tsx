@@ -26,35 +26,43 @@ export function SettingsPage() {
   };
 
   return (
-    <div className="page-stack">
-      <section className="page-header">
+    <div className="grid gap-6">
+      <section className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
         <div>
-          <div className="eyebrow">{t("shell.nav.settings")}</div>
-          <h2 className="page-title">{t("settings.title")}</h2>
+          <div className="font-display text-[0.6875rem] font-semibold uppercase tracking-[0.05em] text-text-muted">
+            {t("shell.nav.settings")}
+          </div>
+          <h2 className="mt-1 text-2xl font-semibold tracking-[-0.03em] text-text-primary">{t("settings.title")}</h2>
         </div>
-        <p className="page-description">{t("settings.description")}</p>
       </section>
 
-      <section className="settings-grid">
-        <div className="settings-sections">
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_20rem]">
+        <div className="grid gap-4">
           {settings.sections.map((section) => (
-            <Card key={section.key}>
-              <div className="section-header">
+            <Card key={section.key} className="p-5">
+              <div className="flex items-start justify-between gap-4">
                 <div>
-                  <div className="eyebrow">{t(section.titleKey)}</div>
-                  <h3 className="section-title">{t(section.descriptionKey)}</h3>
+                  <div className="font-display text-[0.6875rem] font-semibold uppercase tracking-[0.05em] text-text-muted">
+                    {t(section.titleKey)}
+                  </div>
+                  <h3 className="mt-1 text-lg font-semibold tracking-[-0.02em] text-text-primary">
+                    {t(section.descriptionKey)}
+                  </h3>
                 </div>
               </div>
 
-              <div className="form-grid">
+              <div className="mt-4 grid gap-3">
                 {section.fields.map((field) => (
-                  <div key={field.key} className="form-field-card">
-                    <div className="form-field-head">
-                      <div>
-                        <label className="field-label" htmlFor={field.key}>
+                  <div key={field.key} className="grid gap-3 rounded-lg border border-outline bg-surface-container-low p-4">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="grid gap-1">
+                        <label
+                          className="font-display text-[0.6875rem] font-semibold uppercase tracking-[0.05em] text-text-muted"
+                          htmlFor={field.key}
+                        >
                           {t(field.labelKey)}
                         </label>
-                        <p className="field-description">{t(field.descriptionKey)}</p>
+                        <p className="text-sm leading-6 text-text-secondary">{t(field.descriptionKey)}</p>
                       </div>
                       {field.type === "toggle" ? (
                         <ToggleSwitch
@@ -74,29 +82,31 @@ export function SettingsPage() {
                     ) : null}
 
                     {field.type === "number" ? (
-                      <div className="input-suffix-wrap">
+                      <div className="relative">
                         <TextField
                           id={field.key}
                           type="number"
                           value={String(field.value)}
                           onChange={(event) => updateField(section.key, field.key, Number(event.target.value))}
+                          className={field.suffix ? "pr-16" : undefined}
                         />
-                        {field.suffix ? <span className="input-suffix">{field.suffix}</span> : null}
+                        {field.suffix ? (
+                          <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-text-muted">
+                            {field.suffix}
+                          </span>
+                        ) : null}
                       </div>
                     ) : null}
 
                     {field.type === "select" ? (
                       <SelectField
-                        id={field.key}
                         value={String(field.value)}
-                        onChange={(event) => updateField(section.key, field.key, event.currentTarget.value)}
-                      >
-                        {field.options?.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {t(option.labelKey)}
-                          </option>
-                        ))}
-                      </SelectField>
+                        onValueChange={(value) => updateField(section.key, field.key, value)}
+                        options={(field.options || []).map((option) => ({
+                          label: t(option.labelKey),
+                          value: option.value,
+                        }))}
+                      />
                     ) : null}
                   </div>
                 ))}
@@ -105,21 +115,23 @@ export function SettingsPage() {
           ))}
         </div>
 
-        <Card tone="muted" className="settings-sidebar-card">
-          <div className="section-header">
-            <div>
-              <div className="eyebrow">{t("settings.preview.title")}</div>
-              <h3 className="section-title">{t("settings.preview.copy")}</h3>
+        <Card tone="low" className="grid content-start gap-4 p-5">
+          <div>
+            <div className="font-display text-[0.6875rem] font-semibold uppercase tracking-[0.05em] text-text-muted">
+              {t("settings.preview.title")}
             </div>
+            <h3 className="mt-1 text-lg font-semibold tracking-[-0.02em] text-text-primary">
+              {t("settings.preview.copy")}
+            </h3>
           </div>
 
-          <div className="detail-grid">
+          <div className="grid gap-3">
             <PreviewDetail label={t("settings.preview.cluster")} value={t("settings.preview.clusterValue")} />
             <PreviewDetail label={t("settings.preview.storage")} value={t("settings.preview.storageValue")} />
             <PreviewDetail label={t("settings.preview.traffic")} value={t("settings.preview.trafficValue")} />
           </div>
 
-          <div className="settings-actions">
+          <div className="flex flex-wrap gap-3">
             <Button variant="primary">{t("common.saveChanges")}</Button>
             <Button variant="secondary">{t("common.resetDefaults")}</Button>
           </div>
@@ -131,9 +143,9 @@ export function SettingsPage() {
 
 function PreviewDetail({ label, value }: { label: string; value: string }) {
   return (
-    <div className="detail-item">
-      <div className="detail-label">{label}</div>
-      <div className="detail-value">{value}</div>
+    <div className="grid gap-1 rounded-lg border border-outline bg-surface-container p-4">
+      <div className="text-sm text-text-secondary">{label}</div>
+      <div className="text-sm font-semibold text-text-primary">{value}</div>
     </div>
   );
 }

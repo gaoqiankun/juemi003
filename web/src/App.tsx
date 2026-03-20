@@ -5,8 +5,8 @@ import { AdminShell } from "@/components/layout/admin-shell";
 import { UserShell } from "@/components/layout/user-shell";
 import { ApiKeysPage } from "@/pages/api-keys-page";
 import { DashboardPage } from "@/pages/dashboard-page";
+import { GalleryPage } from "@/pages/gallery-page";
 import { GeneratePage } from "@/pages/generate-page";
-import { GenerationsPage } from "@/pages/generations-page";
 import { ModelsPage } from "@/pages/models-page";
 import { SettingsPage } from "@/pages/settings-page";
 import { SetupPage } from "@/pages/setup-page";
@@ -32,7 +32,7 @@ export default function App() {
           <Route path="/setup" element={<SetupPage />} />
           <Route element={<ProtectedUserRoute />}>
             <Route path="/generate" element={<GeneratePage />} />
-            <Route path="/generations" element={<GenerationsPage />} />
+            <Route path="/gallery" element={<GalleryPage />} />
             <Route path="/viewer/:taskId" element={<ViewerPage />} />
           </Route>
         </Route>

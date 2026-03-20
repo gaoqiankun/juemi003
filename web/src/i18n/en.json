@@ -1,16 +1,16 @@
 {
   "shell": {
     "brandEyebrow": "Cubie 3D",
-    "brandCopy": "Operational admin workspace tuned for queue health, model inventory, and deployment controls.",
+    "brandCopy": "Manage queue health, model availability, and access controls from one workspace.",
     "navigation": "Workspace",
-    "deployLabel": "Deployment",
-    "deployValue": "Mock preview stack",
-    "deployCopy": "All cards in this panel run on placeholder hooks and can be swapped to live endpoints later.",
+    "deployLabel": "Environment",
+    "deployValue": "Primary deployment",
+    "deployCopy": "Review system capacity, model readiness, and access settings in one place.",
     "themeToggle": "Toggle theme",
     "languageToggle": "Toggle language",
     "themeDark": "Dark",
     "themeLight": "Light",
-    "environment": "stitch-synced",
+    "environment": "Primary cluster",
     "nav": {
       "dashboard": "Dashboard",
       "tasks": "Tasks",
@@ -26,7 +26,7 @@
     "resetDefaults": "Reset defaults",
     "createKey": "Create key",
     "importModel": "Import model manifest",
-    "scope": "Scope",
+    "scope": "Permissions",
     "owner": "Owner",
     "status": {
       "live": "live",
@@ -94,7 +94,8 @@
       "cuda": "CUDA",
       "driver": "Driver",
       "activeJobs": "Active jobs",
-      "avgLatency": "Avg latency"
+      "avgLatency": "Avg latency",
+      "busyChip": "Load {{value}}"
     },
     "recentTasks": {
       "title": "Recent tasks",
@@ -127,7 +128,7 @@
     },
     "filters": {
       "all": "All",
-      "live": "Live",
+      "live": "Running",
       "queued": "Queued",
       "completed": "Completed",
       "failed": "Failed"
@@ -135,7 +136,7 @@
     "searchPlaceholder": "Search by task ID, owner, or subject",
     "table": {
       "title": "Queue backlog",
-      "subtitle": "Mock tasks mapped to placeholder hooks for future API replacement.",
+      "subtitle": "Current tasks across priority and default queues.",
       "columns": {
         "task": "Task",
         "subject": "Subject",
@@ -149,13 +150,13 @@
     },
     "logs": {
       "title": "Operator log",
-      "subtitle": "Synthetic log feed that mirrors system tone and severity.",
-      "allocateGpu": "allocator assigned cubie-gpu-01 to task tsk_6fe91b4c",
-      "materialStage": "material stage reached 82% with preview render cached",
-      "queueDepth": "queue depth on experiments lane exceeded configured soft target",
-      "previewReady": "preview artifact uploaded to object storage and indexed",
-      "edgeNode": "edge node cubie-edge-01 failed heartbeat, traffic drained",
-      "downloadCache": "model cache warmup completed for HunYuan3D-2"
+      "subtitle": "Recent system events across scheduling, rendering, and delivery.",
+      "allocateGpu": "Assigned cubie-gpu-01 to task tsk_6fe91b4c.",
+      "materialStage": "Material stage reached 82%, and the preview render is cached.",
+      "queueDepth": "Queue depth exceeded the recommended threshold on the experimental lane.",
+      "previewReady": "Preview asset uploaded and indexed.",
+      "edgeNode": "Edge node cubie-edge-01 missed heartbeat, and traffic was drained.",
+      "downloadCache": "HunYuan3D-2 model cache is ready."
     }
   },
   "models": {
@@ -177,11 +178,15 @@
       "syncProgress": "Sync progress"
     },
     "importTitle": "Import a new model bundle",
-    "importCopy": "Attach a manifest, verify checksum metadata, and queue the asset for staged rollout."
+    "importCopy": "Attach a manifest, verify checksum metadata, and queue the asset for staged rollout.",
+    "importMeta": {
+      "manifest": "manifest.json",
+      "checksums": "SHA-256 checksums"
+    }
   },
   "apiKeys": {
     "title": "API key management",
-    "description": "Review tenant usage, rotate credentials, and keep scope exposure tight.",
+    "description": "Review usage, rotate credentials, and keep permissions tightly scoped.",
     "usage": {
       "requests": "Monthly requests",
       "projects": "Active projects",
@@ -193,22 +198,24 @@
       "subtitle": "Masked credentials with operational metadata only.",
       "columns": {
         "name": "Name",
-        "token": "Token",
+        "token": "Key",
         "created": "Created",
         "lastUsed": "Last used",
         "requests": "Requests",
-        "scopes": "Scopes",
+        "scopes": "Permissions",
         "status": "Status",
         "owner": "Owner"
       }
     },
     "actions": {
-      "rotate": "Rotate",
-      "disable": "Disable"
+      "rotate": "Rotate key",
+      "disable": "Disable key",
+      "rotateHelper": "24-hour grace period",
+      "disableHelper": "Revokes access immediately"
     },
     "createPanel": {
       "title": "Create a scoped key",
-      "copy": "Issue a masked token for CI, render automation, or partner traffic without exposing full secrets in the UI.",
+      "copy": "Issue a scoped key for automation, integrations, or partner traffic without exposing full secrets in the interface.",
       "scopes": {
         "tasksRead": "tasks:read",
         "tasksWrite": "tasks:write",
@@ -281,7 +288,7 @@
       },
       "allowedOrigins": {
         "label": "Allowed origins",
-        "description": "Comma separated control-plane origins permitted for admin access."
+        "description": "Comma-separated domains allowed to access the admin panel."
       }
     },
     "options": {
@@ -292,12 +299,12 @@
       "local": "Local disk"
     },
     "preview": {
-      "title": "Deployment notes",
-      "copy": "Settings remain local mock state for now. Each field is already shaped as a future API payload boundary.",
+      "title": "System overview",
+      "copy": "Review the current cluster profile, storage strategy, and traffic posture before saving changes.",
       "cluster": "Cluster profile",
       "clusterValue": "3 GPU nodes / 1 edge relay",
       "storage": "Artifact mode",
-      "storageValue": "MinIO primary, local fallback",
+      "storageValue": "Object storage with local fallback",
       "traffic": "Traffic posture",
       "trafficValue": "priority lane enabled"
     }
@@ -308,8 +315,9 @@
       "navigation": "User workspace",
       "nav": {
         "generate": "Generate",
+        "gallery": "Model Library",
         "generations": "My Generations",
-        "setup": "Setup"
+        "setup": "Connection"
       }
     },
     "status": {
@@ -317,40 +325,27 @@
       "completed": "completed",
       "failed": "failed"
     },
-    "mockTitles": {
-      "sneaker": "Minimal sneaker study",
-      "headset": "Studio headset concept",
-      "lamp": "Ceramic lamp edition",
-      "chair": "Walnut lounge chair"
-    },
-    "mockPrompts": {
-      "sneaker": "Minimal sneaker with layered foam sole and translucent heel support.",
-      "headset": "Premium over-ear headset with matte aluminum arms and soft fabric cushions.",
-      "lamp": "Ceramic lamp with fluted body, satin glaze and wide linen shade.",
-      "chair": "Walnut lounge chair with woven seat, rounded arms and subtle bevels."
-    },
     "generate": {
       "title": "Generate a new 3D asset",
       "description": "Upload a source image, refine the prompt, and shape the output format before dispatching the job.",
       "uploadLabel": "Input",
       "uploadTitle": "Reference image",
-      "dropTitle": "Drop a reference here or load a sample",
-      "sampleFile": "ui-test-input.png attached as the current placeholder source.",
-      "mockUploadReady": "Mock upload refreshed. The UI keeps the new placeholder source locally only.",
-      "promptLabel": "Refinement prompt",
+      "dropTitle": "Upload a reference image or choose a sample",
+      "sampleFile": "A reference image is ready for generation.",
+      "promptLabel": "Prompt",
       "promptPlaceholder": "Describe material, silhouette, topology or styling details.",
       "promptPreset": "Minimal sneaker with layered foam sole, translucent heel support and precise stitch seams.",
       "qualityLabel": "Quality",
       "formatLabel": "Output",
       "seedLabel": "Seed",
-      "usePreset": "Use sample prompt",
-      "createButton": "Create mock generation",
-      "progressLabel": "Pipeline",
-      "progressTitle": "Realtime progress",
+      "usePreset": "Use suggested prompt",
+      "createButton": "Start generation",
+      "progressLabel": "Progress",
+      "progressTitle": "Generation progress",
       "activeTaskLabel": "Active task",
       "previewLabel": "Latest result",
-      "previewTitle": "Ready for viewer handoff",
-      "latestResult": "Featured task",
+      "previewTitle": "Ready to open in Viewer",
+      "latestResult": "Recent result",
       "updatedAt": "Updated",
       "openViewer": "Open viewer",
       "options": {
@@ -366,11 +361,28 @@
         "geometry": "Geometry pass",
         "materials": "Material projection",
         "packaging": "Export packaging"
-      }
+      },
+      "uploadReady": "Reference image updated. This task will use your latest upload."
+    },
+    "gallery": {
+      "filters": {
+        "all": "All",
+        "processing": "Processing",
+        "completed": "Completed",
+        "failed": "Failed"
+      },
+      "empty": "No models yet",
+      "loadMore": "Load more",
+      "loadingMore": "Loading…",
+      "view": "View",
+      "deleteTitle": "Delete this record?",
+      "deleteDescription": "After deletion, this record will be removed from the model library.",
+      "cancel": "Cancel",
+      "delete": "Delete"
     },
     "generations": {
       "title": "My Generations",
-      "description": "Track every placeholder job, inspect current status, and reopen finished assets in the viewer.",
+      "description": "Review recent jobs, track progress, and reopen completed assets in Viewer.",
       "filters": {
         "all": "All",
         "processing": "Processing",
@@ -385,13 +397,13 @@
         "download": "Download"
       },
       "emptyTitle": "No generations in this filter",
-      "emptyCopy": "Try a different filter or return to Generate to create a fresh placeholder job."
+      "emptyCopy": "Try another filter or return to Generate to start a new task."
     },
     "viewer": {
       "title": "3D Viewer",
-      "panelLabel": "Asset details",
+      "panelLabel": "Model details",
       "previewPlaceholder": "3D Preview",
-      "backButton": "Back to generations",
+      "backButton": "Back to library",
       "downloadFormat": "Download {{format}}",
       "details": {
         "quality": "Quality",
@@ -399,17 +411,30 @@
         "polygons": "Polygons",
         "fileSize": "File size",
         "updated": "Updated"
-      }
+      },
+      "previewLabel": "Preview"
     },
     "setup": {
-      "title": "Configure your engine",
-      "description": "Connect a Cubie endpoint with your API Key before entering the generation flow.",
+      "title": "Connect your instance",
+      "description": "Enter your API Key and service URL to connect your Cubie 3D instance. You can create an API Key in the API Keys page of the admin panel.",
       "apiKeyLabel": "API Key",
-      "apiKeyPlaceholder": "Paste your Cubie API Key",
+      "apiKeyPlaceholder": "Enter your API Key",
       "serverUrlLabel": "Server URL",
-      "noteLabel": "Setup note",
-      "helper": "Configuration is stored in localStorage only for this mock flow. Missing API Key will redirect protected pages back here.",
+      "noteLabel": "Connection",
+      "helper": "These settings are saved on this device. You can update them here at any time.",
       "connectButton": "Save and connect"
+    },
+    "sampleTitles": {
+      "sneaker": "Minimal sneaker study",
+      "headset": "Studio headset concept",
+      "lamp": "Ceramic lamp edition",
+      "chair": "Walnut lounge chair"
+    },
+    "samplePrompts": {
+      "sneaker": "Minimal sneaker with layered foam sole and translucent heel support.",
+      "headset": "Premium over-ear headset with matte aluminum arms and soft fabric cushions.",
+      "lamp": "Ceramic lamp with fluted body, satin glaze and wide linen shade.",
+      "chair": "Walnut lounge chair with woven seat, rounded arms and subtle bevels."
     }
   }
 }

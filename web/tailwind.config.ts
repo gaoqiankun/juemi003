@@ -1,7 +1,7 @@
 import type { Config } from "tailwindcss";
 
 const config: Config = {
-  darkMode: ["class"],
+  darkMode: ["class", '[data-theme="dark"]'],
   content: ["./index.html", "./src/**/*.{ts,tsx}"],
   theme: {
     container: {
@@ -13,56 +13,89 @@ const config: Config = {
     },
     extend: {
       colors: {
-        border: "hsl(var(--border))",
-        input: "hsl(var(--input))",
-        ring: "hsl(var(--ring))",
-        background: "hsl(var(--background))",
-        foreground: "hsl(var(--foreground))",
+        border: "var(--ghost-outline)",
+        input: "var(--surface-container-low)",
+        ring: "var(--accent)",
+        outline: "var(--ghost-outline)",
+        background: "var(--background)",
+        foreground: "var(--text-primary)",
+        surface: {
+          DEFAULT: "var(--surface)",
+          container: "var(--surface-container)",
+          "container-low": "var(--surface-container-low)",
+          "container-high": "var(--surface-container-high)",
+          "container-highest": "var(--surface-container-highest)",
+          "container-lowest": "var(--surface-container-lowest)",
+          ghost: "var(--surface-ghost)",
+          glass: "var(--surface-glass)",
+        },
         primary: {
-          DEFAULT: "hsl(var(--primary))",
-          foreground: "hsl(var(--primary-foreground))",
+          DEFAULT: "var(--accent)",
+          foreground: "var(--accent-ink)",
         },
         secondary: {
-          DEFAULT: "hsl(var(--secondary))",
-          foreground: "hsl(var(--secondary-foreground))",
+          DEFAULT: "var(--surface-container-highest)",
+          foreground: "var(--text-primary)",
         },
         muted: {
-          DEFAULT: "hsl(var(--muted))",
-          foreground: "hsl(var(--muted-foreground))",
+          DEFAULT: "var(--surface-container-low)",
+          foreground: "var(--text-muted)",
         },
         accent: {
-          DEFAULT: "hsl(var(--accent))",
-          foreground: "hsl(var(--accent-foreground))",
+          DEFAULT: "var(--accent)",
+          strong: "var(--accent-strong)",
+          deep: "var(--accent-deep)",
+          ink: "var(--accent-ink)",
+          foreground: "var(--accent-ink)",
         },
         destructive: {
-          DEFAULT: "hsl(var(--destructive))",
-          foreground: "hsl(var(--destructive-foreground))",
+          DEFAULT: "var(--danger)",
+          foreground: "var(--text-primary)",
         },
         card: {
-          DEFAULT: "hsl(var(--card))",
-          foreground: "hsl(var(--card-foreground))",
+          DEFAULT: "var(--surface-container-highest)",
+          foreground: "var(--text-primary)",
         },
         popover: {
-          DEFAULT: "hsl(var(--popover))",
-          foreground: "hsl(var(--popover-foreground))",
+          DEFAULT: "var(--surface-container-highest)",
+          foreground: "var(--text-primary)",
+        },
+        text: {
+          primary: "var(--text-primary)",
+          secondary: "var(--text-secondary)",
+          muted: "var(--text-muted)",
+          disabled: "var(--text-muted)",
+        },
+        success: {
+          DEFAULT: "var(--success)",
+          text: "var(--success)",
+        },
+        warning: {
+          DEFAULT: "var(--warning)",
+          text: "var(--warning)",
+        },
+        danger: {
+          DEFAULT: "var(--danger)",
+          text: "var(--danger)",
         },
       },
       borderRadius: {
-        xl: "calc(var(--radius) + 4px)",
-        lg: "var(--radius)",
-        md: "calc(var(--radius) - 2px)",
-        sm: "calc(var(--radius) - 4px)",
+        xl: "0.75rem",
+        lg: "0.5rem",
+        md: "0.375rem",
+        sm: "0.25rem",
       },
       boxShadow: {
-        glow: "0 25px 80px rgba(0, 0, 0, 0.38)",
-        halo: "0 0 0 1px rgba(255,255,255,0.06), 0 24px 60px rgba(6, 11, 24, 0.48)",
+        soft: "var(--shadow-soft)",
+        float: "var(--shadow-float)",
       },
       backgroundImage: {
-        mesh: "radial-gradient(circle at top, rgba(75,114,255,0.2), transparent 32%), radial-gradient(circle at 18% 24%, rgba(249,115,22,0.14), transparent 26%), radial-gradient(circle at 78% 18%, rgba(16,185,129,0.12), transparent 24%), linear-gradient(180deg, rgba(6,10,18,0.96), rgba(3,7,15,1))",
+        "page-gradient": "var(--page-gradient)",
       },
       fontFamily: {
-        sans: ["-apple-system", '"SF Pro Display"', '"PingFang SC"', "sans-serif"],
-        display: ["-apple-system", '"SF Pro Display"', '"PingFang SC"', "sans-serif"],
+        sans: ["Inter", '"Noto Sans SC"', '"PingFang SC"', '"Microsoft YaHei"', "sans-serif"],
+        display: ["Inter", '"Noto Sans SC"', '"PingFang SC"', '"Microsoft YaHei"', "sans-serif"],
+        mono: ['"Geist Mono"', '"SFMono-Regular"', "ui-monospace", "monospace"],
       },
       keyframes: {
         float: {

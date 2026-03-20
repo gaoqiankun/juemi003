@@ -32,6 +32,7 @@ import {
   formatTaskStatus,
   TERMINAL_STATUSES,
 } from "@/lib/format";
+import { readUserConfig } from "@/lib/user-config";
 import { readFileAsDataUrl } from "@/lib/utils";
 import type {
   ApiConfig,
@@ -92,14 +93,16 @@ function readStoredCurrentTaskId() {
 function readStoredConfig(): ApiConfig {
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEYS.config) || "{}");
+    const legacy = readUserConfig();
     return {
-      baseUrl: normalizeBaseUrl(saved.baseUrl || getDefaultBaseUrl()),
-      token: String(saved.token || "").trim(),
+      baseUrl: normalizeBaseUrl(saved.baseUrl || legacy.serverUrl || getDefaultBaseUrl()),
+      token: String(saved.token || legacy.apiKey || "").trim(),
     };
   } catch {
+    const legacy = readUserConfig();
     return {
-      baseUrl: getDefaultBaseUrl(),
-      token: "",
+      baseUrl: normalizeBaseUrl(legacy.serverUrl || getDefaultBaseUrl()),
+      token: String(legacy.apiKey || "").trim(),
     };
   }
 }

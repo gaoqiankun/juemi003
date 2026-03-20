@@ -119,7 +119,13 @@ export function TaskThumbnail({
   const showArtifactPlaceholder = usesArtifactPreview && !renderedThumbnail;
 
   return (
-    <div ref={containerRef} className={cn("relative aspect-square overflow-hidden rounded-[8px] bg-[#111111]", className)}>
+    <div
+      ref={containerRef}
+      className={cn(
+        "relative aspect-square overflow-hidden rounded-[18px] border border-outline bg-surface-container-lowest",
+        className,
+      )}
+    >
       {renderedThumbnail ? (
         <img src={renderedThumbnail} alt="模型缩略图" className="absolute inset-0 size-full object-cover" />
       ) : null}
@@ -129,20 +135,20 @@ export function TaskThumbnail({
       ) : null}
 
       {isLoading ? (
-        <div className="absolute inset-0 flex items-center justify-center bg-[#111111]">
-          <LoaderCircle className="h-6 w-6 animate-spin text-white/72" />
+        <div className="absolute inset-0 flex items-center justify-center bg-surface-container-lowest">
+          <LoaderCircle className="h-6 w-6 animate-spin text-text-secondary opacity-80" />
         </div>
       ) : null}
 
       {isFailed ? (
-        <div className="absolute inset-0 flex items-center justify-center bg-[#111111]">
-          <X className="h-8 w-8 text-white/46" />
+        <div className="absolute inset-0 flex items-center justify-center bg-surface-container-lowest">
+          <X className="h-8 w-8 text-text-muted" />
         </div>
       ) : null}
 
       {showArtifactPlaceholder ? (
-        <div className="absolute inset-0 flex items-center justify-center bg-[#111111]">
-          <Box className="h-10 w-10 text-white/24" />
+        <div className="absolute inset-0 flex items-center justify-center bg-surface-container-lowest">
+          <Box className="h-10 w-10 text-text-muted opacity-60" />
         </div>
       ) : null}
     </div>

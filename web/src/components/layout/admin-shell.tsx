@@ -12,9 +12,10 @@ import {
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 
+import { useGen3d } from "@/app/gen3d-provider";
+import { Card } from "@/components/ui/primitives";
 import { useLocale } from "@/hooks/use-locale";
 import { useTheme } from "@/hooks/use-theme";
-import { Button, Card } from "@/components/ui/primitives";
 
 const navigation = [
   { key: "dashboard", path: "/admin/dashboard", icon: LayoutDashboard },
@@ -24,94 +25,133 @@ const navigation = [
   { key: "settings", path: "/admin/settings", icon: Settings2 },
 ];
 
+const metaClassName = "font-display text-[0.6875rem] font-semibold uppercase tracking-[0.05em] text-text-muted";
+
 export function AdminShell() {
   const location = useLocation();
   const { t } = useTranslation();
   const { theme, toggleTheme } = useTheme();
   const { language, toggleLanguage } = useLocale();
+  const { connection } = useGen3d();
+  const currentThemeLabel = theme === "dark" ? t("shell.themeDark") : t("shell.themeLight");
+  const currentLanguageLabel = language === "en" ? "English" : "中文";
+  const toneClass = connection.tone === "ready"
+    ? "bg-success-text"
+    : connection.tone === "error"
+      ? "bg-danger-text"
+      : "bg-text-muted";
 
   const activeItem = navigation.find((item) => location.pathname.startsWith(item.path))
     ?? navigation[0];
 
   return (
-    <div className="admin-shell">
-      <aside className="sidebar">
-        <div className="sidebar-brand">
-          <div className="brand-lockup">
-            <img
-              src={`${import.meta.env.BASE_URL}favicon.svg`}
-              alt="Cubie 3D"
-              className="brand-icon"
-            />
-            <div>
-              <div className="eyebrow">{t("shell.brandEyebrow")}</div>
-              <div className="brand-title">Cubie 3D</div>
+    <div className="min-h-screen bg-[image:var(--page-gradient)] bg-background text-text-primary lg:grid lg:grid-cols-[280px_minmax(0,1fr)]">
+      <aside className="border-b border-outline bg-surface backdrop-blur-xl lg:sticky lg:top-0 lg:h-screen lg:border-b-0 lg:border-r">
+        <div className="flex h-full flex-col gap-6 px-6 py-8">
+          <div className="grid gap-4">
+            <div className="flex items-center gap-3">
+              <img
+                src={`${import.meta.env.BASE_URL}favicon.svg`}
+                alt="Cubie 3D"
+                className="h-11 w-11 rounded-xl border border-outline bg-surface-container-low p-1.5"
+              />
+              <div className="min-w-0">
+                <div className={metaClassName}>{t("shell.brandEyebrow")}</div>
+                <div className="mt-1 text-xl font-semibold tracking-[-0.03em] text-text-primary">
+                  Cubie 3D
+                </div>
+              </div>
             </div>
           </div>
-          <p className="sidebar-copy">{t("shell.brandCopy")}</p>
+
+          <nav className="grid gap-1.5" aria-label={t("shell.navigation")}>
+            {navigation.map((item) => {
+              const Icon = item.icon;
+
+              return (
+                <NavLink
+                  key={item.key}
+                  to={item.path}
+                  className={({ isActive }) => clsx(
+                    "inline-flex items-center gap-3 rounded-xl border px-4 py-3 text-sm font-medium transition-all duration-200",
+                    isActive
+                      ? "border-outline bg-surface-container-highest text-text-primary shadow-float"
+                      : "border-transparent bg-transparent text-text-secondary hover:border-outline hover:bg-surface-container-low hover:text-text-primary",
+                  )}
+                >
+                  <Icon className="h-4 w-4 shrink-0" />
+                  <span>{t(`shell.nav.${item.key}`)}</span>
+                </NavLink>
+              );
+            })}
+          </nav>
+
+          <Card tone="low" className="mt-auto grid gap-3 p-4">
+            <div className={metaClassName}>{t("shell.deployLabel")}</div>
+            <div className="text-lg font-semibold tracking-[-0.03em] text-text-primary">
+              {t("shell.deployValue")}
+            </div>
+          </Card>
         </div>
-
-        <nav className="sidebar-nav" aria-label={t("shell.navigation")}>
-          {navigation.map((item) => {
-            const Icon = item.icon;
-
-            return (
-              <NavLink
-                key={item.key}
-                to={item.path}
-                className={({ isActive }) => clsx("nav-item", { "nav-item-active": isActive })}
-              >
-                <Icon className="nav-item-icon" />
-                <span>{t(`shell.nav.${item.key}`)}</span>
-              </NavLink>
-            );
-          })}
-        </nav>
-
-        <Card tone="muted" className="sidebar-footnote">
-          <div className="eyebrow">{t("shell.deployLabel")}</div>
-          <div className="sidebar-footnote-title">{t("shell.deployValue")}</div>
-          <p className="sidebar-copy">{t("shell.deployCopy")}</p>
-        </Card>
       </aside>
 
-      <div className="workspace">
-        <header className="topbar">
-          <div>
-            <div className="eyebrow">{t("shell.navigation")}</div>
-            <h1 className="topbar-title">{t(`shell.nav.${activeItem.key}`)}</h1>
-          </div>
+      <div className="min-w-0">
+        <header className="sticky top-0 z-20 border-b border-outline bg-surface backdrop-blur-xl">
+          <div className="mx-auto flex w-full max-w-[1440px] flex-col gap-4 px-6 py-5 xl:flex-row xl:items-center xl:justify-between">
+            <div>
+              <div className={metaClassName}>{t("shell.navigation")}</div>
+              <h1 className="mt-1 text-2xl font-semibold tracking-[-0.03em] text-text-primary">
+                {t(`shell.nav.${activeItem.key}`)}
+              </h1>
+            </div>
 
-          <div className="topbar-actions">
-            <Card tone="glass" className="toolbar-panel">
-              <button
-                type="button"
-                className="toolbar-toggle"
-                onClick={toggleTheme}
-                aria-label={t("shell.themeToggle")}
-              >
-                {theme === "dark" ? <SunMedium className="toolbar-icon" /> : <MoonStar className="toolbar-icon" />}
-                <span>{theme === "dark" ? t("shell.themeLight") : t("shell.themeDark")}</span>
-              </button>
+            <div className="flex flex-wrap items-center gap-3">
+              <Card tone="glass" className="flex items-center gap-1 p-1">
+                <span
+                  className={clsx("mx-1 h-2 w-2 rounded-full", toneClass)}
+                  title={connection.detail}
+                  aria-label={connection.label}
+                />
 
-              <button
-                type="button"
-                className="toolbar-toggle"
-                onClick={toggleLanguage}
-                aria-label={t("shell.languageToggle")}
-              >
-                <Globe2 className="toolbar-icon" />
-                <span>{language === "en" ? "zh-CN" : "EN"}</span>
-              </button>
-            </Card>
+                <button
+                  type="button"
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-text-primary transition-colors hover:bg-surface-container-highest"
+                  onClick={toggleTheme}
+                  aria-label={t("shell.themeToggle")}
+                  title={currentThemeLabel}
+                >
+                  {theme === "dark" ? <SunMedium className="h-4 w-4" /> : <MoonStar className="h-4 w-4" />}
+                </button>
 
-            <Button variant="primary" className="topbar-pill">
-              {t("shell.environment")}
-            </Button>
+                <button
+                  type="button"
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-text-primary transition-colors hover:bg-surface-container-highest"
+                  onClick={toggleLanguage}
+                  aria-label={t("shell.languageToggle")}
+                  title={currentLanguageLabel}
+                >
+                  <Globe2 className="h-4 w-4" />
+                </button>
+
+                <NavLink
+                  to="/admin/settings"
+                  className={({ isActive }) => clsx(
+                    "inline-flex h-10 w-10 items-center justify-center rounded-lg transition-colors",
+                    isActive
+                      ? "bg-surface-container-highest text-text-primary"
+                      : "text-text-secondary hover:bg-surface-container-highest hover:text-text-primary",
+                  )}
+                  aria-label={t("shell.nav.settings")}
+                  title={t("shell.nav.settings")}
+                >
+                  <Settings2 className="h-4 w-4" />
+                </NavLink>
+              </Card>
+            </div>
           </div>
         </header>
 
-        <main className="workspace-content">
+        <main className="mx-auto flex w-full max-w-[1440px] flex-col gap-6 px-6 py-6">
           <Outlet />
         </main>
       </div>

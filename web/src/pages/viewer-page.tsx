@@ -6,6 +6,8 @@ import { Badge, Button, Card, StatusDot } from "@/components/ui/primitives";
 import { useViewerData } from "@/hooks/use-viewer-data";
 import { formatTimestamp } from "@/lib/admin-format";
 
+const eyebrowClassName = "font-display text-[0.6875rem] font-semibold uppercase tracking-[0.05em] text-text-muted";
+
 export function ViewerPage() {
   const { t, i18n } = useTranslation();
   const locale = i18n.resolvedLanguage === "zh-CN" ? "zh-CN" : "en";
@@ -18,35 +20,37 @@ export function ViewerPage() {
   } as const;
 
   return (
-    <div className="page-stack">
-      <section className="page-header">
+    <div className="grid gap-6">
+      <section className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div>
-          <div className="eyebrow">{t("user.viewer.title")}</div>
-          <h2 className="page-title">{t(activeTask.titleKey)}</h2>
+          <div className={eyebrowClassName}>{t("user.viewer.title")}</div>
+          <h2 className="mt-1 text-2xl font-semibold tracking-[-0.03em] text-text-primary">{t(activeTask.titleKey)}</h2>
         </div>
-        <Link to="/generations">
-          <Button variant="secondary">
-            <ArrowLeft className="button-icon" />
+        <Button variant="secondary" asChild>
+          <Link to="/gallery">
+            <ArrowLeft className="h-4 w-4" />
             {t("user.viewer.backButton")}
-          </Button>
-        </Link>
+          </Link>
+        </Button>
       </section>
 
-      <section className="viewer-grid">
-        <Card className="viewer-stage-card">
-          <div className="viewer-stage">
-            <div className="viewer-placeholder">
-              <div className="eyebrow">3D Preview</div>
-              <div className="page-title">{t("user.viewer.previewPlaceholder")}</div>
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_24rem]">
+        <Card className="min-h-[40rem] overflow-hidden p-0">
+          <div className="flex h-full min-h-[40rem] items-center justify-center bg-[image:var(--page-gradient)] bg-surface-container-low px-8 text-center">
+            <div className="grid gap-3">
+              <div className={eyebrowClassName}>{t("user.viewer.previewLabel")}</div>
+              <div className="text-3xl font-semibold tracking-[-0.04em] text-text-primary">
+                {t("user.viewer.previewPlaceholder")}
+              </div>
             </div>
           </div>
         </Card>
 
-        <Card tone="muted">
-          <div className="section-header">
+        <Card tone="low" className="grid content-start gap-5 p-5">
+          <div className="flex items-start justify-between gap-4">
             <div>
-              <div className="eyebrow">{t("user.viewer.panelLabel")}</div>
-              <h3 className="section-title mono">{activeTask.id}</h3>
+              <div className={eyebrowClassName}>{t("user.viewer.panelLabel")}</div>
+              <h3 className="mt-1 font-mono text-lg font-semibold text-text-primary">{activeTask.id}</h3>
             </div>
             <StatusDot
               tone={activeTask.status === "completed" ? "success" : "accent"}
@@ -54,33 +58,33 @@ export function ViewerPage() {
             />
           </div>
 
-          <div className="detail-grid">
+          <div className="grid gap-3">
             {detailItems.map((item) => (
-              <div key={item.labelKey} className="detail-item">
-                <div className="detail-label">{t(item.labelKey)}</div>
-                <div className="detail-value">
+              <div key={item.labelKey} className="grid gap-2 rounded-xl border border-outline bg-surface-container px-4 py-4">
+                <div className="text-sm text-text-muted">{t(item.labelKey)}</div>
+                <div className="text-sm font-semibold text-text-primary">
                   {item.labelKey === "user.viewer.details.quality"
                     ? qualityLabelMap[activeTask.quality]
                     : item.value}
                 </div>
               </div>
             ))}
-            <div className="detail-item">
-              <div className="detail-label">{t("user.viewer.details.updated")}</div>
-              <div className="detail-value">{formatTimestamp(locale, activeTask.updatedAt)}</div>
+            <div className="grid gap-2 rounded-xl border border-outline bg-surface-container px-4 py-4">
+              <div className="text-sm text-text-muted">{t("user.viewer.details.updated")}</div>
+              <div className="text-sm font-semibold text-text-primary">{formatTimestamp(locale, activeTask.updatedAt)}</div>
             </div>
           </div>
 
-          <div className="badge-row">
+          <div className="flex flex-wrap gap-2">
             {activeTask.downloadFormats.map((format) => (
               <Badge key={format} tone="accent">{format.toUpperCase()}</Badge>
             ))}
           </div>
 
-          <div className="download-list">
+          <div className="grid gap-3">
             {activeTask.downloadFormats.map((format) => (
-              <Button key={format} variant="secondary" className="full-width-button">
-                <Download className="button-icon" />
+              <Button key={format} variant="secondary" className="w-full justify-center">
+                <Download className="h-4 w-4" />
                 {t("user.viewer.downloadFormat", { format: format.toUpperCase() })}
               </Button>
             ))}

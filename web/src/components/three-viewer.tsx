@@ -68,5 +68,5 @@ export function ThreeViewer({
     });
   }, [baseUrl, message, token, url]);
 
-  return <div ref={containerRef} className={`relative size-full overflow-hidden rounded-[20px] bg-[#2a2a2a] ${className}`} />;
+  return <div ref={containerRef} className={`relative size-full overflow-hidden rounded-[20px] bg-surface-container-lowest ${className}`} />;
 }

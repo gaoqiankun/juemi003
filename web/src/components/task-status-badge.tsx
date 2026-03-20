@@ -7,21 +7,21 @@ function getStatusMeta(task: TaskRecord) {
   if (visual === "done") {
     return {
       label: "已完成",
-      badge: "border-[#14532d] bg-[rgba(22,163,74,0.12)] text-[#16a34a]",
-      dot: "bg-[#16a34a]",
+      badge: "border-[color:color-mix(in_srgb,var(--success)_28%,transparent)] bg-[color:color-mix(in_srgb,var(--success)_12%,var(--surface-container-low))] text-success-text",
+      dot: "bg-success-text",
     };
   }
   if (visual === "failed") {
     return {
       label: "失败",
-      badge: "border-[#7f1d1d] bg-[rgba(220,38,38,0.12)] text-[#dc2626]",
-      dot: "bg-[#dc2626]",
+      badge: "border-[color:color-mix(in_srgb,var(--danger)_28%,transparent)] bg-[color:color-mix(in_srgb,var(--danger)_12%,var(--surface-container-low))] text-danger-text",
+      dot: "bg-danger-text",
     };
   }
   return {
     label: "生成中",
-    badge: "border-[#713f12] bg-[rgba(202,138,4,0.12)] text-[#ca8a04]",
-    dot: "bg-[#ca8a04]",
+    badge: "border-[color:color-mix(in_srgb,var(--warning)_28%,transparent)] bg-[color:color-mix(in_srgb,var(--warning)_12%,var(--surface-container-low))] text-warning-text",
+    dot: "bg-warning-text",
   };
 }
 
@@ -50,7 +50,7 @@ export function TaskStatusBadge({
     >
       <span className={cn("rounded-full", compact ? "h-1.5 w-1.5" : "h-2 w-2", status.dot)} />
       <span>{status.label}</span>
-      {showProgressText ? <span className="text-[#888888]">{Math.round(task.progress || 0)}%</span> : null}
+      {showProgressText ? <span className="text-text-muted">{Math.round(task.progress || 0)}%</span> : null}
     </div>
   );
 }

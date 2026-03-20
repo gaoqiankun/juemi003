@@ -1,6 +1,8 @@
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { Download, X } from "lucide-react";
+import { useMemo } from "react";
 
+import { useTheme } from "@/hooks/use-theme";
 import { ThreeViewer } from "@/components/three-viewer";
 import { TaskStatusBadge } from "@/components/task-status-badge";
 import { useGen3d } from "@/app/gen3d-provider";
@@ -8,6 +10,15 @@ import { Button } from "@/components/ui/button";
 import { formatTime } from "@/lib/format";
 import { getTaskArtifactProxyUrl } from "@/lib/task-artifacts";
 import type { TaskRecord } from "@/lib/types";
+
+function readTokenColor(tokenName: string, fallbackTokenName = "--surface") {
+  if (typeof window === "undefined") {
+    return "";
+  }
+
+  const styles = getComputedStyle(document.documentElement);
+  return styles.getPropertyValue(tokenName).trim() || styles.getPropertyValue(fallbackTokenName).trim();
+}
 
 export function TaskSheet({
   task,
@@ -21,43 +32,50 @@ export function TaskSheet({
   onDeleteRequest: (taskId: string) => void;
 }) {
   const { config } = useGen3d();
+  const { theme } = useTheme();
   const viewerUrl = getTaskArtifactProxyUrl(task, config.baseUrl);
+  const viewerBackground = useMemo(() => {
+    return readTokenColor("--surface-container-lowest");
+  }, [theme]);
 
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-[rgba(0,0,0,0.95)]" />
+        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-[color:color-mix(in_srgb,var(--surface)_84%,transparent)] backdrop-blur-sm" />
         <DialogPrimitive.Content className="fixed inset-0 z-50 bg-transparent focus:outline-none">
-          <DialogPrimitive.Close className="absolute right-5 top-5 z-20 flex h-10 w-10 items-center justify-center rounded-full border border-[#2a2a2a] bg-black/50 text-white/72 transition hover:bg-black/70 hover:text-white">
+          <DialogPrimitive.Close
+            className="absolute right-5 top-5 z-20 flex h-10 w-10 items-center justify-center rounded-full border border-outline bg-surface-glass text-text-secondary shadow-float backdrop-blur-xl transition hover:bg-surface-container-high hover:text-text-primary"
+            aria-label="关闭"
+          >
             <X className="h-4 w-4" />
           </DialogPrimitive.Close>
 
           {task ? (
             <div className="grid h-full grid-cols-1 lg:grid-cols-[minmax(0,65fr)_minmax(360px,35fr)]">
-              <div className="min-w-0 bg-[#1a1a1a]">
+              <div className="min-w-0 bg-surface-container-lowest">
                 <ThreeViewer
                   url={viewerUrl}
                   message="模型准备中"
                   baseUrl={config.baseUrl}
                   token={config.token}
-                  background="#1a1a1a"
-                  className="rounded-none bg-[#1a1a1a]"
+                  background={viewerBackground}
+                  className="rounded-none bg-surface-container-lowest"
                 />
               </div>
 
-              <div className="flex min-w-0 flex-col bg-[#0f0f0f] p-6">
+              <div className="flex min-w-0 flex-col bg-surface-container-low p-6">
                 <div className="space-y-6">
                   <TaskStatusBadge task={task} />
                   <div className="space-y-2">
-                    <div className="text-[12px] text-[#888888]">创建时间</div>
-                    <div className="text-[14px] text-white">{formatTime(task.createdAt)}</div>
+                    <div className="text-[12px] text-text-muted">创建时间</div>
+                    <div className="text-[14px] text-text-primary">{formatTime(task.createdAt)}</div>
                   </div>
                 </div>
 
                 <div className="mt-10">
                   <Button
                     asChild
-                    className="h-11 w-full rounded-[8px] bg-white text-black shadow-none hover:bg-[#f1f1f1]"
+                    className="h-11 w-full rounded-[10px]"
                   >
                     <a
                       href={viewerUrl || "#"}
@@ -75,7 +93,7 @@ export function TaskSheet({
                 <div className="mt-auto">
                   <button
                     type="button"
-                    className="text-[14px] text-[#dc2626] transition hover:text-[#ef4444]"
+                    className="inline-flex h-10 items-center justify-center rounded-[10px] border border-[color:color-mix(in_srgb,var(--danger)_24%,transparent)] bg-[color:color-mix(in_srgb,var(--danger)_10%,transparent)] px-3 text-[14px] font-medium text-danger-text transition hover:bg-[color:color-mix(in_srgb,var(--danger)_16%,transparent)]"
                     onClick={() => onDeleteRequest(task.taskId)}
                   >
                     删除

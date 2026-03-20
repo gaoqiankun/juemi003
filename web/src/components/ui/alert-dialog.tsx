@@ -13,7 +13,7 @@ const AlertDialogOverlay = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <AlertDialogPrimitive.Overlay
     ref={ref}
-    className={cn("fixed inset-0 z-50 bg-slate-950/78 backdrop-blur-sm", className)}
+    className={cn("fixed inset-0 z-50 bg-[color:color-mix(in_srgb,var(--surface)_78%,transparent)] backdrop-blur-sm", className)}
     {...props}
   />
 ));
@@ -28,7 +28,7 @@ const AlertDialogContent = React.forwardRef<
     <AlertDialogPrimitive.Content
       ref={ref}
       className={cn(
-        "fixed left-1/2 top-1/2 z-50 w-[min(92vw,460px)] -translate-x-1/2 -translate-y-1/2 rounded-[28px] border border-white/10 bg-[rgba(9,13,24,0.98)] p-6 shadow-[0_30px_90px_rgba(0,0,0,0.55)]",
+        "fixed left-1/2 top-1/2 z-50 w-[min(92vw,460px)] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-outline bg-surface-glass p-6 text-text-primary shadow-float backdrop-blur-xl",
         className,
       )}
       {...props}
@@ -42,11 +42,11 @@ function AlertDialogHeader({ className, ...props }: React.HTMLAttributes<HTMLDiv
 }
 
 function AlertDialogTitle({ className, ...props }: React.ComponentPropsWithoutRef<typeof AlertDialogPrimitive.Title>) {
-  return <AlertDialogPrimitive.Title className={cn("font-display text-xl font-semibold text-white", className)} {...props} />;
+  return <AlertDialogPrimitive.Title className={cn("font-display text-xl font-semibold text-text-primary", className)} {...props} />;
 }
 
 function AlertDialogDescription({ className, ...props }: React.ComponentPropsWithoutRef<typeof AlertDialogPrimitive.Description>) {
-  return <AlertDialogPrimitive.Description className={cn("text-sm leading-6 text-slate-400", className)} {...props} />;
+  return <AlertDialogPrimitive.Description className={cn("text-sm leading-6 text-text-secondary", className)} {...props} />;
 }
 
 function AlertDialogFooter({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {

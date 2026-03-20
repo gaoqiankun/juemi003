@@ -12,7 +12,8 @@
   --text-primary: #f5f7fa;
   --text-secondary: rgba(232, 236, 239, 0.72);
   --text-muted: rgba(232, 236, 239, 0.48);
-  --ghost-outline: rgba(189, 200, 206, 0.15);
+  --outline-variant: rgba(189, 200, 206, 0.15);
+  --ghost-outline: var(--outline-variant);
   --accent: #0891b2;
   --accent-strong: #6cd3f7;
   --accent-deep: #269dbe;
@@ -27,19 +28,20 @@
 }
 
 :root[data-theme="light"] {
-  --background: #f9f9fb;
-  --surface: #f9f9fb;
-  --surface-container-low: #f3f3f5;
-  --surface-container: #eeeef0;
-  --surface-container-high: #e3e8eb;
+  --background: #f5f5f7;
+  --surface: #f5f5f7;
+  --surface-container-low: #ededf0;
+  --surface-container: #ffffff;
+  --surface-container-high: #ffffff;
   --surface-container-highest: #ffffff;
-  --surface-container-lowest: #ffffff;
+  --surface-container-lowest: #ebebef;
   --surface-ghost: rgba(0, 31, 40, 0.05);
   --surface-glass: rgba(255, 255, 255, 0.6);
   --text-primary: #1a1c1d;
   --text-secondary: rgba(26, 28, 29, 0.74);
   --text-muted: rgba(26, 28, 29, 0.46);
-  --ghost-outline: rgba(189, 200, 206, 0.2);
+  --outline-variant: #e2e2e5;
+  --ghost-outline: var(--outline-variant);
   --accent: #0891b2;
   --accent-strong: #00647c;
   --accent-deep: #007f9d;
@@ -51,4 +53,9 @@
   --shadow-float: 0 4px 24px rgba(0, 31, 40, 0.06);
   --page-gradient: radial-gradient(circle at top right, rgba(8, 145, 178, 0.09), transparent 38%),
     radial-gradient(circle at left top, rgba(0, 100, 124, 0.06), transparent 28%);
+}
+
+:root[data-theme="light"] .card,
+:root[data-theme="light"] [data-card] {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 }
