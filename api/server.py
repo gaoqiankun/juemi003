@@ -534,6 +534,7 @@ def create_app(
 
     @app.middleware("http")
     async def maybe_proxy_dev_requests(request: Request, call_next):
+        _rewrite_legacy_api_path(request.scope)
         if not _should_proxy_dev_request(request, config):
             return await call_next(request)
         if proxy_client is None:
@@ -639,7 +640,7 @@ def create_app(
         return render_metrics(ready=app_container.engine.ready)
 
     @app.post(
-        "/admin/privileged-keys",
+        "/api/admin/privileged-keys",
         response_model=PrivilegedApiKeyCreateResponse,
         status_code=status.HTTP_201_CREATED,
         dependencies=[Depends(require_admin_token)],
@@ -659,7 +660,7 @@ def create_app(
         return PrivilegedApiKeyCreateResponse(**api_key)
 
     @app.get(
-        "/admin/privileged-keys",
+        "/api/admin/privileged-keys",
         response_model=list[PrivilegedApiKeyListItem],
         dependencies=[Depends(require_admin_token)],
     )
@@ -670,7 +671,7 @@ def create_app(
         return [PrivilegedApiKeyListItem(**api_key) for api_key in api_keys]
 
     @app.delete(
-        "/admin/privileged-keys/{key_id}",
+        "/api/admin/privileged-keys/{key_id}",
         status_code=status.HTTP_204_NO_CONTENT,
         dependencies=[Depends(require_admin_token)],
     )
@@ -687,7 +688,7 @@ def create_app(
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     @app.post(
-        "/admin/keys",
+        "/api/admin/keys",
         response_model=AdminApiKeyCreateResponse,
         status_code=status.HTTP_201_CREATED,
         dependencies=[Depends(require_key_manager_token)],
@@ -703,7 +704,7 @@ def create_app(
         return AdminApiKeyCreateResponse(**api_key)
 
     @app.get(
-        "/admin/keys",
+        "/api/admin/keys",
         response_model=list[AdminApiKeyListItem],
         dependencies=[Depends(require_key_manager_token)],
     )
@@ -714,7 +715,7 @@ def create_app(
         return [AdminApiKeyListItem(**api_key) for api_key in api_keys]
 
     @app.patch(
-        "/admin/keys/{key_id}",
+        "/api/admin/keys/{key_id}",
         response_model=AdminApiKeyListItem,
         dependencies=[Depends(require_key_manager_token)],
     )
@@ -850,7 +851,7 @@ def create_app(
         )
 
     @app.get(
-        "/admin/tasks",
+        "/api/admin/tasks",
         response_model=TaskListResponse,
         dependencies=[Depends(require_task_viewer_token)],
     )
@@ -1090,55 +1091,29 @@ def create_app(
         )
 
     @app.get("/", include_in_schema=False)
-    async def root() -> Response:
+    async def spa_root() -> Response:
         if SPA_INDEX_PATH.is_file():
             return FileResponse(SPA_INDEX_PATH)
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
     @app.get("/static", include_in_schema=False)
     async def static_root_redirect() -> Response:
-        return RedirectResponse(url="/static/", status_code=status.HTTP_308_PERMANENT_REDIRECT)
+        return RedirectResponse(url="/", status_code=status.HTTP_308_PERMANENT_REDIRECT)
 
-    @app.get("/static/", include_in_schema=False)
-    async def static_root() -> Response:
-        if SPA_INDEX_PATH.is_file():
-            return FileResponse(SPA_INDEX_PATH)
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="not found")
+    @app.get("/static/{spa_path:path}", include_in_schema=False)
+    async def static_compat_redirect(spa_path: str) -> Response:
+        target = f"/{spa_path.lstrip('/')}" if spa_path else "/"
+        return RedirectResponse(url=target, status_code=status.HTTP_308_PERMANENT_REDIRECT)
 
     app.mount(
-        "/static",
+        "/",
         SPAStaticFiles(
             directory=str(WEB_DIST_DIR),
             check_dir=False,
             spa_index_path=SPA_INDEX_PATH,
         ),
-        name="static",
+        name="spa",
     )
-
-    @app.api_route(
-        "/{proxy_path:path}",
-        methods=["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"],
-        include_in_schema=False,
-    )
-    async def dev_proxy_catch_all(
-        proxy_path: str,
-        request: Request,
-    ) -> Response:
-        _ = proxy_path
-        if not _should_proxy_dev_request(request, config):
-            if _should_serve_spa_route(request) and SPA_INDEX_PATH.is_file():
-                return FileResponse(SPA_INDEX_PATH)
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="not found")
-        if proxy_client is None:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="dev proxy client is not ready",
-            )
-        return await _forward_dev_proxy_request(
-            request=request,
-            proxy_client=proxy_client,
-            proxy_target=config.dev_proxy_target,
-        )
 
     return app
 
@@ -1164,13 +1139,13 @@ def _should_proxy_dev_request(request: Request, config: ServingConfig) -> bool:
     if config.dev_proxy_target is None:
         return False
     path = request.url.path
-    if path.startswith("/static"):
+    if path.startswith("/static") or path.startswith("/assets/") or path == "/favicon.svg":
         return False
     if _resolve_dev_local_model_path(config, _extract_artifact_filename(path)) is not None:
         return False
     return (
         path.startswith("/v1/")
-        or path.startswith("/admin/")
+        or path.startswith("/api/")
         or path in {"/health", "/readiness", "/ready", "/metrics", "/docs", "/redoc", "/openapi.json"}
     )
 
@@ -1203,24 +1178,23 @@ def _should_serve_static_spa_route(path: str) -> bool:
     normalized = path.strip() or "/"
     if normalized in {"/", ""}:
         return True
+    if normalized.startswith("/api/") or normalized.startswith("/v1/"):
+        return False
+    if normalized in {"/health", "/readiness", "/ready", "/metrics", "/docs", "/redoc", "/openapi.json"}:
+        return False
     if normalized.startswith("/assets/"):
         return False
     return "." not in normalized.rsplit("/", 1)[-1]
 
 
-def _should_serve_spa_route(request: Request) -> bool:
-    if request.method not in {"GET", "HEAD"}:
-        return False
-    path = request.url.path
-    if path == "/":
-        return True
-    if path.startswith("/static"):
-        return False
-    if path.startswith("/v1/") or path.startswith("/admin/"):
-        return False
-    if path in {"/health", "/readiness", "/ready", "/metrics", "/docs", "/redoc", "/openapi.json"}:
-        return False
-    return "." not in path.rsplit("/", 1)[-1]
+def _rewrite_legacy_api_path(scope: Scope) -> None:
+    path = scope.get("path", "")
+    if not isinstance(path, str):
+        return
+    if path == "/api/v1" or path.startswith("/api/v1/"):
+        rewritten_path = path[4:]
+        scope["path"] = rewritten_path
+        scope["raw_path"] = rewritten_path.encode("utf-8")
 
 
 async def _forward_dev_proxy_request(

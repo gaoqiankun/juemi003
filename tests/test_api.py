@@ -193,7 +193,7 @@ def create_privileged_api_key(
     if allowed_ips is not None:
         payload["allowed_ips"] = allowed_ips
     response = client.post(
-        "/admin/privileged-keys",
+        "/api/admin/privileged-keys",
         headers=admin_headers(admin_token),
         json=payload,
     )
@@ -283,7 +283,7 @@ def create_managed_api_key(
     admin_token: str = "admin-token",
 ) -> dict:
     response = client.post(
-        "/admin/keys",
+        "/api/admin/keys",
         headers=key_manager_headers(client, admin_token=admin_token),
         json={"label": label},
     )
@@ -722,18 +722,21 @@ def test_root_and_spa_routes_serve_built_index_when_present(
 
     with make_client(tmp_path) as client:
         root_response = client.get("/")
-        gallery_response = client.get("/gallery")
-        settings_response = client.get("/settings")
+        generate_response = client.get("/generate")
+        generations_response = client.get("/generations")
+        admin_dashboard_response = client.get("/admin/dashboard")
 
     assert root_response.status_code == 200
     assert "cubify3d spa" in root_response.text
-    assert gallery_response.status_code == 200
-    assert "cubify3d spa" in gallery_response.text
-    assert settings_response.status_code == 200
-    assert "cubify3d spa" in settings_response.text
+    assert generate_response.status_code == 200
+    assert "cubify3d spa" in generate_response.text
+    assert generations_response.status_code == 200
+    assert "cubify3d spa" in generations_response.text
+    assert admin_dashboard_response.status_code == 200
+    assert "cubify3d spa" in admin_dashboard_response.text
 
 
-def test_static_prefixed_spa_routes_serve_built_index_when_present(
+def test_root_assets_and_legacy_static_routes_work_with_built_spa(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -746,22 +749,22 @@ def test_static_prefixed_spa_routes_serve_built_index_when_present(
     monkeypatch.setattr(server_module, "SPA_INDEX_PATH", spa_index)
 
     with make_client(tmp_path) as client:
+        generate_response = client.get("/generate")
+        admin_dashboard_response = client.get("/admin/dashboard")
+        asset_response = client.get("/favicon.svg")
         static_redirect_response = client.get("/static", follow_redirects=False)
-        static_root_response = client.get("/static/")
-        gallery_response = client.get("/static/gallery")
-        settings_response = client.get("/static/settings")
-        asset_response = client.get("/static/favicon.svg")
+        static_generate_redirect_response = client.get("/static/generate", follow_redirects=False)
 
-    assert static_redirect_response.status_code == 308
-    assert static_redirect_response.headers["location"] == "/static/"
-    assert static_root_response.status_code == 200
-    assert "cubify3d static spa" in static_root_response.text
-    assert gallery_response.status_code == 200
-    assert "cubify3d static spa" in gallery_response.text
-    assert settings_response.status_code == 200
-    assert "cubify3d static spa" in settings_response.text
+    assert generate_response.status_code == 200
+    assert "cubify3d static spa" in generate_response.text
+    assert admin_dashboard_response.status_code == 200
+    assert "cubify3d static spa" in admin_dashboard_response.text
     assert asset_response.status_code == 200
     assert asset_response.text == "<svg></svg>"
+    assert static_redirect_response.status_code == 308
+    assert static_redirect_response.headers["location"] == "/"
+    assert static_generate_redirect_response.status_code == 308
+    assert static_generate_redirect_response.headers["location"] == "/generate"
 
 
 def test_dev_proxy_does_not_forward_spa_routes(
@@ -798,11 +801,23 @@ def test_dev_proxy_does_not_forward_spa_routes(
     )
 
     with TestClient(create_test_app(config)) as client:
-        response = client.get("/gallery")
+        response = client.get("/generate")
 
     assert response.status_code == 200
     assert "local spa" in response.text
     assert forwarded_requests == []
+
+
+def test_api_v1_alias_routes_to_task_api(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        response = client.get("/api/v1/tasks", headers=task_auth_headers(client))
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "items": [],
+        "hasMore": False,
+        "nextCursor": None,
+    }
 
 
 def test_app_startup_triggers_async_model_prewarm_without_blocking(
@@ -919,7 +934,7 @@ def test_bearer_auth_is_required_for_task_routes(tmp_path: Path) -> None:
 
 def test_privileged_key_routes_return_401_when_admin_token_is_unset(tmp_path: Path) -> None:
     with make_client(tmp_path, admin_token=None) as client:
-        response = client.get("/admin/privileged-keys", headers=admin_headers())
+        response = client.get("/api/admin/privileged-keys", headers=admin_headers())
 
     assert response.status_code == 401
     assert response.json()["detail"] == "invalid admin token"
@@ -928,7 +943,7 @@ def test_privileged_key_routes_return_401_when_admin_token_is_unset(tmp_path: Pa
 def test_privileged_key_crud_flow_returns_token_once_and_list_hides_token(tmp_path: Path) -> None:
     with make_client(tmp_path, admin_token="admin-token") as client:
         create_response = client.post(
-            "/admin/privileged-keys",
+            "/api/admin/privileged-keys",
             headers=admin_headers(),
             json={
                 "scope": "metrics",
@@ -940,13 +955,13 @@ def test_privileged_key_crud_flow_returns_token_once_and_list_hides_token(tmp_pa
         created_payload = create_response.json()
         key_id = created_payload["keyId"]
 
-        list_response = client.get("/admin/privileged-keys", headers=admin_headers())
+        list_response = client.get("/api/admin/privileged-keys", headers=admin_headers())
         delete_response = client.delete(
-            f"/admin/privileged-keys/{key_id}",
+            f"/api/admin/privileged-keys/{key_id}",
             headers=admin_headers(),
         )
         missing_response = client.delete(
-            "/admin/privileged-keys/missing-key",
+            "/api/admin/privileged-keys/missing-key",
             headers=admin_headers(),
         )
 
@@ -980,10 +995,10 @@ def test_privileged_key_crud_flow_returns_token_once_and_list_hides_token(tmp_pa
 
 def test_admin_key_routes_require_key_manager_token(tmp_path: Path) -> None:
     with make_client(tmp_path, admin_token="admin-token") as client:
-        missing_token_response = client.get("/admin/keys")
-        admin_token_response = client.get("/admin/keys", headers=admin_headers())
+        missing_token_response = client.get("/api/admin/keys")
+        admin_token_response = client.get("/api/admin/keys", headers=admin_headers())
         invalid_token_response = client.get(
-            "/admin/keys",
+            "/api/admin/keys",
             headers=auth_headers("wrong-token"),
         )
 
@@ -998,7 +1013,7 @@ def test_admin_key_routes_require_key_manager_token(tmp_path: Path) -> None:
 def test_admin_key_crud_flow_returns_token_once_and_list_hides_token(tmp_path: Path) -> None:
     with make_client(tmp_path, admin_token="admin-token") as client:
         create_response = client.post(
-            "/admin/keys",
+            "/api/admin/keys",
             headers=key_manager_headers(client),
             json={"label": "QA Team"},
         )
@@ -1006,14 +1021,14 @@ def test_admin_key_crud_flow_returns_token_once_and_list_hides_token(tmp_path: P
         created_payload = create_response.json()
         key_id = created_payload["keyId"]
 
-        list_response = client.get("/admin/keys", headers=key_manager_headers(client))
+        list_response = client.get("/api/admin/keys", headers=key_manager_headers(client))
         patch_response = client.patch(
-            f"/admin/keys/{key_id}",
+            f"/api/admin/keys/{key_id}",
             headers=key_manager_headers(client),
             json={"is_active": False},
         )
         missing_response = client.patch(
-            "/admin/keys/missing-key",
+            "/api/admin/keys/missing-key",
             headers=key_manager_headers(client),
             json={"is_active": False},
         )
@@ -1120,7 +1135,7 @@ def test_inactive_managed_api_key_is_rejected(tmp_path: Path) -> None:
     with make_client(tmp_path, admin_token="admin-token") as client:
         managed_key = create_managed_api_key(client, label="Tester B")
         deactivate_response = client.patch(
-            f"/admin/keys/{managed_key['keyId']}",
+            f"/api/admin/keys/{managed_key['keyId']}",
             headers=key_manager_headers(client),
             json={"is_active": False},
         )
@@ -1218,11 +1233,11 @@ def test_admin_tasks_returns_all_tasks_and_supports_key_filter(tmp_path: Path) -
         )
 
         all_response = client.get(
-            "/admin/tasks",
+            "/api/admin/tasks",
             headers=task_viewer_headers(client),
         )
         key_a_response = client.get(
-            f"/admin/tasks?key_id={managed_key_a['keyId']}",
+            f"/api/admin/tasks?key_id={managed_key_a['keyId']}",
             headers=task_viewer_headers(client),
         )
 
@@ -1243,13 +1258,13 @@ def test_admin_tasks_returns_all_tasks_and_supports_key_filter(tmp_path: Path) -
 
 def test_admin_tasks_requires_valid_task_viewer_token(tmp_path: Path) -> None:
     with make_client(tmp_path, admin_token="admin-token") as client:
-        missing_token_response = client.get("/admin/tasks")
+        missing_token_response = client.get("/api/admin/tasks")
         invalid_token_response = client.get(
-            "/admin/tasks",
+            "/api/admin/tasks",
             headers=auth_headers("wrong-token"),
         )
         admin_token_response = client.get(
-            "/admin/tasks",
+            "/api/admin/tasks",
             headers=admin_headers(),
         )
 
@@ -1337,7 +1352,7 @@ def test_task_list_returns_requested_page_and_cursor_metadata(
 
     with make_client(tmp_path, database_path=database_path) as client:
         response = client.get(
-            "/admin/tasks?limit=50",
+            "/api/admin/tasks?limit=50",
             headers=task_viewer_headers(client),
         )
 
@@ -1437,7 +1452,7 @@ def test_service_startup_migrates_existing_tasks_table_and_preserves_rows(
         connection.close()
 
     with make_client(tmp_path, database_path=database_path) as client:
-        response = client.get("/admin/tasks", headers=task_viewer_headers(client))
+        response = client.get("/api/admin/tasks", headers=task_viewer_headers(client))
 
     migrated_connection = sqlite3.connect(database_path)
     try:
@@ -1487,13 +1502,13 @@ def test_service_startup_migrates_existing_api_keys_table_and_preserves_legacy_r
 
     with make_client(tmp_path, database_path=database_path) as client:
         bootstrap_response = client.post(
-            "/admin/privileged-keys",
+            "/api/admin/privileged-keys",
             headers=admin_headers(),
             json={"scope": "key_manager", "label": "Migrated Key Manager"},
         )
         assert bootstrap_response.status_code == 201
         list_response = client.get(
-            "/admin/keys",
+            "/api/admin/keys",
             headers=auth_headers(bootstrap_response.json()["token"]),
         )
         create_response = client.post(
@@ -1862,7 +1877,7 @@ def test_task_list_cursor_pagination_is_stable_when_newer_task_arrives(
 
     with make_client(tmp_path, database_path=database_path) as client:
         first_page_response = client.get(
-            "/admin/tasks?limit=2",
+            "/api/admin/tasks?limit=2",
             headers=task_viewer_headers(client),
         )
         assert first_page_response.status_code == 200
@@ -1880,7 +1895,7 @@ def test_task_list_cursor_pagination_is_stable_when_newer_task_arrives(
         assert create_response.status_code == 201
 
         second_page_response = client.get(
-            "/admin/tasks",
+            "/api/admin/tasks",
             params={
                 "limit": 2,
                 "before": first_page_response.json()["nextCursor"],

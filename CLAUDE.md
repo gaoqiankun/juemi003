@@ -27,16 +27,16 @@
 ## 当前状态（2026-03-20）
 
 - Phase A/B/C 全部完成，测试基线：`python -m pytest tests -q` **85 passed**
-- E15-A（已提交）：preview.png 生成 + PreviewRendererService
 - **当前阶段：Cubify 3D 开源转型，v0.1 发布准备**
 
 ### v0.1 模块进度
 
 | 模块 | 状态 |
 |------|------|
-| M1 · 品牌 & 开源化基础 | 🔲 待开始 |
-| M2 · HunYuan3D Provider | 🔲 待开始 |
-| M3 · Model 管理 UI | 🔲 待开始 |
+| M1 · 品牌 & 开源化基础 | ✅ 完成（已部署验证） |
+| M2 · Admin Panel（5页双主题+i18n） | ✅ 完成（build通过，Playwright验证） |
+| M2.5 · 用户侧页面（Generate/History/Viewer/Setup） | ✅ 完成（build通过，Playwright验证） |
+| M3 · HunYuan3D Provider | 🔲 待开始 |
 | M4 · 安装体验（Pinokio + 脚本）| 🔲 待开始 |
 | M5 · 文档完善 | 🔲 待开始 |
 | M6 · 发布前 QA & 清理 | 🔲 待开始 |

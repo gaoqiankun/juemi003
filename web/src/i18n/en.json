@@ -1,0 +1,415 @@
+{
+  "shell": {
+    "brandEyebrow": "Cubify 3D",
+    "brandCopy": "Operational admin workspace tuned for queue health, model inventory, and deployment controls.",
+    "navigation": "Workspace",
+    "deployLabel": "Deployment",
+    "deployValue": "Mock preview stack",
+    "deployCopy": "All cards in this panel run on placeholder hooks and can be swapped to live endpoints later.",
+    "themeToggle": "Toggle theme",
+    "languageToggle": "Toggle language",
+    "themeDark": "Dark",
+    "themeLight": "Light",
+    "environment": "stitch-synced",
+    "nav": {
+      "dashboard": "Dashboard",
+      "tasks": "Tasks",
+      "models": "Models",
+      "apiKeys": "API Keys",
+      "settings": "Settings"
+    }
+  },
+  "common": {
+    "updatedAt": "Updated {{value}}",
+    "viewAll": "View all",
+    "saveChanges": "Save changes",
+    "resetDefaults": "Reset defaults",
+    "createKey": "Create key",
+    "importModel": "Import model manifest",
+    "scope": "Scope",
+    "owner": "Owner",
+    "status": {
+      "live": "live",
+      "queued": "queued",
+      "completed": "completed",
+      "failed": "failed",
+      "online": "online",
+      "warning": "warning",
+      "offline": "offline",
+      "ready": "ready",
+      "syncing": "syncing",
+      "paused": "paused",
+      "active": "active",
+      "rotating": "rotating"
+    },
+    "subjects": {
+      "sneaker": "Sport sneaker concept",
+      "chair": "Walnut armchair",
+      "headphones": "Studio headphones",
+      "drone": "Compact inspection drone",
+      "lamp": "Ceramic desk lamp",
+      "camera": "Mirrorless camera body",
+      "watch": "Titanium field watch",
+      "jacket": "Padded shell jacket"
+    },
+    "capabilities": {
+      "highDetail": "high detail",
+      "pbr": "pbr textures",
+      "multiView": "multi-view",
+      "fastDraft": "fast draft",
+      "preview": "preview",
+      "textureAware": "texture aware",
+      "cleanTopology": "clean topology"
+    }
+  },
+  "dashboard": {
+    "title": "Operational dashboard",
+    "description": "Monitor queue health, GPU pressure, and cluster stability without leaving the admin workspace.",
+    "stats": {
+      "activeTasks": {
+        "label": "Active Tasks",
+        "helper": "Jobs currently consuming GPU time"
+      },
+      "queued": {
+        "label": "Queued",
+        "helper": "Requests waiting on available capacity"
+      },
+      "completed": {
+        "label": "Completed",
+        "helper": "Finished generations in the last 24 hours"
+      },
+      "failed": {
+        "label": "Failed",
+        "helper": "Tasks requiring retry or operator review"
+      }
+    },
+    "gpu": {
+      "title": "Primary GPU lane",
+      "subtitle": "Realtime device telemetry for the busiest render node.",
+      "utilization": "Utilization",
+      "vram": "VRAM",
+      "temperature": "TEMP",
+      "power": "POWER",
+      "fans": "FANS",
+      "cuda": "CUDA",
+      "driver": "Driver",
+      "activeJobs": "Active jobs",
+      "avgLatency": "Avg latency"
+    },
+    "recentTasks": {
+      "title": "Recent tasks",
+      "subtitle": "Fresh queue movements across priority and default lanes.",
+      "columns": {
+        "task": "Task",
+        "model": "Model",
+        "status": "Status",
+        "duration": "Duration",
+        "created": "Created",
+        "owner": "Owner"
+      }
+    },
+    "nodes": {
+      "title": "Infrastructure nodes",
+      "subtitle": "Cluster coverage by zone and GPU family.",
+      "zone": "Zone",
+      "pending": "Pending",
+      "uptime": "Uptime",
+      "throughput": "Throughput"
+    }
+  },
+  "tasks": {
+    "title": "Task control room",
+    "description": "Inspect throughput, filter the render queue, and spot failures before they fan out.",
+    "overview": {
+      "throughput": "Throughput",
+      "latency": "Latency",
+      "active": "Active count"
+    },
+    "filters": {
+      "all": "All",
+      "live": "Live",
+      "queued": "Queued",
+      "completed": "Completed",
+      "failed": "Failed"
+    },
+    "searchPlaceholder": "Search by task ID, owner, or subject",
+    "table": {
+      "title": "Queue backlog",
+      "subtitle": "Mock tasks mapped to placeholder hooks for future API replacement.",
+      "columns": {
+        "task": "Task",
+        "subject": "Subject",
+        "queue": "Queue",
+        "progress": "Progress",
+        "model": "Model",
+        "created": "Created",
+        "latency": "Latency",
+        "owner": "Owner"
+      }
+    },
+    "logs": {
+      "title": "Operator log",
+      "subtitle": "Synthetic log feed that mirrors system tone and severity.",
+      "allocateGpu": "allocator assigned cubify-gpu-01 to task tsk_6fe91b4c",
+      "materialStage": "material stage reached 82% with preview render cached",
+      "queueDepth": "queue depth on experiments lane exceeded configured soft target",
+      "previewReady": "preview artifact uploaded to object storage and indexed",
+      "edgeNode": "edge node cubify-edge-01 failed heartbeat, traffic drained",
+      "downloadCache": "model cache warmup completed for HunYuan3D-2"
+    }
+  },
+  "models": {
+    "title": "Model inventory",
+    "description": "Track which providers are mounted, syncing, or staged for download across the deployment.",
+    "summary": {
+      "ready": "Ready",
+      "syncing": "Syncing",
+      "queued": "Queued",
+      "storage": "Storage used"
+    },
+    "card": {
+      "provider": "Provider",
+      "version": "Version",
+      "footprint": "Footprint",
+      "minimumVram": "Minimum VRAM",
+      "downloads": "Downloads",
+      "updated": "Updated",
+      "syncProgress": "Sync progress"
+    },
+    "importTitle": "Import a new model bundle",
+    "importCopy": "Attach a manifest, verify checksum metadata, and queue the asset for staged rollout."
+  },
+  "apiKeys": {
+    "title": "API key management",
+    "description": "Review tenant usage, rotate credentials, and keep scope exposure tight.",
+    "usage": {
+      "requests": "Monthly requests",
+      "projects": "Active projects",
+      "spend": "Billable usage",
+      "errorRate": "Error rate"
+    },
+    "table": {
+      "title": "Issued keys",
+      "subtitle": "Masked credentials with operational metadata only.",
+      "columns": {
+        "name": "Name",
+        "token": "Token",
+        "created": "Created",
+        "lastUsed": "Last used",
+        "requests": "Requests",
+        "scopes": "Scopes",
+        "status": "Status",
+        "owner": "Owner"
+      }
+    },
+    "actions": {
+      "rotate": "Rotate",
+      "disable": "Disable"
+    },
+    "createPanel": {
+      "title": "Create a scoped key",
+      "copy": "Issue a masked token for CI, render automation, or partner traffic without exposing full secrets in the UI.",
+      "scopes": {
+        "tasksRead": "tasks:read",
+        "tasksWrite": "tasks:write",
+        "modelsRead": "models:read",
+        "keysRead": "keys:read"
+      }
+    }
+  },
+  "settings": {
+    "title": "System settings",
+    "description": "Tune the generation engine, artifact storage, and traffic guardrails from one layered surface.",
+    "sections": {
+      "generation": {
+        "title": "Generation Engine",
+        "description": "Primary execution model, parallelism, and preview behavior."
+      },
+      "storage": {
+        "title": "Storage",
+        "description": "Artifact retention and backend routing for generated outputs."
+      },
+      "traffic": {
+        "title": "Traffic & Limits",
+        "description": "Rate limits, concurrency caps, and allowed control-plane origins."
+      }
+    },
+    "fields": {
+      "defaultProvider": {
+        "label": "Default provider",
+        "description": "Choose which model receives new jobs when the client does not pin a provider."
+      },
+      "maxParallelJobs": {
+        "label": "Max parallel jobs",
+        "description": "Upper bound of concurrent renders scheduled across the primary cluster."
+      },
+      "previewRenderer": {
+        "label": "Preview renderer",
+        "description": "Generate preview thumbnails during pipeline execution."
+      },
+      "completionWebhook": {
+        "label": "Completion webhook",
+        "description": "POST target used after a task reaches the completed state."
+      },
+      "artifactBackend": {
+        "label": "Artifact backend",
+        "description": "Backend used for previews, meshes, and metadata manifests."
+      },
+      "retentionDays": {
+        "label": "Retention window",
+        "description": "Time to retain generated assets before scheduled cleanup."
+      },
+      "signedUrls": {
+        "label": "Signed URLs",
+        "description": "Wrap artifact downloads in signed URLs when the backend supports it."
+      },
+      "artifactPrefix": {
+        "label": "Artifact prefix",
+        "description": "Storage path prefix for generated tasks and preview assets."
+      },
+      "rateLimitPerMin": {
+        "label": "Rate limit",
+        "description": "Global request budget before keys are throttled."
+      },
+      "concurrencyBurst": {
+        "label": "Burst capacity",
+        "description": "Temporary concurrency ceiling for short spikes in traffic."
+      },
+      "priorityQueue": {
+        "label": "Priority queue",
+        "description": "Keep a reserved lane for premium or internal operator traffic."
+      },
+      "allowedOrigins": {
+        "label": "Allowed origins",
+        "description": "Comma separated control-plane origins permitted for admin access."
+      }
+    },
+    "options": {
+      "trellisLarge": "TRELLIS2 Large",
+      "trellisLite": "TRELLIS2 Lite",
+      "hunyuan": "HunYuan3D-2",
+      "minio": "MinIO",
+      "local": "Local disk"
+    },
+    "preview": {
+      "title": "Deployment notes",
+      "copy": "Settings remain local mock state for now. Each field is already shaped as a future API payload boundary.",
+      "cluster": "Cluster profile",
+      "clusterValue": "3 GPU nodes / 1 edge relay",
+      "storage": "Artifact mode",
+      "storageValue": "MinIO primary, local fallback",
+      "traffic": "Traffic posture",
+      "trafficValue": "priority lane enabled"
+    }
+  },
+  "user": {
+    "shell": {
+      "brandEyebrow": "Creator workspace",
+      "navigation": "User workspace",
+      "nav": {
+        "generate": "Generate",
+        "generations": "My Generations",
+        "setup": "Setup"
+      }
+    },
+    "status": {
+      "processing": "processing",
+      "completed": "completed",
+      "failed": "failed"
+    },
+    "mockTitles": {
+      "sneaker": "Minimal sneaker study",
+      "headset": "Studio headset concept",
+      "lamp": "Ceramic lamp edition",
+      "chair": "Walnut lounge chair"
+    },
+    "mockPrompts": {
+      "sneaker": "Minimal sneaker with layered foam sole and translucent heel support.",
+      "headset": "Premium over-ear headset with matte aluminum arms and soft fabric cushions.",
+      "lamp": "Ceramic lamp with fluted body, satin glaze and wide linen shade.",
+      "chair": "Walnut lounge chair with woven seat, rounded arms and subtle bevels."
+    },
+    "generate": {
+      "title": "Generate a new 3D asset",
+      "description": "Upload a source image, refine the prompt, and shape the output format before dispatching the job.",
+      "uploadLabel": "Input",
+      "uploadTitle": "Reference image",
+      "dropTitle": "Drop a reference here or load a sample",
+      "sampleFile": "ui-test-input.png attached as the current placeholder source.",
+      "mockUploadReady": "Mock upload refreshed. The UI keeps the new placeholder source locally only.",
+      "promptLabel": "Refinement prompt",
+      "promptPlaceholder": "Describe material, silhouette, topology or styling details.",
+      "promptPreset": "Minimal sneaker with layered foam sole, translucent heel support and precise stitch seams.",
+      "qualityLabel": "Quality",
+      "formatLabel": "Output",
+      "seedLabel": "Seed",
+      "usePreset": "Use sample prompt",
+      "createButton": "Create mock generation",
+      "progressLabel": "Pipeline",
+      "progressTitle": "Realtime progress",
+      "activeTaskLabel": "Active task",
+      "previewLabel": "Latest result",
+      "previewTitle": "Ready for viewer handoff",
+      "latestResult": "Featured task",
+      "updatedAt": "Updated",
+      "openViewer": "Open viewer",
+      "options": {
+        "qualityDraft": "Draft",
+        "qualityProduction": "Production",
+        "qualityUltra": "Ultra",
+        "formatGlb": "GLB",
+        "formatObj": "OBJ",
+        "formatUsdz": "USDZ"
+      },
+      "steps": {
+        "uploaded": "Input staged",
+        "geometry": "Geometry pass",
+        "materials": "Material projection",
+        "packaging": "Export packaging"
+      }
+    },
+    "generations": {
+      "title": "My Generations",
+      "description": "Track every placeholder job, inspect current status, and reopen finished assets in the viewer.",
+      "filters": {
+        "all": "All",
+        "processing": "Processing",
+        "completed": "Completed",
+        "failed": "Failed"
+      },
+      "card": {
+        "prompt": "Prompt"
+      },
+      "actions": {
+        "view": "View",
+        "download": "Download"
+      },
+      "emptyTitle": "No generations in this filter",
+      "emptyCopy": "Try a different filter or return to Generate to create a fresh placeholder job."
+    },
+    "viewer": {
+      "title": "3D Viewer",
+      "panelLabel": "Asset details",
+      "previewPlaceholder": "3D Preview",
+      "backButton": "Back to generations",
+      "downloadFormat": "Download {{format}}",
+      "details": {
+        "quality": "Quality",
+        "format": "Primary format",
+        "polygons": "Polygons",
+        "fileSize": "File size",
+        "updated": "Updated"
+      }
+    },
+    "setup": {
+      "title": "Configure your engine",
+      "description": "Connect a Cubify endpoint with your API Key before entering the generation flow.",
+      "apiKeyLabel": "API Key",
+      "apiKeyPlaceholder": "Paste your Cubify API Key",
+      "serverUrlLabel": "Server URL",
+      "noteLabel": "Setup note",
+      "helper": "Configuration is stored in localStorage only for this mock flow. Missing API Key will redirect protected pages back here.",
+      "connectButton": "Save and connect"
+    }
+  }
+}

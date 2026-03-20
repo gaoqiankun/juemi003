@@ -1,12 +1,17 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 
-import { AppShell } from "@/components/app-shell";
-import { DebugErrorBoundary } from "@/components/debug-error-boundary";
-import { GalleryPage } from "@/pages/gallery-page";
-import { ProofShotsPage } from "@/pages/proof-shots-page";
+import { ProtectedUserRoute } from "@/components/guards/protected-user-route";
+import { AdminShell } from "@/components/layout/admin-shell";
+import { UserShell } from "@/components/layout/user-shell";
+import { ApiKeysPage } from "@/pages/api-keys-page";
+import { DashboardPage } from "@/pages/dashboard-page";
 import { GeneratePage } from "@/pages/generate-page";
-import { ReferenceComparePage } from "@/pages/reference-compare-page";
+import { GenerationsPage } from "@/pages/generations-page";
+import { ModelsPage } from "@/pages/models-page";
 import { SettingsPage } from "@/pages/settings-page";
+import { SetupPage } from "@/pages/setup-page";
+import { TasksPage } from "@/pages/tasks-page";
+import { ViewerPage } from "@/pages/viewer-page";
 
 export default function App() {
   const basename = import.meta.env.BASE_URL.endsWith("/")
@@ -14,30 +19,35 @@ export default function App() {
     : import.meta.env.BASE_URL;
 
   return (
-    <BrowserRouter basename={basename || "/"}>
+    <BrowserRouter
+      basename={basename || "/"}
+      future={{
+        v7_relativeSplatPath: true,
+        v7_startTransition: true,
+      }}
+    >
       <Routes>
-        <Route
-          path="/__compare"
-          element={(
-            <DebugErrorBoundary>
-              <ReferenceComparePage />
-            </DebugErrorBoundary>
-          )}
-        />
-        <Route
-          path="/__shots"
-          element={(
-            <DebugErrorBoundary>
-              <ProofShotsPage />
-            </DebugErrorBoundary>
-          )}
-        />
-        <Route path="/" element={<AppShell />}>
-          <Route index element={<GeneratePage />} />
-          <Route path="gallery" element={<GalleryPage />} />
-          <Route path="settings" element={<SettingsPage />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
+        <Route element={<UserShell />}>
+          <Route path="/" element={<Navigate to="/generate" replace />} />
+          <Route path="/setup" element={<SetupPage />} />
+          <Route element={<ProtectedUserRoute />}>
+            <Route path="/generate" element={<GeneratePage />} />
+            <Route path="/generations" element={<GenerationsPage />} />
+            <Route path="/viewer/:taskId" element={<ViewerPage />} />
+          </Route>
         </Route>
+
+        <Route path="/admin" element={<AdminShell />}>
+          <Route index element={<Navigate to="/admin/dashboard" replace />} />
+          <Route path="dashboard" element={<DashboardPage />} />
+          <Route path="tasks" element={<TasksPage />} />
+          <Route path="models" element={<ModelsPage />} />
+          <Route path="api-keys" element={<ApiKeysPage />} />
+          <Route path="settings" element={<SettingsPage />} />
+          <Route path="*" element={<Navigate to="/admin/dashboard" replace />} />
+        </Route>
+
+        <Route path="*" element={<Navigate to="/generate" replace />} />
       </Routes>
     </BrowserRouter>
   );

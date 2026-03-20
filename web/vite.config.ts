@@ -7,7 +7,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const devApiTarget = process.env.CUBIFY_DEV_API_TARGET || "http://127.0.0.1:19001";
 
 export default defineConfig({
-  base: "/static/",
+  base: "/",
   plugins: [react()],
   server: {
     proxy: {
@@ -18,8 +18,8 @@ export default defineConfig({
       "/docs": devApiTarget,
       "/redoc": devApiTarget,
       "/openapi.json": devApiTarget,
+      "/api": devApiTarget,
       "/v1": devApiTarget,
-      "/admin": devApiTarget,
     },
   },
   resolve: {

@@ -15,8 +15,8 @@ import type {
   TaskRecord,
 } from "@/lib/types";
 
-const MODEL_URL = "/static/fixtures/compare-model.glb";
-const INPUT_URL = "/static/fixtures/compare-input.png";
+const MODEL_URL = "/fixtures/compare-model.glb";
+const INPUT_URL = "/fixtures/compare-input.png";
 
 type ProofMode =
   | "generate-empty"

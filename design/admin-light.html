@@ -1,0 +1,907 @@
+<!DOCTYPE html>
+<html lang="en" class="">
+<head>
+    <meta charset="utf-8"/>
+    <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+    <title>Cubify 3D Admin Prototype</title>
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
+    
+    <script>
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#0891B2",
+                        "surface-container-high": "#e8e8ea",
+                        "primary-fixed": "#b7eaff",
+                        "on-primary": "#ffffff",
+                        "on-error": "#ffffff",
+                        "inverse-primary": "#6cd3f7",
+                        "background": "#f9f9fb",
+                        "on-tertiary-fixed-variant": "#6a3b00",
+                        "surface": "#f9f9fb",
+                        "tertiary": "#894e00",
+                        "secondary-fixed-dim": "#a8ccdb",
+                        "on-secondary-fixed-variant": "#284b58",
+                        "on-surface": "#1a1c1d",
+                        "tertiary-container": "#a86516",
+                        "surface-bright": "#f9f9fb",
+                        "surface-container": "#eeeef0",
+                        "inverse-on-surface": "#f0f0f2",
+                        "surface-container-lowest": "#ffffff",
+                        "on-primary-fixed": "#001f28",
+                        "on-error-container": "#93000a",
+                        "on-secondary-container": "#466977",
+                        "surface-variant": "#e2e2e4",
+                        "on-primary-container": "#fafdff",
+                        "error-container": "#ffdad6",
+                        "secondary-container": "#c3e8f8",
+                        "primary-fixed-dim": "#6cd3f7",
+                        "on-primary-fixed-variant": "#004e61",
+                        "outline-variant": "#bdc8ce",
+                        "on-secondary-fixed": "#001f28",
+                        "inverse-surface": "#2f3132",
+                        "on-tertiary-container": "#fffbff",
+                        "surface-tint": "#006780",
+                        "secondary": "#406370",
+                        "primary-container": "#007f9d",
+                        "surface-container-low": "#f3f3f5",
+                        "outline": "#6e797e",
+                        "secondary-fixed": "#c3e8f8",
+                        "tertiary-fixed": "#ffdcbf",
+                        "on-tertiary-fixed": "#2d1600",
+                        "surface-container-highest": "#e2e2e4",
+                        "on-background": "#1a1c1d",
+                        "on-tertiary": "#ffffff",
+                        "on-surface-variant": "#3e484d",
+                        "error": "#ba1a1a",
+                        "tertiary-fixed-dim": "#ffb873",
+                        "surface-dim": "#d9dadc",
+                        "on-secondary": "#ffffff"
+                    },
+                    fontFamily: {
+                        "headline": ["Inter", "sans-serif"],
+                        "body": ["Inter", "sans-serif"],
+                        "label": ["Space Grotesk", "sans-serif"],
+                        "mono": ["JetBrains Mono", "monospace"]
+                    },
+                    borderRadius: { "DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem" },
+                },
+            },
+        }
+    </script>
+    <style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            vertical-align: middle;
+        }
+        body { font-family: 'Inter', sans-serif; }
+        .tabular-nums { font-variant-numeric: tabular-nums; }
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #3e484d; border-radius: 10px; }
+    </style>
+
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/history@5/umd/history.development.js"></script>
+    <script src="https://unpkg.com/react-router@6.3.0/umd/react-router.development.js"></script>
+    <script src="https://unpkg.com/react-router-dom@6.3.0/umd/react-router-dom.development.js"></script>
+    <script src="https://unpkg.com/babel-standalone@6/babel.min.js"></script>
+</head>
+<body class="bg-background text-on-surface antialiased">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+        const { createRoot } = ReactDOM;
+        const { MemoryRouter, Routes, Route, Link, useNavigate, useLocation } = ReactRouterDOM;
+
+        // --- Shared Components ---
+
+        const Sidebar = () => {
+            const location = useLocation();
+            const isActive = (path) => location.pathname === path;
+
+            return (
+                <aside className="h-screen w-64 fixed left-0 top-0 flex flex-col bg-surface-container border-r border-outline-variant/30 z-50">
+                    <div className="px-6 py-8">
+                        <div className="flex items-center gap-3 mb-1">
+                            <div className="w-10 h-10 bg-primary-container rounded-lg flex items-center justify-center text-white">
+                                <span className="material-symbols-outlined" style={{ fontVariationSettings: "'FILL' 1" }}>3d_rotation</span>
+                            </div>
+                            <div>
+                                <h2 className="text-lg font-black text-gray-900 dark:text-white font-headline leading-none">Cubify Admin</h2>
+                                <p className="text-[10px] text-gray-500 font-mono">v2.4.0-stable</p>
+                            </div>
+                        </div>
+                        <button className="bg-primary text-white w-full py-2.5 px-4 rounded-lg flex items-center justify-center gap-2 my-8 hover:bg-primary-container transition-all active:scale-[0.98]">
+                            <span className="material-symbols-outlined text-sm">add</span>
+                            <span className="font-label text-xs uppercase tracking-widest font-bold">New Project</span>
+                        </button>
+                        <nav className="flex flex-col gap-1">
+                            <Link to="/" className={`flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all duration-200 group ${isActive('/') ? 'bg-white dark:bg-slate-800 text-cyan-600 border-l-2 border-cyan-600 font-semibold' : 'text-gray-500 hover:bg-gray-200/50 hover:translate-x-1'}`}>
+                                <span className="material-symbols-outlined">dashboard</span>
+                                <span className="font-label text-xs uppercase tracking-widest">Dashboard</span>
+                            </Link>
+                            <Link to="/tasks" className={`flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all duration-200 group ${isActive('/tasks') ? 'bg-white dark:bg-slate-800 text-cyan-600 border-l-2 border-cyan-600 font-semibold' : 'text-gray-500 hover:bg-gray-200/50 hover:translate-x-1'}`}>
+                                <span className="material-symbols-outlined">assignment</span>
+                                <span className="font-label text-xs uppercase tracking-widest">Tasks</span>
+                            </Link>
+                            <Link to="/models" className={`flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all duration-200 group ${isActive('/models') || isActive('/models-dark') ? 'bg-white dark:bg-slate-800 text-cyan-600 border-l-2 border-cyan-600 font-semibold' : 'text-gray-500 hover:bg-gray-200/50 hover:translate-x-1'}`}>
+                                <span className="material-symbols-outlined">3d_rotation</span>
+                                <span className="font-label text-xs uppercase tracking-widest">Models</span>
+                            </Link>
+                            <Link to="/api-keys" className={`flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all duration-200 group ${isActive('/api-keys') ? 'bg-white dark:bg-slate-800 text-cyan-600 border-l-2 border-cyan-600 font-semibold' : 'text-gray-500 hover:bg-gray-200/50 hover:translate-x-1'}`}>
+                                <span className="material-symbols-outlined">vpn_key</span>
+                                <span className="font-label text-xs uppercase tracking-widest">API Keys</span>
+                            </Link>
+                            <Link to="/settings" className={`flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all duration-200 group ${isActive('/settings') ? 'bg-white dark:bg-slate-800 text-cyan-600 border-l-2 border-cyan-600 font-semibold' : 'text-gray-500 hover:bg-gray-200/50 hover:translate-x-1'}`}>
+                                <span className="material-symbols-outlined">settings</span>
+                                <span className="font-label text-xs uppercase tracking-widest">Settings</span>
+                            </Link>
+                        </nav>
+                    </div>
+                    <div className="mt-auto px-6 py-8 border-t border-gray-200/50">
+                        <nav className="flex flex-col gap-1">
+                            <a className="flex items-center gap-3 px-4 py-2 text-gray-500 hover:text-gray-900 transition-colors" href="#">
+                                <span className="material-symbols-outlined text-lg">menu_book</span>
+                                <span className="font-label text-xs uppercase tracking-widest">Documentation</span>
+                            </a>
+                            <a className="flex items-center gap-3 px-4 py-2 text-gray-500 hover:text-gray-900 transition-colors" href="#">
+                                <span className="material-symbols-outlined text-lg">contact_support</span>
+                                <span className="font-label text-xs uppercase tracking-widest">Support</span>
+                            </a>
+                        </nav>
+                    </div>
+                </aside>
+            );
+        };
+
+        const TopBar = ({ title }) => {
+            const navigate = useNavigate();
+            return (
+                <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-gray-200 flex justify-between items-center w-full px-8 py-3 ml-64 w-[calc(100%-16rem)]">
+                    <div className="flex items-center gap-8">
+                        <h2 className="text-xl font-bold tracking-tight text-on-surface">{title}</h2>
+                        <div className="flex items-center bg-surface-container-low px-3 py-1.5 rounded-lg border border-outline-variant/10 min-w-[320px]">
+                            <span className="material-symbols-outlined text-gray-400 mr-2 text-sm">search</span>
+                            <input className="bg-transparent border-none focus:ring-0 text-sm w-full placeholder-gray-400 font-body p-0" placeholder="Search tasks, models, or nodes..." type="text"/>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-4">
+                        <button className="w-10 h-10 rounded-full flex items-center justify-center text-gray-500 hover:bg-gray-50 transition-colors relative">
+                            <span className="material-symbols-outlined">notifications</span>
+                            <span className="absolute top-2 right-2 w-2 h-2 bg-error rounded-full"></span>
+                        </button>
+                        <button onClick={() => navigate('/models-dark')} className="w-10 h-10 rounded-full flex items-center justify-center text-gray-500 hover:bg-gray-50 transition-colors">
+                            <span className="material-symbols-outlined">dark_mode</span>
+                        </button>
+                        <div className="h-8 w-px bg-gray-200 mx-2"></div>
+                        <div className="flex items-center gap-3">
+                            <img alt="User" className="w-8 h-8 rounded-full border border-gray-100" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAr4wK8uTKGyDO_s60CktfgapVUar9xT7SkN_3P9DcmYfp-4sXGf12coC-jaW_jUX-LLbjRmYEFCt335PiKxwwWGozDLdPrSM4kj3r11JvgYL2rzHP0S6adrqXVwQwatVNXCnu_KsuiGmUXXW9q4agI92rUOg_x5aXZYNy4hJjwAXJBEXuvUcDT_hL5zKQUX-S6ZAxdXxCVZPA-cU-3DPz6_QjBG5t6DHahdHrNR9yy4kcp8f7TGNua_-sPFgQfrDLiAKk9Mr9Lfack"/>
+                            <div className="hidden sm:block">
+                                <p className="text-sm font-semibold text-on-surface leading-tight">Alex Chen</p>
+                                <p className="font-label text-[10px] uppercase text-on-surface-variant/60">Admin</p>
+                            </div>
+                        </div>
+                    </div>
+                </header>
+            );
+        };
+
+        // --- Screen Components ---
+
+        const DashboardScreen = () => (
+            <div className="flex">
+                <Sidebar />
+                <main className="flex-1 ml-64 flex flex-col h-screen overflow-y-auto bg-background">
+                    <TopBar title="Dashboard" />
+                    <div className="p-8 flex gap-8">
+                        <div className="flex-1 space-y-8">
+                            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                                {[
+                                    { label: 'Active Tasks', value: '12', icon: 'play_arrow', color: 'text-primary', trend: '+4 from last hour' },
+                                    { label: 'Queued', value: '48', icon: 'hourglass_empty', color: 'text-secondary', trend: 'Stable workload' },
+                                    { label: 'Completed Today', value: '1,024', icon: 'check_circle', color: 'text-green-600', trend: '12% above avg' },
+                                    { label: 'Failed Today', value: '02', icon: 'error', color: 'text-error', trend: '-8% recovery rate' }
+                                ].map((stat, i) => (
+                                    <div key={i} className="bg-surface-container-lowest p-6 rounded-xl shadow-sm border border-outline-variant/10">
+                                        <div className="flex justify-between items-start mb-4">
+                                            <span className="font-label text-[11px] uppercase tracking-wider text-on-surface-variant/60">{stat.label}</span>
+                                            <span className={`material-symbols-outlined ${stat.color}`} style={{ fontVariationSettings: "'FILL' 1" }}>{stat.icon}</span>
+                                        </div>
+                                        <p className="text-3xl font-headline font-bold tracking-tight text-on-surface">{stat.value}</p>
+                                        <div className={`mt-2 flex items-center gap-1 text-[11px] ${stat.color} font-medium`}>
+                                            <span className="material-symbols-outlined text-[14px]">trending_up</span>
+                                            <span>{stat.trend}</span>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+
+                            <div className="bg-surface-container-lowest rounded-xl shadow-sm border border-outline-variant/10 overflow-hidden">
+                                <div className="bg-gray-50/50 px-6 py-4 flex justify-between items-center border-b border-outline-variant/10">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-8 h-8 rounded bg-on-primary-fixed flex items-center justify-center">
+                                            <span className="material-symbols-outlined text-primary-fixed-dim text-lg">memory</span>
+                                        </div>
+                                        <div>
+                                            <h2 className="font-headline font-bold text-on-surface">NVIDIA RTX 4090</h2>
+                                            <p className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant/60">Primary Compute Unit #01</p>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <span className="w-2 h-2 rounded-full bg-primary animate-pulse"></span>
+                                        <span className="font-label text-xs font-semibold text-primary uppercase">Active Rendering</span>
+                                    </div>
+                                </div>
+                                <div className="p-8 grid grid-cols-12 gap-10">
+                                    <div className="col-span-12 lg:col-span-5 flex flex-col justify-center">
+                                        <div className="flex justify-between items-end mb-2">
+                                            <span className="font-label text-xs uppercase text-on-surface-variant/60">VRAM Usage</span>
+                                            <span className="font-mono text-sm font-semibold">18.4GB / 24GB</span>
+                                        </div>
+                                        <div className="w-full h-3 bg-surface-container rounded-full overflow-hidden">
+                                            <div className="h-full bg-gradient-to-r from-primary to-primary-container" style={{ width: '76%' }}></div>
+                                        </div>
+                                        <div className="mt-8 grid grid-cols-2 gap-8">
+                                            <div>
+                                                <p className="font-label text-[10px] uppercase tracking-wider text-on-surface-variant/60 mb-1">Temperature</p>
+                                                <div className="flex items-center gap-2">
+                                                    <p className="text-2xl font-mono font-bold text-on-surface">68°C</p>
+                                                    <span className="text-xs text-secondary bg-secondary-container px-1.5 py-0.5 rounded">Optimal</span>
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <p className="font-label text-[10px] uppercase tracking-wider text-on-surface-variant/60 mb-1">Power Draw</p>
+                                                <p className="text-2xl font-mono font-bold text-on-surface">342W</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="col-span-12 lg:col-span-7 grid grid-cols-1 sm:grid-cols-3 gap-6">
+                                        {[
+                                            { label: 'CUDA Cores', value: '16,384', icon: 'bolt', sub: 'High Priority Only' },
+                                            { label: 'Fan Speed', value: '2,150 RPM', icon: 'cyclone', sub: 'Dynamic Control' },
+                                            { label: 'Tensor Ops', value: '452 TFLOPS', icon: 'auto_awesome', sub: 'AI Accelerating' }
+                                        ].map((card, i) => (
+                                            <div key={i} className="bg-surface-container-low p-4 rounded-lg">
+                                                <p className="font-label text-[10px] uppercase text-on-surface-variant/60 mb-2">{card.label}</p>
+                                                <p className="text-xl font-mono font-bold">{card.value}</p>
+                                                <div className="mt-4 flex items-center gap-1 text-[10px] text-primary">
+                                                    <span className="material-symbols-outlined text-[14px]">{card.icon}</span>
+                                                    <span>{card.sub}</span>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="bg-surface-container-lowest rounded-xl shadow-sm border border-outline-variant/10 overflow-hidden">
+                                <div className="px-6 py-5 border-b border-outline-variant/10 flex justify-between items-center">
+                                    <h2 className="font-headline font-bold text-on-surface">Recent Generation Tasks</h2>
+                                    <button className="text-primary text-xs font-semibold hover:underline">View All Tasks</button>
+                                </div>
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-left">
+                                        <thead>
+                                            <tr className="bg-surface-container-low/50">
+                                                <th className="px-6 py-3 font-label text-[10px] uppercase tracking-widest text-on-surface-variant/60">Task ID</th>
+                                                <th className="px-6 py-3 font-label text-[10px] uppercase tracking-widest text-on-surface-variant/60">Model Name</th>
+                                                <th className="px-6 py-3 font-label text-[10px] uppercase tracking-widest text-on-surface-variant/60">Status</th>
+                                                <th className="px-6 py-3 font-label text-[10px] uppercase tracking-widest text-on-surface-variant/60">Duration</th>
+                                                <th className="px-6 py-3 font-label text-[10px] uppercase tracking-widest text-on-surface-variant/60 text-right">Action</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-outline-variant/10">
+                                            {[
+                                                { id: '#CUB-8392-X1', name: 'Cyberpunk_Diorama_04', status: 'Processing', color: 'bg-primary', dur: '02:45...', icon: 'more_vert' },
+                                                { id: '#CUB-8390-A4', name: 'Mechanical_Arm_v2', status: 'Completed', color: 'bg-green-500', dur: '08:12.4s', icon: 'download' },
+                                                { id: '#CUB-8389-Y9', name: 'Botanical_Set_Forest', status: 'Queued', color: 'bg-secondary', dur: '--:--', icon: 'more_vert' },
+                                                { id: '#CUB-8388-B2', name: 'Urban_Facade_Loft', status: 'Failed', color: 'bg-error', dur: '00:04.1s', icon: 'refresh' }
+                                            ].map((task, i) => (
+                                                <tr key={i} className="hover:bg-surface-container-low/30 transition-colors group">
+                                                    <td className="px-6 py-4 font-mono text-xs text-gray-400">{task.id}</td>
+                                                    <td className="px-6 py-4 font-headline text-sm font-medium">{task.name}</td>
+                                                    <td className="px-6 py-4">
+                                                        <div className="flex items-center gap-2">
+                                                            <span className={`w-1.5 h-1.5 rounded-full ${task.color}`}></span>
+                                                            <span className="text-xs font-medium text-on-surface">{task.status}</span>
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-6 py-4 font-mono text-xs text-gray-400">{task.dur}</td>
+                                                    <td className="px-6 py-4 text-right">
+                                                        <button className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-400 hover:bg-gray-100 hover:text-primary transition-colors ml-auto">
+                                                            <span className="material-symbols-outlined text-lg">{task.icon}</span>
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+
+                        <aside className="w-80 hidden xl:flex flex-col gap-6">
+                            <div className="bg-surface-container-lowest p-6 rounded-xl shadow-sm border border-outline-variant/10">
+                                <div className="flex items-center justify-between mb-6">
+                                    <h3 className="font-headline font-bold text-on-surface">Infrastructure</h3>
+                                    <span className="material-symbols-outlined text-gray-400 text-sm">settings_ethernet</span>
+                                </div>
+                                <div className="space-y-5">
+                                    {[
+                                        { name: 'Node-USA-East-01', load: '94%', color: 'bg-primary' },
+                                        { name: 'Node-USA-West-04', load: '42%', color: 'bg-primary' },
+                                        { name: 'Node-EU-North-02', load: 'OFFLINE', color: 'bg-error', val: 100, barColor: 'bg-error opacity-20' },
+                                        { name: 'Node-ASIA-SE-09', load: '12%', color: 'bg-primary' }
+                                    ].map((node, i) => (
+                                        <div key={i} className="flex flex-col gap-2">
+                                            <div className="flex justify-between items-center">
+                                                <div className="flex items-center gap-2">
+                                                    <span className={`w-2 h-2 rounded-full ${node.color}`}></span>
+                                                    <span className="font-headline text-sm font-semibold">{node.name}</span>
+                                                </div>
+                                                <span className={`font-label text-[10px] ${node.load === 'OFFLINE' ? 'text-error' : 'text-on-surface-variant/60'}`}>{node.load} {node.load !== 'OFFLINE' && 'LOAD'}</span>
+                                            </div>
+                                            <div className="w-full h-1.5 bg-surface-container-low rounded-full overflow-hidden">
+                                                <div className={`h-full ${node.barColor || 'bg-primary'}`} style={{ width: node.val ? `${node.val}%` : node.load }}></div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                                <button className="w-full mt-8 py-2 border border-outline-variant/30 text-xs font-semibold rounded-lg hover:bg-gray-50 transition-colors">
+                                    Manage Clusters
+                                </button>
+                            </div>
+                            <div className="bg-surface-container-low p-6 rounded-xl border border-outline-variant/10 relative overflow-hidden group">
+                                <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+                                    <span className="material-symbols-outlined text-6xl">precision_manufacturing</span>
+                                </div>
+                                <h3 className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant/60 mb-4">API Health</h3>
+                                <div className="flex items-end gap-2 mb-2">
+                                    <p className="text-3xl font-mono font-bold">99.98%</p>
+                                    <p className="text-[11px] text-green-600 font-medium mb-1">UPTIME</p>
+                                </div>
+                                <div className="flex gap-1 h-8 items-end">
+                                    {[4,6,3,5,7,4,2,8,5,6].map((h, i) => (
+                                        <div key={i} className={`w-full bg-primary/${(i+2)*10} h-${h} rounded-t-sm`} style={{ height: `${h * 10}%` }}></div>
+                                    ))}
+                                </div>
+                            </div>
+                        </aside>
+                    </div>
+                </main>
+            </div>
+        );
+
+        const ModelsScreen = () => {
+            const [filter, setFilter] = useState('');
+            return (
+                <div className="flex">
+                    <Sidebar />
+                    <main className="flex-1 ml-64 flex flex-col h-screen overflow-y-auto bg-background">
+                        <TopBar title="Model Library" />
+                        <div className="p-8 max-w-7xl mx-auto w-full">
+                            <div className="flex flex-col md:flex-row justify-between items-end mb-10 gap-4">
+                                <div>
+                                    <h1 className="text-4xl font-bold text-on-surface tracking-tight font-headline mb-2">Model Library</h1>
+                                    <p className="text-on-surface-variant font-body">Manage your 3D assets, training checkpoints, and weights.</p>
+                                </div>
+                                <div className="flex gap-3">
+                                    <div className="flex items-center bg-surface-container-low rounded-lg p-1">
+                                        <button className="px-4 py-1.5 bg-white shadow-sm rounded-md text-sm font-medium">All Models</button>
+                                        <button className="px-4 py-1.5 text-sm font-medium text-on-surface-variant hover:text-on-surface">Active</button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+                                {/* Model Card 1: Ready */}
+                                <div className="bg-surface-container-lowest border border-outline-variant/30 rounded-xl p-6 shadow-sm flex flex-col group hover:border-cyan-600/30 transition-all">
+                                    <div className="flex justify-between items-start mb-6">
+                                        <div className="w-14 h-14 bg-surface-container-low rounded-lg overflow-hidden border border-outline-variant/20 flex items-center justify-center">
+                                            <span className="material-symbols-outlined text-primary text-3xl">view_in_ar</span>
+                                        </div>
+                                        <label className="relative inline-flex items-center cursor-pointer">
+                                            <input defaultChecked className="sr-only peer" type="checkbox"/>
+                                            <div className="w-9 h-5 bg-surface-container-high peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
+                                        </label>
+                                    </div>
+                                    <div className="mb-4">
+                                        <h3 className="text-lg font-semibold font-headline text-on-surface mb-1">Architecture-v4-Dense</h3>
+                                        <div className="flex items-center gap-2">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-primary"></span>
+                                            <span className="text-xs font-label uppercase tracking-widest text-primary font-bold">Ready</span>
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-4 mb-6">
+                                        <div className="bg-surface-container-low p-3 rounded-lg">
+                                            <p className="text-[10px] font-label uppercase tracking-wider text-on-surface-variant mb-1">File Size</p>
+                                            <p className="font-mono text-sm font-medium text-on-surface">4.2 GB</p>
+                                        </div>
+                                        <div className="bg-surface-container-low p-3 rounded-lg">
+                                            <p className="text-[10px] font-label uppercase tracking-wider text-on-surface-variant mb-1">VRAM REQ</p>
+                                            <p className="font-mono text-sm font-medium text-on-surface">12 GB</p>
+                                        </div>
+                                    </div>
+                                    <div className="mt-auto space-y-4">
+                                        <div className="flex justify-between items-center text-xs text-on-surface-variant font-label">
+                                            <span>Last used: 2h ago</span>
+                                            <span className="font-mono">100%</span>
+                                        </div>
+                                        <div className="w-full bg-surface-container-high h-1.5 rounded-full overflow-hidden">
+                                            <div className="bg-primary h-full w-full"></div>
+                                        </div>
+                                        <div className="flex gap-2 pt-2">
+                                            <button className="flex-1 bg-surface-container-high text-on-surface py-2 rounded-lg text-sm font-medium hover:bg-surface-variant transition-colors flex items-center justify-center gap-2">
+                                                <span className="material-symbols-outlined text-base">download</span>
+                                                Download
+                                            </button>
+                                            <button className="px-3 bg-error/10 text-error py-2 rounded-lg hover:bg-error hover:text-white transition-all">
+                                                <span className="material-symbols-outlined text-base">delete</span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Model Card 2: Downloading */}
+                                <div className="bg-surface-container-lowest border border-outline-variant/30 rounded-xl p-6 shadow-sm flex flex-col group hover:border-cyan-600/30 transition-all">
+                                    <div className="flex justify-between items-start mb-6">
+                                        <div className="w-14 h-14 bg-surface-container-low rounded-lg overflow-hidden border border-outline-variant/20 flex items-center justify-center">
+                                            <span className="material-symbols-outlined text-on-surface-variant text-3xl">accessibility_new</span>
+                                        </div>
+                                        <label className="relative inline-flex items-center cursor-not-allowed opacity-50">
+                                            <input disabled className="sr-only peer" type="checkbox"/>
+                                            <div className="w-9 h-5 bg-surface-container-high rounded-full"></div>
+                                        </label>
+                                    </div>
+                                    <div className="mb-4">
+                                        <h3 className="text-lg font-semibold font-headline text-on-surface mb-1">Humanoid-Rig-Master</h3>
+                                        <div className="flex items-center gap-2">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-outline-variant"></span>
+                                            <span className="text-xs font-label uppercase tracking-widest text-on-surface-variant">Downloading</span>
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-4 mb-6">
+                                        <div className="bg-surface-container-low p-3 rounded-lg">
+                                            <p className="text-[10px] font-label uppercase tracking-wider text-on-surface-variant mb-1">File Size</p>
+                                            <p className="font-mono text-sm font-medium text-on-surface">1.8 GB</p>
+                                        </div>
+                                        <div className="bg-surface-container-low p-3 rounded-lg">
+                                            <p className="text-[10px] font-label uppercase tracking-wider text-on-surface-variant mb-1">VRAM REQ</p>
+                                            <p className="font-mono text-sm font-medium text-on-surface">6 GB</p>
+                                        </div>
+                                    </div>
+                                    <div className="mt-auto space-y-4">
+                                        <div className="flex justify-between items-center text-xs text-on-surface-variant font-label">
+                                            <span className="animate-pulse">Retrieving shards...</span>
+                                            <span className="font-mono">42.8%</span>
+                                        </div>
+                                        <div className="w-full bg-surface-container-high h-1.5 rounded-full overflow-hidden">
+                                            <div className="bg-primary h-full w-[42.8%]"></div>
+                                        </div>
+                                        <div className="flex gap-2 pt-2">
+                                            <button className="flex-1 bg-surface-container-low text-on-surface-variant py-2 rounded-lg text-sm font-medium cursor-not-allowed">
+                                                Pending...
+                                            </button>
+                                            <button className="px-3 bg-surface-container-high text-on-surface-variant py-2 rounded-lg hover:bg-error/10 hover:text-error transition-all">
+                                                <span className="material-symbols-outlined text-base">close</span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="border-2 border-dashed border-outline-variant/40 rounded-xl p-6 flex flex-col items-center justify-center gap-4 group hover:bg-surface-container-low hover:border-cyan-600/40 transition-all cursor-pointer">
+                                    <div className="w-12 h-12 rounded-full bg-surface-container-high flex items-center justify-center text-on-surface-variant group-hover:scale-110 transition-transform">
+                                        <span className="material-symbols-outlined">add_box</span>
+                                    </div>
+                                    <div className="text-center">
+                                        <p className="font-headline font-semibold text-on-surface">Import Model</p>
+                                        <p className="text-xs text-on-surface-variant font-body">Drag .obj, .fbx or .ckpt files here</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="mt-12 bg-surface-container-high/50 p-6 rounded-xl border border-outline-variant/20 flex flex-wrap justify-between items-center gap-6">
+                                <div className="flex gap-10">
+                                    <div>
+                                        <p className="text-[10px] font-label uppercase tracking-widest text-on-surface-variant mb-1">Storage Usage</p>
+                                        <div className="flex items-baseline gap-2">
+                                            <span className="text-xl font-bold font-headline text-on-surface">12.4 GB</span>
+                                            <span className="text-xs text-on-surface-variant">/ 50 GB</span>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <p className="text-[10px] font-label uppercase tracking-widest text-on-surface-variant mb-1">Active VRAM</p>
+                                        <div className="flex items-baseline gap-2">
+                                            <span className="text-xl font-bold font-headline text-cyan-600">16 GB</span>
+                                            <span className="text-xs text-on-surface-variant">allocated</span>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <p className="text-[10px] font-label uppercase tracking-widest text-on-surface-variant mb-1">Local Files</p>
+                                        <div className="flex items-baseline gap-2">
+                                            <span className="text-xl font-bold font-headline text-on-surface">24</span>
+                                            <span className="text-xs text-on-surface-variant">models</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <button className="px-6 py-2 bg-white text-on-surface border border-outline-variant text-sm font-semibold rounded-lg hover:shadow-sm transition-all flex items-center gap-2">
+                                    <span className="material-symbols-outlined text-lg">settings_suggest</span>
+                                    Optimize Engine
+                                </button>
+                            </div>
+                        </div>
+                    </main>
+                </div>
+            );
+        };
+
+        const ApiKeysScreen = () => (
+            <div className="flex">
+                <Sidebar />
+                <main className="flex-1 ml-64 flex flex-col h-screen overflow-y-auto bg-background">
+                    <TopBar title="API Credentials" />
+                    <div className="p-8 max-w-7xl mx-auto w-full">
+                        <div className="flex justify-between items-end mb-10">
+                            <div>
+                                <h2 className="text-4xl font-headline font-bold tracking-tight text-on-surface">API Keys</h2>
+                                <p className="text-on-surface-variant mt-2 max-w-lg">Manage your secure access credentials for the Cubify 3D Engine.</p>
+                            </div>
+                            <button className="bg-primary text-white px-6 py-2.5 rounded-lg font-semibold shadow-sm hover:shadow-md transition-all active:scale-[0.98] flex items-center gap-2">
+                                <span className="material-symbols-outlined text-sm">add</span>
+                                Create New Key
+                            </button>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                            {[
+                                { label: 'Total Active Keys', val: '12', sub: '+2 this month', icon: 'trending_up' },
+                                { label: 'Monthly Requests', val: '1.2M', sub: '84% of quota', icon: 'analytics' },
+                                { label: 'Avg Latency', val: '42ms', sub: 'Top 5% global', icon: 'speed' }
+                            ].map((stat, i) => (
+                                <div key={i} className={`bg-surface-container-low p-6 rounded-xl shadow-sm border border-outline-variant/20 ${i===0 ? 'border-l-4 border-l-primary' : ''}`}>
+                                    <p className="font-label text-xs uppercase tracking-widest text-on-surface-variant mb-1">{stat.label}</p>
+                                    <h3 className="text-3xl font-headline font-bold text-on-surface">{stat.val}</h3>
+                                    <div className="mt-4 flex items-center gap-2 text-xs text-secondary font-mono">
+                                        <span className="material-symbols-outlined text-xs">{stat.icon}</span>
+                                        {stat.sub}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+
+                        <div className="bg-surface-container-lowest rounded-xl shadow-sm border border-outline-variant/20 overflow-hidden">
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-left border-collapse">
+                                    <thead>
+                                        <tr className="bg-surface-container-low border-b border-outline-variant/20">
+                                            <th className="px-6 py-4 font-label text-xs uppercase tracking-widest text-on-surface-variant">Name</th>
+                                            <th className="px-6 py-4 font-label text-xs uppercase tracking-widest text-on-surface-variant">Key</th>
+                                            <th className="px-6 py-4 font-label text-xs uppercase tracking-widest text-on-surface-variant text-center">Rate Limit</th>
+                                            <th className="px-6 py-4 font-label text-xs uppercase tracking-widest text-on-surface-variant">Created</th>
+                                            <th className="px-6 py-4 font-label text-xs uppercase tracking-widest text-on-surface-variant text-right">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-outline-variant/10">
+                                        {[
+                                            { name: 'Production Main', key: 'sk_live_••••••••••••w9P2', limit: '10,000 req/s', date: 'Oct 24, 2023' },
+                                            { name: 'Staging Sandbox', key: 'sk_test_••••••••••••x7R1', limit: '500 req/s', date: 'Nov 12, 2023' },
+                                            { name: 'Unity Plugin Alpha', key: 'sk_dev_••••••••••••a4L9', limit: '2,500 req/s', date: 'Dec 05, 2023' }
+                                        ].map((k, i) => (
+                                            <tr key={i} className="hover:bg-surface-container-low/30 transition-colors">
+                                                <td className="px-6 py-5"><span className="font-semibold text-on-surface">{k.name}</span></td>
+                                                <td className="px-6 py-5"><code className="font-mono text-sm bg-surface-container-low px-2 py-1 rounded text-on-surface-variant">{k.key}</code></td>
+                                                <td className="px-6 py-5 text-center">
+                                                    <span className="px-2 py-1 rounded bg-secondary-container text-on-secondary-container font-label text-xs font-bold">{k.limit}</span>
+                                                </td>
+                                                <td className="px-6 py-5"><span className="text-on-surface-variant text-sm">{k.date}</span></td>
+                                                <td className="px-6 py-5 text-right">
+                                                    <button className="text-error font-label text-[10px] uppercase tracking-wider font-bold hover:bg-error-container/20 px-3 py-1.5 rounded transition-all">Revoke</button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div className="mt-12 p-6 rounded-xl bg-primary-fixed/30 border border-primary/10 flex gap-4 items-start">
+                            <span className="material-symbols-outlined text-primary" style={{ fontVariationSettings: "'FILL' 1" }}>info</span>
+                            <div className="space-y-1">
+                                <h4 className="font-semibold text-on-primary-fixed">Security Best Practices</h4>
+                                <p className="text-sm text-on-primary-fixed-variant leading-relaxed">Never share your API keys in client-side code or public repositories. Use environment variables to store them securely on your server.</p>
+                            </div>
+                        </div>
+                    </div>
+                </main>
+            </div>
+        );
+
+        const TasksScreen = () => (
+            <div className="flex">
+                <Sidebar />
+                <main className="flex-1 ml-64 flex flex-col h-screen overflow-y-auto bg-background">
+                    <TopBar title="Active Queue" />
+                    <div className="p-8 max-w-7xl mx-auto w-full">
+                        <div className="flex items-end justify-between mb-8">
+                            <div>
+                                <h3 className="text-3xl font-bold tracking-tight text-on-surface">Queue Management</h3>
+                                <p className="text-on-surface-variant font-label text-sm uppercase tracking-wider mt-1">Processing 12 concurrent 3D render tasks</p>
+                            </div>
+                            <div className="flex gap-2">
+                                <button className="px-4 py-2 bg-white border border-outline-variant/50 rounded-lg text-sm font-medium hover:bg-gray-50 flex items-center gap-2">
+                                    <span className="material-symbols-outlined text-sm">filter_list</span>
+                                    Filter
+                                </button>
+                                <button className="px-4 py-2 bg-white border border-outline-variant/50 rounded-lg text-sm font-medium hover:bg-gray-50 flex items-center gap-2">
+                                    <span className="material-symbols-outlined text-sm">download</span>
+                                    Export CSV
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+                            {[
+                                { label: 'Success Rate', val: '98.4%', bar: 98.4 },
+                                { label: 'Avg. Latency', val: '420ms', trend: '-12% vs last hour' },
+                                { label: 'Queue Depth', val: '1,248', sub: 'Peak load: 2.1k/min' },
+                                { label: 'System Status', val: 'Nominal', sub: 'All clusters active', dot: '#22c55e' }
+                            ].map((s, i) => (
+                                <div key={i} className="bg-surface-container-lowest p-6 rounded-xl shadow-sm border border-outline-variant/10">
+                                    <span className="font-label text-[10px] uppercase tracking-widest text-on-surface-variant">{s.label}</span>
+                                    <div className="text-3xl font-bold text-on-surface mt-2">{s.val}</div>
+                                    {s.bar && (
+                                        <div className="mt-4 h-1.5 w-full bg-surface-container rounded-full overflow-hidden">
+                                            <div className="h-full bg-primary" style={{ width: `${s.bar}%` }}></div>
+                                        </div>
+                                    )}
+                                    {s.trend && <p className="text-[10px] text-primary mt-2 flex items-center gap-1"><span className="material-symbols-outlined text-xs">trending_down</span> {s.trend}</p>}
+                                    {s.sub && (
+                                        <p className={`text-[10px] mt-2 flex items-center gap-1 ${s.dot ? 'text-green-600' : 'text-on-surface-variant'}`}>
+                                            {s.dot && <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span>}
+                                            {s.sub}
+                                        </p>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+
+                        <div className="bg-surface-container-lowest rounded-xl shadow-sm border border-outline-variant/20 overflow-hidden">
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-left border-collapse">
+                                    <thead>
+                                        <tr className="bg-surface-container-low border-b border-outline-variant/30">
+                                            <th className="px-6 py-4 font-label text-[10px] uppercase tracking-widest text-on-surface-variant">Task ID</th>
+                                            <th className="px-6 py-4 font-label text-[10px] uppercase tracking-widest text-on-surface-variant">Status</th>
+                                            <th className="px-6 py-4 font-label text-[10px] uppercase tracking-widest text-on-surface-variant">Created</th>
+                                            <th className="px-6 py-4 font-label text-[10px] uppercase tracking-widest text-on-surface-variant">Duration</th>
+                                            <th className="px-6 py-4 font-label text-[10px] uppercase tracking-widest text-on-surface-variant text-right">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-outline-variant/10">
+                                        {[
+                                            { id: '#tx_9k2m-3x91', status: 'processing', pulse: true, color: 'bg-primary', time: '2 min ago', dur: '00:14.2' },
+                                            { id: '#tx_5l1p-2w44', status: 'completed', color: 'bg-[#22c55e]', time: '15 min ago', dur: '03:42.8' },
+                                            { id: '#tx_0j7r-1k88', status: 'failed', color: 'bg-error', time: '1 hour ago', dur: '00:02.1' },
+                                            { id: '#tx_4m8q-2z55', status: 'queued', color: 'bg-outline-variant', time: 'Just now', dur: '--:--.-' }
+                                        ].map((t, i) => (
+                                            <tr key={i} className="hover:bg-surface-container-low/30 transition-colors">
+                                                <td className="px-6 py-4 font-mono text-sm text-primary">{t.id}</td>
+                                                <td className="px-6 py-4">
+                                                    <div className="flex items-center gap-2 text-xs font-medium">
+                                                        <span className={`w-2 h-2 rounded-full ${t.color} ${t.pulse ? 'animate-pulse' : ''}`}></span>
+                                                        <span className="lowercase text-on-surface">{t.status}</span>
+                                                    </div>
+                                                </td>
+                                                <td className="px-6 py-4 text-sm text-on-surface-variant">{t.time}</td>
+                                                <td className="px-6 py-4 text-sm text-on-surface-variant">{t.dur}</td>
+                                                <td className="px-6 py-4 text-right">
+                                                    <div className="flex justify-end gap-2">
+                                                        <button className="p-1.5 text-error hover:bg-error/5 rounded transition-colors"><span className="material-symbols-outlined text-lg">cancel</span></button>
+                                                        <button className="p-1.5 text-on-surface-variant hover:bg-surface-container-low rounded transition-colors"><span className="material-symbols-outlined text-lg">refresh</span></button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </main>
+            </div>
+        );
+
+        const SettingsScreen = () => (
+            <div className="flex">
+                <Sidebar />
+                <main className="flex-1 ml-64 flex flex-col h-screen overflow-y-auto bg-background">
+                    <TopBar title="Settings" />
+                    <div className="max-w-5xl mx-auto px-8 py-12 w-full">
+                        <div className="mb-12">
+                            <h3 className="text-3xl font-bold text-on-surface tracking-tight mb-2">Configuration Editor</h3>
+                            <p className="text-on-surface-variant max-w-2xl">Manage your engineering environment across generation, storage, and API constraints.</p>
+                        </div>
+                        <div className="space-y-12">
+                            <section>
+                                <div className="flex items-center gap-3 mb-6">
+                                    <div className="w-10 h-10 rounded-lg bg-secondary-container flex items-center justify-center">
+                                        <span className="material-symbols-outlined text-on-secondary-container">auto_awesome</span>
+                                    </div>
+                                    <h4 className="text-lg font-bold text-on-surface">Generation Engine</h4>
+                                </div>
+                                <div className="bg-surface-container-lowest rounded-xl shadow-sm overflow-hidden">
+                                    <div className="divide-y divide-outline-variant/20">
+                                        {[
+                                            { key: 'GEN_RECURSION_LIMIT', desc: 'Maximum depth for iterative mesh refinement.', val: '12', type: 'Integer' },
+                                            { key: 'SAMPLING_METHOD', desc: 'Algorithm used for point cloud voxelization.', val: 'gaussian_splat_v2', type: 'Enum', isSelect: true },
+                                            { key: 'DEFAULT_RESOLUTION', desc: 'Base grid size for new model generation.', val: '1024x1024', type: 'String' }
+                                        ].map((row, i) => (
+                                            <div key={i} className="flex items-center p-6 gap-6 hover:bg-surface-container-low/30 transition-colors">
+                                                <div className="w-1/3">
+                                                    <p className="font-mono text-sm font-medium text-on-surface">{row.key}</p>
+                                                    <p className="text-xs text-on-surface-variant mt-1">{row.desc}</p>
+                                                </div>
+                                                <div className="flex-1">
+                                                    {row.isSelect ? (
+                                                        <select className="w-full bg-surface-container-low border-none rounded-lg px-4 py-2.5 text-sm text-on-surface focus:ring-1 focus:ring-primary">
+                                                            <option>{row.val}</option>
+                                                            <option>marching_cubes_pro</option>
+                                                        </select>
+                                                    ) : (
+                                                        <input defaultValue={row.val} className="font-mono w-full bg-surface-container-low border-none rounded-lg px-4 py-2.5 text-sm text-primary font-medium focus:ring-1 focus:ring-primary" type="text" />
+                                                    )}
+                                                </div>
+                                                <div className="w-24 text-right">
+                                                    <span className={`text-[10px] font-label uppercase tracking-widest ${row.type === 'Enum' ? 'text-primary font-bold' : 'text-on-surface-variant/60'}`}>{row.type}</span>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            </section>
+
+                            <div className="pt-8 border-t border-outline-variant/20 flex justify-end gap-4">
+                                <button className="px-6 py-2.5 text-sm font-semibold text-on-surface-variant hover:bg-surface-container transition-colors rounded-lg">Discard Changes</button>
+                                <button className="px-8 py-2.5 bg-primary text-white text-sm font-semibold rounded-lg shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all">Apply Configuration</button>
+                            </div>
+                        </div>
+                    </div>
+                </main>
+            </div>
+        );
+
+        const DarkModelsScreen = () => {
+            const navigate = useNavigate();
+            return (
+                <div className="bg-zinc-950 text-on-surface selection:bg-primary/30 min-h-screen">
+                    <aside className="fixed left-0 top-0 h-full flex flex-col py-6 border-r border-zinc-800 bg-zinc-900 w-64 z-50">
+                        <div className="px-6 mb-10">
+                            <div className="text-cyan-500 font-black tracking-widest uppercase text-[10px] mb-1">Cubify 3D</div>
+                            <div className="text-zinc-500 font-sans text-[11px] font-medium tracking-tight">Admin v2.4</div>
+                        </div>
+                        <nav className="flex-1 space-y-1 px-3">
+                            {[
+                                { name: 'Dashboard', icon: 'dashboard', path: '/' },
+                                { name: 'Tasks', icon: 'assignment_turned_in', path: '/tasks' },
+                                { name: 'Models', icon: 'view_in_ar', path: '/models-dark', active: true },
+                                { name: 'API Keys', icon: 'vpn_key', path: '/api-keys' },
+                                { name: 'Settings', icon: 'settings', path: '/settings' }
+                            ].map((item, i) => (
+                                <Link key={i} to={item.path} className={`${item.active ? 'bg-cyan-500/10 text-cyan-400 border-r-2 border-cyan-500' : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800'} px-4 py-2 flex items-center gap-3 transition-all duration-200 rounded-md`}>
+                                    <span className="material-symbols-outlined text-[20px]" style={item.active ? { fontVariationSettings: "'FILL' 1" } : {}}>{item.icon}</span>
+                                    <span className="font-sans text-[13px] font-medium tracking-tight">{item.name}</span>
+                                </Link>
+                            ))}
+                        </nav>
+                        <div className="mt-auto px-3">
+                            <button onClick={() => navigate('/')} className="w-full text-zinc-500 hover:text-zinc-300 px-4 py-2 flex items-center gap-3 transition-all duration-200 hover:bg-zinc-800 rounded-md">
+                                <span className="material-symbols-outlined text-[20px]">light_mode</span>
+                                <span className="font-sans text-[13px] font-medium tracking-tight">Light UI</span>
+                            </button>
+                        </div>
+                    </aside>
+                    <main className="pl-64">
+                        <header className="sticky top-0 z-40 flex items-center justify-between px-10 h-14 bg-zinc-950/60 backdrop-blur-xl border-b border-zinc-800/50">
+                            <h1 className="text-lg font-bold tracking-tighter text-cyan-500">Models Library</h1>
+                            <div className="flex items-center gap-4">
+                                <button className="p-2 text-zinc-400 hover:bg-zinc-800/50 rounded-full"><span className="material-symbols-outlined text-[20px]">notifications</span></button>
+                                <div className="h-8 w-8 rounded-full overflow-hidden border border-zinc-800">
+                                    <img alt="User" className="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAr4wK8uTKGyDO_s60CktfgapVUar9xT7SkN_3P9DcmYfp-4sXGf12coC-jaW_jUX-LLbjRmYEFCt335PiKxwwWGozDLdPrSM4kj3r11JvgYL2rzHP0S6adrqXVwQwatVNXCnu_KsuiGmUXXW9q4agI92rUOg_x5aXZYNy4hJjwAXJBEXuvUcDT_hL5zKQUX-S6ZAxdXxCVZPA-cU-3DPz6_QjBG5t6DHahdHrNR9yy4kcp8f7TGNua_-sPFgQfrDLiAKk9Mr9Lfack"/>
+                                </div>
+                            </div>
+                        </header>
+                        <div className="p-10 space-y-10">
+                            <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                                <div className="lg:col-span-2 bg-zinc-900/50 p-8 rounded-lg relative overflow-hidden flex flex-col justify-between min-h-[240px] border border-zinc-800">
+                                    <div className="relative z-10">
+                                        <span className="text-[10px] uppercase tracking-[0.2em] font-bold text-cyan-500/80 mb-2 block">Asset Management</span>
+                                        <h2 className="text-3xl font-extrabold tracking-tighter text-white mb-4">Geometric Complexity <br/>Analysis Engine</h2>
+                                        <p className="text-zinc-400 text-sm max-w-md">Advanced mesh optimization for real-time environments.</p>
+                                    </div>
+                                    <div className="relative z-10 flex gap-4 mt-6">
+                                        <button className="bg-cyan-500 text-zinc-950 font-bold px-6 py-2.5 rounded text-sm hover:brightness-110">New Project</button>
+                                    </div>
+                                    <div className="absolute right-0 top-0 w-1/2 h-full opacity-20 pointer-events-none">
+                                        <svg className="w-full h-full" viewBox="0 0 100 100"><path className="text-cyan-500" d="M0,20 L100,80 M0,80 L100,20" stroke="currentColor" strokeWidth="0.1"/></svg>
+                                    </div>
+                                </div>
+                                <div className="bg-zinc-900 p-8 rounded-lg border border-zinc-800">
+                                    <span className="text-[10px] uppercase font-bold text-zinc-500 mb-2 block">Storage Quota</span>
+                                    <div className="flex items-end gap-2 mb-1">
+                                        <span className="text-4xl font-black tabular-nums text-white">42.8</span>
+                                        <span className="text-zinc-500 font-bold mb-1">GB</span>
+                                    </div>
+                                    <div className="w-full bg-zinc-800 h-1.5 rounded-full overflow-hidden mt-4">
+                                        <div className="bg-cyan-500 h-full w-[65%]"></div>
+                                    </div>
+                                </div>
+                            </section>
+                            
+                            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
+                                {[
+                                    { name: 'Neuro-Corridor-V4', id: 'OBJ-9921-XF', poly: '1.2M', mats: '42' },
+                                    { name: 'Quantum-Node', id: 'USD-4421-ZQ', poly: '42.1K', mats: '8' },
+                                    { name: 'Aesthetic-Sphere', id: 'BLN-7732-PP', poly: 'Rigged', mats: '14.2 MB' }
+                                ].map((m, i) => (
+                                    <div key={i} className="bg-zinc-900 hover:bg-zinc-800/80 transition-all rounded-lg overflow-hidden flex flex-col border border-transparent hover:border-cyan-500/30">
+                                        <div className="aspect-square bg-zinc-950 flex items-center justify-center">
+                                            <span className="material-symbols-outlined text-cyan-500/30 text-6xl">3d_rotation</span>
+                                        </div>
+                                        <div className="p-5 flex-1 flex flex-col justify-between">
+                                            <div>
+                                                <h3 className="font-bold text-white text-sm mb-1">{m.name}</h3>
+                                                <code className="text-[10px] font-mono text-zinc-500 block mb-4">{m.id}</code>
+                                                <div className="grid grid-cols-2 gap-y-2 mb-6">
+                                                    <div><span className="text-[9px] text-zinc-500 font-bold uppercase block">Poly</span><span className="text-xs font-bold tabular-nums text-white">{m.poly}</span></div>
+                                                    <div><span className="text-[9px] text-zinc-500 font-bold uppercase block">Misc</span><span className="text-xs font-bold tabular-nums text-white">{m.mats}</span></div>
+                                                </div>
+                                            </div>
+                                            <div className="flex items-center justify-between pt-4 border-t border-zinc-800/50">
+                                                <div className="flex items-center gap-2"><div className="w-2 h-2 rounded-full bg-cyan-500"></div><span className="text-[10px] font-bold text-zinc-400 uppercase">Active</span></div>
+                                                <div className="flex gap-2">
+                                                    <span className="material-symbols-outlined text-sm text-zinc-500">edit</span>
+                                                    <span className="material-symbols-outlined text-sm text-zinc-500">delete</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                                <div className="border-2 border-dashed border-zinc-800 rounded-lg flex flex-col items-center justify-center p-6 text-zinc-500 hover:text-cyan-500 transition-colors">
+                                    <span className="material-symbols-outlined text-4xl mb-2">add</span>
+                                    <span className="text-xs font-bold uppercase">Import Model</span>
+                                </div>
+                            </div>
+                        </div>
+                    </main>
+                </div>
+            );
+        };
+
+        const App = () => {
+            return (
+                <MemoryRouter>
+                    <Routes>
+                        <Route path="/" element={<DashboardScreen />} />
+                        <Route path="/models" element={<ModelsScreen />} />
+                        <Route path="/models-dark" element={<DarkModelsScreen />} />
+                        <Route path="/tasks" element={<TasksScreen />} />
+                        <Route path="/api-keys" element={<ApiKeysScreen />} />
+                        <Route path="/settings" element={<SettingsScreen />} />
+                    </Routes>
+                </MemoryRouter>
+            );
+        };
+
+        const container = document.getElementById('root');
+        const root = createRoot(container);
+        root.render(<App />);
+    </script>
+</body>
+</html>

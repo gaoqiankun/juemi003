@@ -14,10 +14,10 @@ import type {
   TaskRecord,
 } from "@/lib/types";
 
-const MODEL_URL = "/static/fixtures/compare-model.glb";
-const INPUT_URL = "/static/fixtures/compare-input.png";
-const REFERENCE_GALLERY_URL = "/static/fixtures/reference-assets-grid.png";
-const REFERENCE_COMPLETED_URL = "/static/fixtures/reference-model-viewer-completed.png";
+const MODEL_URL = "/fixtures/compare-model.glb";
+const INPUT_URL = "/fixtures/compare-input.png";
+const REFERENCE_GALLERY_URL = "/fixtures/reference-assets-grid.png";
+const REFERENCE_COMPLETED_URL = "/fixtures/reference-model-viewer-completed.png";
 
 const baseConfig: ApiConfig = {
   baseUrl: "",

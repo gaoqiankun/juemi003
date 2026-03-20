@@ -468,19 +468,19 @@ DELETE /v1/tasks/{id}
     - 仅允许删除终态任务
     - user key 只能删除自己的任务
 
-POST   /admin/privileged-keys
-GET    /admin/privileged-keys
-DELETE /admin/privileged-keys/{id}
+POST   /api/admin/privileged-keys
+GET    /api/admin/privileged-keys
+DELETE /api/admin/privileged-keys/{id}
   Auth: Bearer <ADMIN_TOKEN>
   Notes:
     - 仅用于创建/列出/吊销特权 token
 
-POST   /admin/keys
-GET    /admin/keys
-PATCH  /admin/keys/{id}
+POST   /api/admin/keys
+GET    /api/admin/keys
+PATCH  /api/admin/keys/{id}
   Auth: Bearer <key_manager token>
 
-GET    /admin/tasks
+GET    /api/admin/tasks
   Auth: Bearer <task_viewer token>
 
 GET    /metrics
