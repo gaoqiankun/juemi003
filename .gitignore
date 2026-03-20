@@ -10,8 +10,8 @@ __pycache__/
 .coverage
 htmlcov/
 
-data/
-models/
+/data/
+/models/
 .minio/
 *.sqlite3
 *.sqlite3-shm
