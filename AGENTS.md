@@ -1,4 +1,4 @@
-# Cubify 3D AI Coder 执行指南
+# Cubie 3D AI Coder 执行指南
 
 > 本文档给执行代码的 AI Coder 使用。开始任何开发前，先读 `docs/PLAN.md`、本文件和相关 `plan/*.md`。
 
@@ -12,7 +12,7 @@
 
 ## 2. 当前仓库状态
 
-- Cubify 3D 已落地，不是从零开始的空仓库
+- Cubie 3D 已落地，不是从零开始的空仓库
 - 当前阶段：
   - Phase A：完成
   - Phase B：完成

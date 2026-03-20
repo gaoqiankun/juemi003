@@ -52,8 +52,8 @@ import type {
 } from "@/lib/types";
 
 const STORAGE_KEYS = {
-  config: "cubify3d.react.config.v1",
-  currentTask: "cubify3d.react.current-task.v1",
+  config: "app.react.config.v1",
+  currentTask: "app.react.current-task.v1",
 };
 const TASK_PAGE_LIMIT = 20;
 const POLL_INTERVAL_MS = 3000;

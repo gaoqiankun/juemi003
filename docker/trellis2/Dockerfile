@@ -1,5 +1,5 @@
-ARG FLASHATTN_DEVEL_IMAGE=cubify3d/flashattn-devel:latest
-ARG FLASHATTN_RUNTIME_IMAGE=cubify3d/flashattn-runtime:latest
+ARG FLASHATTN_DEVEL_IMAGE=cubie3d/flashattn-devel:latest
+ARG FLASHATTN_RUNTIME_IMAGE=cubie3d/flashattn-runtime:latest
 
 FROM ${FLASHATTN_DEVEL_IMAGE} AS builder
 

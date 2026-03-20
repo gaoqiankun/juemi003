@@ -7,8 +7,8 @@ import { sleep } from "@/lib/utils";
 
 const DEFAULT_BACKGROUND = "#2a2a2a";
 const THUMBNAIL_BACKGROUND = "#2a2a2a";
-const MODEL_CACHE_NAME = "cubify3d-model-artifacts-v1";
-const MODEL_ETAG_STORAGE_KEY_PREFIX = "cubify3d:model-etag:";
+const MODEL_CACHE_NAME = "app-model-artifacts-v1";
+const MODEL_ETAG_STORAGE_KEY_PREFIX = "app:model-etag:";
 const loader = new GLTFLoader();
 
 function hasFiniteBox(box: THREE.Box3) {

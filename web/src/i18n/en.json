@@ -1,6 +1,6 @@
 {
   "shell": {
-    "brandEyebrow": "Cubify 3D",
+    "brandEyebrow": "Cubie 3D",
     "brandCopy": "Operational admin workspace tuned for queue health, model inventory, and deployment controls.",
     "navigation": "Workspace",
     "deployLabel": "Deployment",
@@ -150,11 +150,11 @@
     "logs": {
       "title": "Operator log",
       "subtitle": "Synthetic log feed that mirrors system tone and severity.",
-      "allocateGpu": "allocator assigned cubify-gpu-01 to task tsk_6fe91b4c",
+      "allocateGpu": "allocator assigned cubie-gpu-01 to task tsk_6fe91b4c",
       "materialStage": "material stage reached 82% with preview render cached",
       "queueDepth": "queue depth on experiments lane exceeded configured soft target",
       "previewReady": "preview artifact uploaded to object storage and indexed",
-      "edgeNode": "edge node cubify-edge-01 failed heartbeat, traffic drained",
+      "edgeNode": "edge node cubie-edge-01 failed heartbeat, traffic drained",
       "downloadCache": "model cache warmup completed for HunYuan3D-2"
     }
   },
@@ -403,9 +403,9 @@
     },
     "setup": {
       "title": "Configure your engine",
-      "description": "Connect a Cubify endpoint with your API Key before entering the generation flow.",
+      "description": "Connect a Cubie endpoint with your API Key before entering the generation flow.",
       "apiKeyLabel": "API Key",
-      "apiKeyPlaceholder": "Paste your Cubify API Key",
+      "apiKeyPlaceholder": "Paste your Cubie API Key",
       "serverUrlLabel": "Server URL",
       "noteLabel": "Setup note",
       "helper": "Configuration is stored in localStorage only for this mock flow. Missing API Key will redirect protected pages back here.",

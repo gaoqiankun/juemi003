@@ -3,24 +3,24 @@ set -euo pipefail
 
 # Usage:
 #   ./deploy.sh
-#   ./deploy.sh --image cubify3d/cubify3d:20260313-1
-#   ./deploy.sh --image cubify3d/cubify3d:20260313-1 --target ubuntu@1.2.3.4 --remote-root /opt/cubify3d
-#   ./deploy.sh --image cubify3d/cubify3d:20260313-1 --target ubuntu@1.2.3.4 --remote-root /opt/cubify3d --port 2222
-#   ./deploy.sh --image cubify3d/cubify3d:20260313-1 --no-build
-#   ./deploy.sh --image cubify3d/cubify3d:20260313-1 --platform linux/amd64
-#   ./deploy.sh --trellis2-image cubify3d/trellis2:20260315
+#   ./deploy.sh --image cubie3d/cubie3d:20260313-1
+#   ./deploy.sh --image cubie3d/cubie3d:20260313-1 --target ubuntu@1.2.3.4 --remote-root /opt/cubie3d
+#   ./deploy.sh --image cubie3d/cubie3d:20260313-1 --target ubuntu@1.2.3.4 --remote-root /opt/cubie3d --port 2222
+#   ./deploy.sh --image cubie3d/cubie3d:20260313-1 --no-build
+#   ./deploy.sh --image cubie3d/cubie3d:20260313-1 --platform linux/amd64
+#   ./deploy.sh --trellis2-image cubie3d/trellis2:20260315
 
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
 TS="$(date +%Y%m%d-%H%M%S)"
-RELEASE_NAME="cubify3d-image-$TS"
+RELEASE_NAME="cubie3d-image-$TS"
 STAGE_DIR="$DIST_DIR/$RELEASE_NAME"
 TARGET=""
 REMOTE_ROOT=""
 SSH_PORT="22"
-DEFAULT_IMAGE="cubify3d/cubify3d:latest"
-LATEST_IMAGE="cubify3d/cubify3d:latest"
-DEFAULT_TRELLIS2_IMAGE="cubify3d/trellis2:latest"
+DEFAULT_IMAGE="cubie3d/cubie3d:latest"
+LATEST_IMAGE="cubie3d/cubie3d:latest"
+DEFAULT_TRELLIS2_IMAGE="cubie3d/trellis2:latest"
 IMAGE="$DEFAULT_IMAGE"
 TRELLIS2_IMAGE="$DEFAULT_TRELLIS2_IMAGE"
 DO_BUILD="1"
@@ -30,17 +30,17 @@ usage() {
   cat <<'EOF'
 Usage:
   ./deploy.sh
-  ./deploy.sh --image cubify3d/cubify3d:20260313-1
-  ./deploy.sh --image cubify3d/cubify3d:20260313-1 --target ubuntu@1.2.3.4 --remote-root /opt/cubify3d
-  ./deploy.sh --image cubify3d/cubify3d:20260313-1 --target ubuntu@1.2.3.4 --remote-root /opt/cubify3d --port 2222
-  ./deploy.sh --image cubify3d/cubify3d:20260313-1 --no-build
-  ./deploy.sh --image cubify3d/cubify3d:20260313-1 --platform linux/amd64
-  ./deploy.sh --trellis2-image cubify3d/trellis2:20260315
+  ./deploy.sh --image cubie3d/cubie3d:20260313-1
+  ./deploy.sh --image cubie3d/cubie3d:20260313-1 --target ubuntu@1.2.3.4 --remote-root /opt/cubie3d
+  ./deploy.sh --image cubie3d/cubie3d:20260313-1 --target ubuntu@1.2.3.4 --remote-root /opt/cubie3d --port 2222
+  ./deploy.sh --image cubie3d/cubie3d:20260313-1 --no-build
+  ./deploy.sh --image cubie3d/cubie3d:20260313-1 --platform linux/amd64
+  ./deploy.sh --trellis2-image cubie3d/trellis2:20260315
 
 Options:
-  --image IMAGE            target app image (default: cubify3d/cubify3d:latest)
-                           if IMAGE is not tagged :latest, also tag cubify3d/cubify3d:latest
-  --trellis2-image IMAGE   TRELLIS2 base image build arg (default: cubify3d/trellis2:latest)
+  --image IMAGE            target app image (default: cubie3d/cubie3d:latest)
+                           if IMAGE is not tagged :latest, also tag cubie3d/cubie3d:latest
+  --trellis2-image IMAGE   TRELLIS2 base image build arg (default: cubie3d/trellis2:latest)
   --target TARGET          upload release package to remote host
   --remote-root PATH       remote deployment root
   --port PORT              SSH port (default: 22)
@@ -135,10 +135,10 @@ docker save "$IMAGE" | gzip > "$IMAGE_TAR_GZ"
 
 cat > "$STAGE_DIR/DEPLOY_QUICKSTART.txt" <<EOF2
 1) docker load -i image.tar.gz
-2) mkdir -p ${REMOTE_ROOT:-/opt/cubify3d}/data ${REMOTE_ROOT:-/opt/cubify3d}/models/trellis2
-3) ln -sfn ${REMOTE_ROOT:-/opt/cubify3d}/releases/$RELEASE_NAME ${REMOTE_ROOT:-/opt/cubify3d}/current
-4) cd ${REMOTE_ROOT:-/opt/cubify3d}/current && cp .env.example .env  # then edit .env and set ADMIN_TOKEN, etc.
-5) cd ${REMOTE_ROOT:-/opt/cubify3d}/current && docker compose up -d
+2) mkdir -p ${REMOTE_ROOT:-/opt/cubie3d}/data ${REMOTE_ROOT:-/opt/cubie3d}/models/trellis2
+3) ln -sfn ${REMOTE_ROOT:-/opt/cubie3d}/releases/$RELEASE_NAME ${REMOTE_ROOT:-/opt/cubie3d}/current
+4) cd ${REMOTE_ROOT:-/opt/cubie3d}/current && cp .env.example .env  # then edit .env and set ADMIN_TOKEN, etc.
+5) cd ${REMOTE_ROOT:-/opt/cubie3d}/current && docker compose up -d
 EOF2
 
 TAR_PATH="$DIST_DIR/$RELEASE_NAME.tar.gz"

@@ -19,22 +19,22 @@ DEFAULT_SAMPLE_IMAGE_URL = (
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Smoke helper for the Cubify 3D service.",
+        description="Smoke helper for the Cubie 3D service.",
     )
     parser.add_argument(
         "mode",
         choices=("success", "cancel", "events"),
-        help="Smoke flow to run against a live Cubify 3D server.",
+        help="Smoke flow to run against a live Cubie 3D server.",
     )
     parser.add_argument(
         "--base-url",
         default="http://127.0.0.1:18001",
-        help="Cubify 3D base URL.",
+        help="Cubie 3D base URL.",
     )
     parser.add_argument(
         "--token",
         default="dev-local-token",
-        help="Bearer token for Cubify 3D.",
+        help="Bearer token for Cubie 3D.",
     )
     parser.add_argument(
         "--image-url",

@@ -19,7 +19,7 @@ from gen3d.observability.logging import configure_logging
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Run or validate the Cubify 3D service.")
+    parser = argparse.ArgumentParser(description="Run or validate the Cubie 3D service.")
     parser.add_argument(
         "--check-real-env",
         action="store_true",

@@ -1,6 +1,6 @@
 services:
   flashattn-devel:
-    image: ${IMAGE_REPOSITORY:-cubify3d/flashattn-devel}:${IMAGE_TAG:-latest}
+    image: ${IMAGE_REPOSITORY:-cubie3d/flashattn-devel}:${IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: Dockerfile
@@ -24,12 +24,12 @@ services:
       NVIDIA_DRIVER_CAPABILITIES: ${NVIDIA_DRIVER_CAPABILITIES:-compute,utility}
 
   flashattn-runtime:
-    image: ${RUNTIME_IMAGE_REPOSITORY:-cubify3d/flashattn-runtime}:${RUNTIME_IMAGE_TAG:-latest}
+    image: ${RUNTIME_IMAGE_REPOSITORY:-cubie3d/flashattn-runtime}:${RUNTIME_IMAGE_TAG:-latest}
     build:
       context: .
       dockerfile: Dockerfile.runtime
       args:
-        DEVEL_IMAGE: ${DEVEL_IMAGE:-cubify3d/flashattn-devel:latest}
+        DEVEL_IMAGE: ${DEVEL_IMAGE:-cubie3d/flashattn-devel:latest}
         RUNTIME_BASE_IMAGE: ${RUNTIME_BASE_IMAGE:-pytorch/pytorch:2.6.0-cuda12.4-cudnn9-runtime}
     runtime: ${DOCKER_RUNTIME:-nvidia}
     ipc: host

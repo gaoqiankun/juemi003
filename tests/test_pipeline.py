@@ -826,7 +826,7 @@ def test_minio_artifact_store_returns_presigned_metadata_without_real_minio(
             tmp_path / "artifacts",
             mode="minio",
             object_store_client=fake_client,
-            object_store_bucket="cubify3d-artifacts",
+            object_store_bucket="artifacts",
             object_store_presign_ttl_seconds=900,
         )
         await artifact_store.initialize()
@@ -842,13 +842,13 @@ def test_minio_artifact_store_returns_presigned_metadata_without_real_minio(
 
         listed = await artifact_store.list_artifacts("task-1")
 
-        assert fake_client.validated_bucket == "cubify3d-artifacts"
-        assert fake_client.uploads[0]["bucket"] == "cubify3d-artifacts"
+        assert fake_client.validated_bucket == "artifacts"
+        assert fake_client.uploads[0]["bucket"] == "artifacts"
         assert fake_client.uploads[0]["key"] == "artifacts/task-1/model.glb"
         assert fake_client.uploads[0]["content_type"] == "model/gltf-binary"
         assert fake_client.uploads[0]["body"] == b"GLB"
         assert artifact["backend"] == "minio"
-        assert artifact["url"].startswith("http://minio.test/cubify3d-artifacts/artifacts/task-1/model.glb")
+        assert artifact["url"].startswith("http://minio.test/artifacts/artifacts/task-1/model.glb")
         assert artifact["content_type"] == "model/gltf-binary"
         assert artifact["expires_at"] is not None
         assert listed == [artifact]
@@ -865,7 +865,7 @@ def test_minio_artifact_store_opens_streaming_download_without_staging_file(
             tmp_path / "artifacts",
             mode="minio",
             object_store_client=fake_client,
-            object_store_bucket="cubify3d-artifacts",
+            object_store_bucket="artifacts",
         )
         await artifact_store.initialize()
 
@@ -900,7 +900,7 @@ def test_minio_artifact_store_surfaces_presign_failures_as_uploading_errors(
             tmp_path / "artifacts",
             mode="minio",
             object_store_client=FakeObjectStorageClient(fail_on_presign=True),
-            object_store_bucket="cubify3d-artifacts",
+            object_store_bucket="artifacts",
         )
         await artifact_store.initialize()
 
@@ -931,7 +931,7 @@ def test_minio_artifact_store_delete_artifacts_removes_objects_and_manifest(
             tmp_path / "artifacts",
             mode="minio",
             object_store_client=fake_client,
-            object_store_bucket="cubify3d-artifacts",
+            object_store_bucket="artifacts",
         )
         await artifact_store.initialize()
 
@@ -950,7 +950,7 @@ def test_minio_artifact_store_delete_artifacts_removes_objects_and_manifest(
         await artifact_store.delete_artifacts("task-3")
 
         assert fake_client.deleted_keys == [
-            ("cubify3d-artifacts", "artifacts/task-3/model.glb")
+            ("artifacts", "artifacts/task-3/model.glb")
         ]
         assert fake_client.objects == {}
         assert manifest_path.exists() is False

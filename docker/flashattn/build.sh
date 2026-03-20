@@ -4,7 +4,7 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$script_dir"
 
-target_repository="${TARGET_REPOSITORY:-cubify3d/flashattn}"
+target_repository="${TARGET_REPOSITORY:-cubie3d/flashattn}"
 force_rebuild=0
 compose_build_args=()
 
@@ -131,10 +131,10 @@ configure_flash_attn_install_target
 image_name_for() {
   case "$1" in
     devel)
-      printf '%s\n' "${DEVEL_SOURCE_IMAGE:-cubify3d/flashattn-devel:latest}"
+      printf '%s\n' "${DEVEL_SOURCE_IMAGE:-cubie3d/flashattn-devel:latest}"
       ;;
     runtime)
-      printf '%s\n' "${RUNTIME_SOURCE_IMAGE:-cubify3d/flashattn-runtime:latest}"
+      printf '%s\n' "${RUNTIME_SOURCE_IMAGE:-cubie3d/flashattn-runtime:latest}"
       ;;
     *)
       echo "unsupported flavor: $1" >&2

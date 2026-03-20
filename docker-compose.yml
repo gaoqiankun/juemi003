@@ -1,15 +1,15 @@
-name: cubify3d
+name: cubie3d
 
 services:
-  cubify3d:
-    image: ${CUBIFY_IMAGE:-cubify3d:local}
-    container_name: cubify3d
+  cubie3d:
+    image: ${IMAGE:-cubie3d:local}
+    container_name: cubie3d
     restart: unless-stopped
     build:
       context: .
       dockerfile: docker/Dockerfile
       args:
-        TRELLIS2_IMAGE: ${TRELLIS2_IMAGE:-cubify3d/trellis2:latest}
+        TRELLIS2_IMAGE: ${TRELLIS2_IMAGE:-cubie3d/trellis2:latest}
     runtime: ${DOCKER_RUNTIME:-nvidia}
     ports:
       - "18001:18001"
@@ -24,12 +24,12 @@ services:
       XDG_CACHE_HOME: /data/.cache
       TRITON_CACHE_DIR: /data/.triton
       ARTIFACT_STORE_MODE: ${ARTIFACT_STORE_MODE:-local}
-      DATABASE_PATH: /data/cubify3d.sqlite3
+      DATABASE_PATH: /data/app.sqlite3
       ARTIFACTS_DIR: /data/artifacts
       UPLOADS_DIR: /data/uploads
       OBJECT_STORE_ENDPOINT: ${OBJECT_STORE_ENDPOINT:-}
       OBJECT_STORE_EXTERNAL_ENDPOINT: ${OBJECT_STORE_EXTERNAL_ENDPOINT:-}
-      OBJECT_STORE_BUCKET: ${OBJECT_STORE_BUCKET:-cubify3d-artifacts}
+      OBJECT_STORE_BUCKET: ${OBJECT_STORE_BUCKET:-artifacts}
       OBJECT_STORE_ACCESS_KEY: ${OBJECT_STORE_ACCESS_KEY:-minioadmin}
       OBJECT_STORE_SECRET_KEY: ${OBJECT_STORE_SECRET_KEY:-minioadmin}
       OBJECT_STORE_REGION: ${OBJECT_STORE_REGION:-us-east-1}
@@ -41,8 +41,8 @@ services:
       NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-all}
       NVIDIA_DRIVER_CAPABILITIES: ${NVIDIA_DRIVER_CAPABILITIES:-compute,utility}
     volumes:
-      - ${CUBIFY_DATA_DIR:-./data}:/data
-      - ${CUBIFY_MODEL_DIR:-./models/trellis2}:/models/trellis2:ro
+      - ${DATA_DIR:-./data}:/data
+      - ${MODEL_DIR:-./models/trellis2}:/models/trellis2:ro
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:18001/health', timeout=3)"]
       interval: 30s
@@ -60,7 +60,7 @@ services:
       - "9000:9000"
       - "9001:9001"
     volumes:
-      - ${CUBIFY_MINIO_DIR:-./.minio}:/data
+      - ${MINIO_DIR:-./.minio}:/data
     profiles:
       - minio
 
@@ -76,6 +76,6 @@ services:
         until mc alias set local http://minio:9000 ${OBJECT_STORE_ACCESS_KEY:-minioadmin} ${OBJECT_STORE_SECRET_KEY:-minioadmin}; do
           sleep 1;
         done &&
-        mc mb --ignore-existing local/${OBJECT_STORE_BUCKET:-cubify3d-artifacts}
+        mc mb --ignore-existing local/${OBJECT_STORE_BUCKET:-artifacts}
     profiles:
       - minio

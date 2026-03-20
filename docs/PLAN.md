@@ -1,4 +1,4 @@
-# Cubify 3D 规划 V3 — vLLM Omni 启发的阶段解耦推理服务
+# Cubie 3D 规划 V3 — vLLM Omni 启发的阶段解耦推理服务
 
 > 最后更新：基于 TRELLIS2 官方推理实现校准
 
@@ -96,7 +96,7 @@ HTTP 请求 (server 调用)
         │
         ▼
 ┌──────────────────────────────────────────────────────┐
-│                 Cubify 3D Serving                     │
+│                 Cubie 3D Serving                     │
 │                                                        │
 │  ┌────────────────────────────────────────────────┐   │
 │  │            API Server (FastAPI)                │   │
@@ -309,8 +309,8 @@ python -m gen3d.serve \
 ```yaml
 # docker-compose.yml
 services:
-  cubify3d-serve:
-    image: cubify3d-worker:latest
+  cubie3d-serve:
+    image: cubie3d-worker:latest
     runtime: nvidia
     environment:
       CUDA_VISIBLE_DEVICES: "0,1,2,3"
@@ -565,12 +565,12 @@ artifacts/{taskId}/preview.png
 ## 10. 可观测性
 
 ```
-cubify3d_queue_depth                    # 当前等待队列深度
-cubify3d_task_duration_seconds{status}  # 端到端任务耗时 histogram
-cubify3d_stage_duration_seconds{stage}  # preprocess / gpu / export 阶段耗时
-cubify3d_task_total{status}             # 终态任务计数
-cubify3d_webhook_total{result}          # webhook 发送成败计数
-cubify3d_ready                          # readiness gauge
+queue_depth                    # 当前等待队列深度
+task_duration_seconds{status}  # 端到端任务耗时 histogram
+stage_duration_seconds{stage}  # preprocess / gpu / export 阶段耗时
+task_total{status}             # 终态任务计数
+webhook_total{result}          # webhook 发送成败计数
+ready                          # readiness gauge
 ```
 
 ---
@@ -678,10 +678,10 @@ gen3d/
 
 ## 13. 与外部系统集成
 
-- 外部调用方配置 `CUBIFY_BASE_URL` 和 `CUBIFY_API_KEY`
+- 外部调用方配置 `BASE_URL` 和 `API_KEY`
 - 上游系统调用 `POST /v1/tasks` 并按需传入 `callback_url`
-- Cubify 3D 完成后回调调用方，由调用方自行更新业务状态
-- Cubify 3D 本身不耦合任何特定客户端或后端
+- Cubie 3D 完成后回调调用方，由调用方自行更新业务状态
+- Cubie 3D 本身不耦合任何特定客户端或后端
 
 ---
 

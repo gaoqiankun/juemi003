@@ -101,7 +101,7 @@ def make_client(
     preprocess_max_image_bytes: int = 10 * 1024 * 1024,
     preview_renderer_service: PreviewRendererServiceProtocol | None = None,
 ) -> TestClient:
-    database_path = database_path or (tmp_path / "cubify3d.sqlite3")
+    database_path = database_path or (tmp_path / "app.sqlite3")
     artifacts_dir = artifacts_dir or (tmp_path / "artifacts")
     uploads_dir = uploads_dir or (tmp_path / "uploads")
     config = ServingConfig(
@@ -153,7 +153,7 @@ def make_real_mode_client(
     config = ServingConfig(
         provider_mode="real",
         admin_token=admin_token,
-        database_path=tmp_path / "cubify3d-real.sqlite3",
+        database_path=tmp_path / "app-real.sqlite3",
         artifacts_dir=tmp_path / "artifacts-real",
         uploads_dir=uploads_dir or (tmp_path / "uploads-real"),
         preprocess_delay_ms=0,
@@ -531,16 +531,16 @@ def test_health_and_ready_endpoints(tmp_path: Path) -> None:
         ready_alias_response = client.get("/ready")
 
     assert health_response.status_code == 200
-    assert health_response.json() == {"status": "ok", "service": "cubify3d"}
+    assert health_response.json() == {"status": "ok", "service": "cubie3d"}
     assert readiness_response.status_code == 200
     assert readiness_response.json() == {
         "status": "ready",
-        "service": "cubify3d",
+        "service": "cubie3d",
     }
     assert ready_alias_response.status_code == 200
     assert ready_alias_response.json() == {
         "status": "ready",
-        "service": "cubify3d",
+        "service": "cubie3d",
     }
 
 
@@ -552,7 +552,7 @@ def test_dev_proxy_is_disabled_by_default(tmp_path: Path, monkeypatch: pytest.Mo
     monkeypatch.setattr(server_module.httpx, "AsyncClient", UnexpectedProxyClient)
 
     config = ServingConfig(
-        database_path=tmp_path / "cubify3d.sqlite3",
+        database_path=tmp_path / "app.sqlite3",
         artifacts_dir=tmp_path / "artifacts",
         uploads_dir=tmp_path / "uploads",
     )
@@ -561,7 +561,7 @@ def test_dev_proxy_is_disabled_by_default(tmp_path: Path, monkeypatch: pytest.Mo
         root_response = client.get("/")
 
     assert health_response.status_code == 200
-    assert health_response.json() == {"status": "ok", "service": "cubify3d"}
+    assert health_response.json() == {"status": "ok", "service": "cubie3d"}
     expected_root_status = 200 if server_module.SPA_INDEX_PATH.is_file() else 204
     assert root_response.status_code == expected_root_status
 
@@ -606,10 +606,10 @@ def test_dev_proxy_forwards_non_static_requests(tmp_path: Path, monkeypatch: pyt
     monkeypatch.setattr(server_module.httpx, "AsyncClient", FakeProxyClient)
 
     config = ServingConfig(
-        database_path=tmp_path / "cubify3d.sqlite3",
+        database_path=tmp_path / "app.sqlite3",
         artifacts_dir=tmp_path / "artifacts",
         uploads_dir=tmp_path / "uploads",
-        dev_proxy_target="https://cubify3d.example.com",
+        dev_proxy_target="https://cubie3d.example.com",
     )
     with TestClient(create_test_app(config)) as client:
         ready_response = client.get(
@@ -643,12 +643,12 @@ def test_dev_proxy_forwards_non_static_requests(tmp_path: Path, monkeypatch: pyt
     }
     assert len(forwarded_requests) == 2
     assert forwarded_requests[0]["method"] == "GET"
-    assert forwarded_requests[0]["url"] == "https://cubify3d.example.com/ready?check=1"
+    assert forwarded_requests[0]["url"] == "https://cubie3d.example.com/ready?check=1"
     assert forwarded_requests[0]["headers"]["authorization"] == "Bearer upstream-token"
     assert forwarded_requests[0]["headers"]["x-debug"] == "true"
     assert forwarded_requests[0]["stream"] is True
     assert forwarded_requests[1]["method"] == "POST"
-    assert forwarded_requests[1]["url"] == "https://cubify3d.example.com/v1/tasks?debug=1"
+    assert forwarded_requests[1]["url"] == "https://cubie3d.example.com/v1/tasks?debug=1"
     assert forwarded_requests[1]["headers"]["authorization"] == "Bearer upstream-token"
     assert forwarded_requests[1]["headers"]["x-trace"] == "proxy-test"
     assert json.loads(forwarded_requests[1]["body"].decode("utf-8")) == {
@@ -692,10 +692,10 @@ def test_dev_proxy_serves_local_model_override_for_artifact_request(
     monkeypatch.setattr(server_module.httpx, "AsyncClient", FakeProxyClient)
 
     config = ServingConfig(
-        database_path=tmp_path / "cubify3d.sqlite3",
+        database_path=tmp_path / "app.sqlite3",
         artifacts_dir=tmp_path / "artifacts",
         uploads_dir=tmp_path / "uploads",
-        dev_proxy_target="https://cubify3d.example.com",
+        dev_proxy_target="https://cubie3d.example.com",
         dev_local_model_path=local_model,
     )
 
@@ -708,7 +708,7 @@ def test_dev_proxy_serves_local_model_override_for_artifact_request(
     assert model_response.headers["content-type"].startswith("model/gltf-binary")
     assert ready_response.status_code == 200
     assert ready_response.headers["x-dev-proxy"] == "1"
-    assert forwarded_requests == ["https://cubify3d.example.com/ready"]
+    assert forwarded_requests == ["https://cubie3d.example.com/ready"]
 
 
 def test_root_and_spa_routes_serve_built_index_when_present(
@@ -717,7 +717,7 @@ def test_root_and_spa_routes_serve_built_index_when_present(
 ) -> None:
     spa_index = tmp_path / "dist" / "index.html"
     spa_index.parent.mkdir(parents=True, exist_ok=True)
-    spa_index.write_text("<!doctype html><html><body>cubify3d spa</body></html>", encoding="utf-8")
+    spa_index.write_text("<!doctype html><html><body>cubie3d spa</body></html>", encoding="utf-8")
     monkeypatch.setattr(server_module, "SPA_INDEX_PATH", spa_index)
 
     with make_client(tmp_path) as client:
@@ -727,13 +727,13 @@ def test_root_and_spa_routes_serve_built_index_when_present(
         admin_dashboard_response = client.get("/admin/dashboard")
 
     assert root_response.status_code == 200
-    assert "cubify3d spa" in root_response.text
+    assert "cubie3d spa" in root_response.text
     assert generate_response.status_code == 200
-    assert "cubify3d spa" in generate_response.text
+    assert "cubie3d spa" in generate_response.text
     assert generations_response.status_code == 200
-    assert "cubify3d spa" in generations_response.text
+    assert "cubie3d spa" in generations_response.text
     assert admin_dashboard_response.status_code == 200
-    assert "cubify3d spa" in admin_dashboard_response.text
+    assert "cubie3d spa" in admin_dashboard_response.text
 
 
 def test_root_assets_and_legacy_static_routes_work_with_built_spa(
@@ -743,7 +743,7 @@ def test_root_assets_and_legacy_static_routes_work_with_built_spa(
     spa_dist = tmp_path / "dist"
     spa_index = spa_dist / "index.html"
     spa_dist.mkdir(parents=True, exist_ok=True)
-    spa_index.write_text("<!doctype html><html><body>cubify3d static spa</body></html>", encoding="utf-8")
+    spa_index.write_text("<!doctype html><html><body>cubie3d static spa</body></html>", encoding="utf-8")
     (spa_dist / "favicon.svg").write_text("<svg></svg>", encoding="utf-8")
     monkeypatch.setattr(server_module, "WEB_DIST_DIR", spa_dist)
     monkeypatch.setattr(server_module, "SPA_INDEX_PATH", spa_index)
@@ -756,9 +756,9 @@ def test_root_assets_and_legacy_static_routes_work_with_built_spa(
         static_generate_redirect_response = client.get("/static/generate", follow_redirects=False)
 
     assert generate_response.status_code == 200
-    assert "cubify3d static spa" in generate_response.text
+    assert "cubie3d static spa" in generate_response.text
     assert admin_dashboard_response.status_code == 200
-    assert "cubify3d static spa" in admin_dashboard_response.text
+    assert "cubie3d static spa" in admin_dashboard_response.text
     assert asset_response.status_code == 200
     assert asset_response.text == "<svg></svg>"
     assert static_redirect_response.status_code == 308
@@ -794,8 +794,8 @@ def test_dev_proxy_does_not_forward_spa_routes(
     monkeypatch.setattr(server_module.httpx, "AsyncClient", FakeProxyClient)
 
     config = ServingConfig(
-        dev_proxy_target="https://cubify3d.example.com",
-        database_path=tmp_path / "cubify3d.sqlite3",
+        dev_proxy_target="https://cubie3d.example.com",
+        database_path=tmp_path / "app.sqlite3",
         artifacts_dir=tmp_path / "artifacts",
         uploads_dir=tmp_path / "uploads",
     )
@@ -853,13 +853,13 @@ def test_app_startup_triggers_async_model_prewarm_without_blocking(
     assert readiness_loading_response.status_code == 503
     assert readiness_loading_response.json() == {
         "status": "not_ready",
-        "service": "cubify3d",
+        "service": "cubie3d",
     }
     assert calls == ["trellis"]
     assert readiness_ready_response.status_code == 200
     assert readiness_ready_response.json() == {
         "status": "ready",
-        "service": "cubify3d",
+        "service": "cubie3d",
     }
 
 
@@ -909,7 +909,7 @@ def test_create_task_returns_immediately_while_model_loads_in_background(
     assert readiness_after_response.status_code == 200
     assert readiness_after_response.json() == {
         "status": "ready",
-        "service": "cubify3d",
+        "service": "cubie3d",
     }
 
 
@@ -1328,7 +1328,7 @@ def test_metrics_requires_metrics_token(tmp_path: Path) -> None:
 def test_task_list_returns_requested_page_and_cursor_metadata(
     tmp_path: Path,
 ) -> None:
-    database_path = tmp_path / "cubify3d.sqlite3"
+    database_path = tmp_path / "app.sqlite3"
     base_time = utcnow()
     seed_tasks(
         database_path,
@@ -1727,7 +1727,7 @@ def test_cleanup_worker_recovers_pending_cleanup_after_restart(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    database_path = tmp_path / "cubify3d.sqlite3"
+    database_path = tmp_path / "app.sqlite3"
     artifacts_dir = tmp_path / "artifacts"
     cleanup_started = threading.Event()
     allow_cleanup = threading.Event()
@@ -1852,7 +1852,7 @@ def test_delete_other_keys_task_returns_403(tmp_path: Path) -> None:
 def test_task_list_cursor_pagination_is_stable_when_newer_task_arrives(
     tmp_path: Path,
 ) -> None:
-    database_path = tmp_path / "cubify3d.sqlite3"
+    database_path = tmp_path / "app.sqlite3"
     base_time = utcnow()
     seed_tasks(
         database_path,
@@ -2233,7 +2233,7 @@ def test_create_task_runs_full_mock_pipeline_and_exposes_artifact_metadata(tmp_p
     assert download_response.content.startswith(b"glTF")
     assert metrics_response.status_code == 200
     metrics_payload = metrics_response.text
-    assert "cubify3d_queue_depth" in metrics_payload
+    assert "queue_depth" in metrics_payload
 
 
 def test_create_task_serves_preview_and_input_artifacts(
@@ -2356,7 +2356,7 @@ def test_missing_preview_artifact_triggers_background_render_once(
     reset_preview_render_state,
 ) -> None:
     task_id = "preview-missing-once"
-    database_path = tmp_path / "cubify3d.sqlite3"
+    database_path = tmp_path / "app.sqlite3"
     artifacts_dir = tmp_path / "artifacts"
     seed_tasks(database_path, [make_succeeded_sequence(task_id)])
     task_dir = artifacts_dir / task_id
@@ -2433,7 +2433,7 @@ def test_missing_preview_artifact_deduplicates_background_render(
     reset_preview_render_state,
 ) -> None:
     task_id = "preview-missing-dedup"
-    database_path = tmp_path / "cubify3d.sqlite3"
+    database_path = tmp_path / "app.sqlite3"
     artifacts_dir = tmp_path / "artifacts"
     seed_tasks(database_path, [make_succeeded_sequence(task_id)])
     task_dir = artifacts_dir / task_id
@@ -2516,7 +2516,7 @@ def test_missing_preview_and_model_does_not_trigger_background_render(
     reset_preview_render_state,
 ) -> None:
     task_id = "preview-missing-no-model"
-    database_path = tmp_path / "cubify3d.sqlite3"
+    database_path = tmp_path / "app.sqlite3"
     artifacts_dir = tmp_path / "artifacts"
     seed_tasks(database_path, [make_succeeded_sequence(task_id)])
 
@@ -2661,7 +2661,7 @@ def test_create_task_downloads_artifact_via_same_origin_proxy_for_minio_backend(
         tmp_path,
         artifact_store_mode="minio",
         object_store_endpoint="http://minio:9000",
-        object_store_bucket="cubify3d-artifacts",
+        object_store_bucket="artifacts",
         object_store_access_key="minioadmin",
         object_store_secret_key="minioadmin",
     ) as client:
@@ -2805,7 +2805,7 @@ def test_minio_artifact_proxy_streams_without_buffering_temp_file(
         tmp_path,
         artifact_store_mode="minio",
         object_store_endpoint="http://minio:9000",
-        object_store_bucket="cubify3d-artifacts",
+        object_store_bucket="artifacts",
         object_store_access_key="minioadmin",
         object_store_secret_key="minioadmin",
     ) as client:
@@ -2843,27 +2843,27 @@ def test_metrics_track_successful_task(tmp_path: Path) -> None:
         initial_metrics_payload = fetch_metrics_payload(client)
         succeeded_total_before = metric_sample_value(
             initial_metrics_payload,
-            "cubify3d_task_total",
+            "task_total",
             {"status": "succeeded"},
         )
         succeeded_duration_count_before = metric_sample_value(
             initial_metrics_payload,
-            "cubify3d_task_duration_seconds_count",
+            "task_duration_seconds_count",
             {"status": "succeeded"},
         )
         preprocess_count_before = metric_sample_value(
             initial_metrics_payload,
-            "cubify3d_stage_duration_seconds_count",
+            "stage_duration_seconds_count",
             {"stage": "preprocess"},
         )
         gpu_count_before = metric_sample_value(
             initial_metrics_payload,
-            "cubify3d_stage_duration_seconds_count",
+            "stage_duration_seconds_count",
             {"stage": "gpu"},
         )
         export_count_before = metric_sample_value(
             initial_metrics_payload,
-            "cubify3d_stage_duration_seconds_count",
+            "stage_duration_seconds_count",
             {"stage": "export"},
         )
 
@@ -2887,7 +2887,7 @@ def test_metrics_track_successful_task(tmp_path: Path) -> None:
         assert (
             wait_for_metric_sample(
                 client,
-                "cubify3d_task_total",
+                "task_total",
                 labels={"status": "succeeded"},
                 minimum_value=succeeded_total_before + 1,
             )
@@ -2896,7 +2896,7 @@ def test_metrics_track_successful_task(tmp_path: Path) -> None:
         assert (
             wait_for_metric_sample(
                 client,
-                "cubify3d_task_duration_seconds_count",
+                "task_duration_seconds_count",
                 labels={"status": "succeeded"},
                 minimum_value=succeeded_duration_count_before + 1,
             )
@@ -2905,7 +2905,7 @@ def test_metrics_track_successful_task(tmp_path: Path) -> None:
         assert (
             wait_for_metric_sample(
                 client,
-                "cubify3d_stage_duration_seconds_count",
+                "stage_duration_seconds_count",
                 labels={"stage": "preprocess"},
                 minimum_value=preprocess_count_before + 1,
             )
@@ -2914,7 +2914,7 @@ def test_metrics_track_successful_task(tmp_path: Path) -> None:
         assert (
             wait_for_metric_sample(
                 client,
-                "cubify3d_stage_duration_seconds_count",
+                "stage_duration_seconds_count",
                 labels={"stage": "gpu"},
                 minimum_value=gpu_count_before + 1,
             )
@@ -2923,7 +2923,7 @@ def test_metrics_track_successful_task(tmp_path: Path) -> None:
         assert (
             wait_for_metric_sample(
                 client,
-                "cubify3d_stage_duration_seconds_count",
+                "stage_duration_seconds_count",
                 labels={"stage": "export"},
                 minimum_value=export_count_before + 1,
             )
@@ -2936,7 +2936,7 @@ def test_metrics_track_failed_task(tmp_path: Path) -> None:
         initial_metrics_payload = fetch_metrics_payload(client)
         failed_total_before = metric_sample_value(
             initial_metrics_payload,
-            "cubify3d_task_total",
+            "task_total",
             {"status": "failed"},
         )
 
@@ -2959,7 +2959,7 @@ def test_metrics_track_failed_task(tmp_path: Path) -> None:
         assert (
             wait_for_metric_sample(
                 client,
-                "cubify3d_task_total",
+                "task_total",
                 labels={"status": "failed"},
                 minimum_value=failed_total_before + 1,
             )
@@ -2977,7 +2977,7 @@ def test_metrics_track_webhook(tmp_path: Path) -> None:
         initial_metrics_payload = fetch_metrics_payload(client)
         webhook_success_before = metric_sample_value(
             initial_metrics_payload,
-            "cubify3d_webhook_total",
+            "webhook_total",
             {"result": "success"},
         )
 
@@ -2998,7 +2998,7 @@ def test_metrics_track_webhook(tmp_path: Path) -> None:
         assert (
             wait_for_metric_sample(
                 client,
-                "cubify3d_webhook_total",
+                "webhook_total",
                 labels={"result": "success"},
                 minimum_value=webhook_success_before + 1,
             )
@@ -3040,7 +3040,7 @@ def test_webhook_failures_are_retried_and_recorded(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    database_path = tmp_path / "cubify3d.sqlite3"
+    database_path = tmp_path / "app.sqlite3"
     attempts: list[str] = []
 
     async def failing_webhook_sender(callback_url: str, payload: dict) -> None:
@@ -3061,12 +3061,12 @@ def test_webhook_failures_are_retried_and_recorded(
         initial_metrics_payload = fetch_metrics_payload(client)
         webhook_failure_before = metric_sample_value(
             initial_metrics_payload,
-            "cubify3d_webhook_total",
+            "webhook_total",
             {"result": "failure"},
         )
         webhook_success_before = metric_sample_value(
             initial_metrics_payload,
-            "cubify3d_webhook_total",
+            "webhook_total",
             {"result": "success"},
         )
 
@@ -3089,7 +3089,7 @@ def test_webhook_failures_are_retried_and_recorded(
         assert (
             wait_for_metric_sample(
                 client,
-                "cubify3d_webhook_total",
+                "webhook_total",
                 labels={"result": "failure"},
                 minimum_value=webhook_failure_before + 3,
             )
@@ -3097,7 +3097,7 @@ def test_webhook_failures_are_retried_and_recorded(
         )
         webhook_success_after = metric_sample_value(
             fetch_metrics_payload(client),
-            "cubify3d_webhook_total",
+            "webhook_total",
             {"result": "success"},
         )
 
@@ -3179,8 +3179,8 @@ def test_single_gpu_default_configuration_exposes_slot_metric(tmp_path: Path) ->
         wait_for_status(client, create_response.json()["taskId"], "succeeded")
         metrics_payload = fetch_metrics_payload(client)
 
-    assert "cubify3d_gpu_slot_active" in metrics_payload
-    assert 'cubify3d_gpu_slot_active{device="0"}' in metrics_payload
+    assert "gpu_slot_active" in metrics_payload
+    assert 'gpu_slot_active{device="0"}' in metrics_payload
 
 
 def test_gpu_queued_task_can_be_cancelled_and_repeat_cancel_is_rejected(tmp_path: Path) -> None:
@@ -3474,7 +3474,7 @@ def test_real_mode_model_load_failure_marks_task_failed_without_blocking_startup
         model_provider="trellis2",
         model_path=str(tmp_path / "missing-model"),
         admin_token="admin-token",
-        database_path=tmp_path / "cubify3d.sqlite3",
+        database_path=tmp_path / "app.sqlite3",
         artifacts_dir=tmp_path / "artifacts",
         uploads_dir=tmp_path / "uploads",
     )
@@ -3631,7 +3631,7 @@ def test_real_mode_preflight_requires_provider_mode_real(tmp_path: Path) -> None
         provider_mode="mock",
         model_provider="trellis2",
         model_path=str(tmp_path / "model"),
-        database_path=tmp_path / "cubify3d.sqlite3",
+        database_path=tmp_path / "app.sqlite3",
         artifacts_dir=tmp_path / "artifacts",
     )
 
@@ -3678,7 +3678,7 @@ def test_real_mode_preflight_reports_runtime_and_artifact_backend(
         model_provider="trellis2",
         model_path=str(model_dir),
         artifact_store_mode="local",
-        database_path=tmp_path / "cubify3d.sqlite3",
+        database_path=tmp_path / "app.sqlite3",
         artifacts_dir=tmp_path / "artifacts",
     )
 
@@ -3700,7 +3700,7 @@ def test_real_mode_preflight_reports_runtime_and_artifact_backend(
 def test_minio_artifact_store_requires_complete_config(tmp_path: Path) -> None:
     config = ServingConfig(
         artifact_store_mode="minio",
-        database_path=tmp_path / "cubify3d.sqlite3",
+        database_path=tmp_path / "app.sqlite3",
         artifacts_dir=tmp_path / "artifacts",
     )
 

@@ -1,6 +1,6 @@
-# Cubify 3D
+# Cubie 3D
 
-Cubify 3D 是一个可本地部署的开源 3D 生成服务，提供任务队列、Web UI、artifact 管理与 Docker 部署能力。
+Cubie 3D 是一个可本地部署的开源 3D 生成服务，提供任务队列、Web UI、artifact 管理与 Docker 部署能力。
 
 ## 功能亮点
 
@@ -34,7 +34,7 @@ mkdir -p ./models/trellis2 ./data
 ADMIN_TOKEN=change-me
 PROVIDER_MODE=real
 MODEL_PATH=/models/trellis2
-CUBIFY_MODEL_DIR=/absolute/path/to/models/trellis2
+MODEL_DIR=/absolute/path/to/models/trellis2
 ```
 
 提示：如果只是快速 smoke test，可以先把 `PROVIDER_MODE=mock`。
@@ -55,7 +55,7 @@ TODO: add screenshots
 
 - 本地目录名暂时仍为 `gen3d/`，以避免影响现有模块路径和脚本
 - API 路径保持为 `/v1/...`
-- 默认 Compose 环境变量前缀已统一为 `CUBIFY_*`
+- 默认 Compose 环境变量以功能名为主：`IMAGE`、`DATA_DIR`、`MODEL_DIR`、`MINIO_DIR`
 
 ## License
 

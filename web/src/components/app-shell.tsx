@@ -43,8 +43,8 @@ export function AppShell({
       >
         <div className="flex h-full items-center justify-between px-4">
           <NavLink to="/" className="inline-flex items-center gap-2 text-white">
-            <img src="/favicon.svg" alt="Cubify 3D" className="h-6 w-6" />
-            <span className="text-[15px] font-semibold tracking-[0.02em]">Cubify 3D</span>
+            <img src="/favicon.svg" alt="Cubie 3D" className="h-6 w-6" />
+            <span className="text-[15px] font-semibold tracking-[0.02em]">Cubie 3D</span>
           </NavLink>
 
           <div className="flex items-center gap-3">

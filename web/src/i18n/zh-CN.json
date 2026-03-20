@@ -1,6 +1,6 @@
 {
   "shell": {
-    "brandEyebrow": "Cubify 3D",
+    "brandEyebrow": "Cubie 3D",
     "brandCopy": "面向队列健康、模型库存和部署控制的运营管理工作台。",
     "navigation": "工作区",
     "deployLabel": "部署环境",
@@ -150,11 +150,11 @@
     "logs": {
       "title": "操作日志",
       "subtitle": "模拟系统日志，语气与严重级别与真实环境对齐。",
-      "allocateGpu": "allocator 已将 cubify-gpu-01 分配给任务 tsk_6fe91b4c",
+      "allocateGpu": "allocator 已将 cubie-gpu-01 分配给任务 tsk_6fe91b4c",
       "materialStage": "材质阶段已到 82%，预览渲染已缓存",
       "queueDepth": "experiments 队列深度超过软阈值",
       "previewReady": "预览产物已上传对象存储并完成索引",
-      "edgeNode": "边缘节点 cubify-edge-01 心跳失败，流量已排空",
+      "edgeNode": "边缘节点 cubie-edge-01 心跳失败，流量已排空",
       "downloadCache": "HunYuan3D-2 模型缓存预热完成"
     }
   },
@@ -403,9 +403,9 @@
     },
     "setup": {
       "title": "配置你的引擎",
-      "description": "进入生成流程前，先连接 Cubify 服务地址并填写 API Key。",
+      "description": "进入生成流程前，先连接 Cubie 服务地址并填写 API Key。",
       "apiKeyLabel": "API Key",
-      "apiKeyPlaceholder": "粘贴你的 Cubify API Key",
+      "apiKeyPlaceholder": "粘贴你的 Cubie API Key",
       "serverUrlLabel": "服务地址",
       "noteLabel": "说明",
       "helper": "当前配置只保存在 localStorage，用于 mock 链路。没有 API Key 时，受保护页面会自动跳回这里。",

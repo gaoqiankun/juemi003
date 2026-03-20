@@ -1,4 +1,4 @@
-ARG DEVEL_IMAGE=cubify3d/flashattn-devel:latest
+ARG DEVEL_IMAGE=cubie3d/flashattn-devel:latest
 ARG RUNTIME_BASE_IMAGE=pytorch/pytorch:2.6.0-cuda12.4-cudnn9-runtime
 FROM ${DEVEL_IMAGE} AS builder
 

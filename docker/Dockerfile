@@ -1,4 +1,4 @@
-ARG TRELLIS2_IMAGE=cubify3d/trellis2:latest
+ARG TRELLIS2_IMAGE=cubie3d/trellis2:latest
 ARG NODE_IMAGE=node:24-bookworm-slim
 
 FROM ${NODE_IMAGE} AS web-builder
@@ -50,7 +50,7 @@ ENV PYTHONPATH=/opt/TRELLIS.2 \
     MODEL_PROVIDER=trellis2 \
     MODEL_PATH=/models/trellis2 \
     ARTIFACT_STORE_MODE=local \
-    DATABASE_PATH=/data/cubify3d.sqlite3 \
+    DATABASE_PATH=/data/app.sqlite3 \
     ARTIFACTS_DIR=/data/artifacts
 
 EXPOSE 18001

@@ -1,5 +1,5 @@
-export const API_KEY_STORAGE_KEY = "cubify3d-api-key";
-export const SERVER_URL_STORAGE_KEY = "cubify3d-server-url";
+export const API_KEY_STORAGE_KEY = "app-api-key";
+export const SERVER_URL_STORAGE_KEY = "app-server-url";
 
 export interface UserConfig {
   apiKey: string;

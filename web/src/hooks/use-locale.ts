@@ -2,7 +2,7 @@ import { useTranslation } from "react-i18next";
 
 import type { AdminLocale } from "@/data/admin-mocks";
 
-export const LANGUAGE_STORAGE_KEY = "cubify3d-admin-language";
+export const LANGUAGE_STORAGE_KEY = "app-admin-language";
 
 export function useLocale() {
   const { i18n } = useTranslation();

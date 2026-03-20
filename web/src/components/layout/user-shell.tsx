@@ -24,12 +24,12 @@ export function UserShell() {
           <NavLink to="/generate" className="user-brand">
             <img
               src={`${import.meta.env.BASE_URL}favicon.svg`}
-              alt="Cubify 3D"
+              alt="Cubie 3D"
               className="brand-icon"
             />
             <div>
               <div className="eyebrow">{t("user.shell.brandEyebrow")}</div>
-              <div className="brand-title">Cubify 3D</div>
+              <div className="brand-title">Cubie 3D</div>
             </div>
           </NavLink>
 

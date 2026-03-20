@@ -1,14 +1,14 @@
-# Cubify 3D · Claude 架构师记忆
+# Cubie 3D · Claude 架构师记忆
 
 > 子仓库：`./gen3d/`（独立 git 仓库，本地目录名暂未改动）
 > 最后更新：2026-03-20
-> **战略转型**：gen3d → Cubify 3D，独立开源项目，任何人可本地部署
+> **战略转型**：gen3d → Cubie 3D，独立开源项目，任何人可本地部署
 
 ---
 
 ## 项目定位
 
-**Cubify 3D** 是一个可私有部署的开源 3D 生成服务，目标对标 Meshy / Tripo3D 商业产品水平。
+**Cubie 3D** 是一个可私有部署的开源 3D 生成服务，目标对标 Meshy / Tripo3D 商业产品水平。
 类比 ComfyUI / InvokeAI 在图像生成领域的地位，专注 3D 生成。
 
 - 目标用户：专业设计师、独立开发者、企业私有化部署
@@ -20,14 +20,14 @@
 
 ## 规划日志
 
-- 历史规划在 `plan/`，最新见 `plan/2026-03-20-cubify3d-open-source-pivot.md`
+- 历史规划在 `plan/`，最新见 2026-03-20 的开源转型总规划
 
 ---
 
 ## 当前状态（2026-03-20）
 
 - Phase A/B/C 全部完成，测试基线：`python -m pytest tests -q` **85 passed**
-- **当前阶段：Cubify 3D 开源转型，v0.1 发布准备**
+- **当前阶段：Cubie 3D 开源转型，v0.1 发布准备**
 
 ### v0.1 模块进度
 
@@ -45,7 +45,7 @@
 
 ## 关键路径
 
-- `plan/2026-03-20-cubify3d-open-source-pivot.md`：v0.1 完整规划
+- `plan/` 中 2026-03-20 的开源转型总规划：v0.1 完整规划
 - `docs/PLAN.md`：架构基线
 - `AGENTS.md`：给 AI Coder 的速查说明
 - 根目录关键文件：`config.py` / `serve.py` / `requirements.txt` / `docker-compose.yml`
@@ -85,6 +85,6 @@
 
 ## 使用提醒
 
-- 项目已转型为独立开源项目 Cubify 3D，不依赖内部基础设施命名
-- 设计调整前先读 `plan/2026-03-20-cubify3d-open-source-pivot.md`
+- 项目已转型为独立开源项目 Cubie 3D，不依赖内部基础设施命名
+- 设计调整前先读 `plan/` 中 2026-03-20 的开源转型总规划
 - 当前首要任务是 M1（品牌基础），它是其他模块的前置依赖

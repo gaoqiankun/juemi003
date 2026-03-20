@@ -9,7 +9,7 @@ import {
 
 import type { ThemeMode } from "@/data/admin-mocks";
 
-const THEME_STORAGE_KEY = "cubify3d-admin-theme";
+const THEME_STORAGE_KEY = "app-admin-theme";
 
 interface ThemeContextValue {
   theme: ThemeMode;
