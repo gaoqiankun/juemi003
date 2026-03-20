@@ -401,10 +401,13 @@
     },
     "viewer": {
       "title": "3D Viewer",
-      "panelLabel": "模型详情",
-      "previewPlaceholder": "3D 预览",
       "backButton": "返回模型库",
-      "downloadFormat": "下载 {{format}}",
+      "identityLabel": "模型信息",
+      "attributesLabel": "属性",
+      "exportsLabel": "导出格式",
+      "previewPlaceholder": "3D 预览",
+      "loadingModel": "模型加载中",
+      "emptyCopy": "当前模型尚不可用。",
       "details": {
         "quality": "质量",
         "format": "主格式",
@@ -412,7 +415,19 @@
         "fileSize": "文件大小",
         "updated": "更新时间"
       },
-      "previewLabel": "预览"
+      "previewLabel": "预览",
+      "toolbar": {
+        "orbit": "自动环绕",
+        "zoomIn": "放大",
+        "grid": "网格",
+        "light": "光照"
+      },
+      "actions": {
+        "downloadGlb": "Download GLB",
+        "exportObj": "Export OBJ",
+        "exportEngine": "EXPORT TO ENGINE",
+        "comingSoon": "即将推出"
+      }
     },
     "setup": {
       "title": "连接你的实例",

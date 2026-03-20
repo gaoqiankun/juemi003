@@ -131,7 +131,7 @@ export function GeneratePage() {
           <div className={eyebrowClassName}>图像</div>
 
           <label
-            className="group relative mt-4 flex aspect-[4/5] w-full cursor-pointer items-center justify-center overflow-hidden rounded-[24px] border border-dashed border-outline bg-surface-container-lowest p-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-accent hover:bg-surface-container-low"
+            className="group relative mt-4 flex aspect-[4/5] w-full cursor-pointer items-center justify-center overflow-hidden rounded-[24px] border-2 border-dashed border-outline bg-surface-container-lowest p-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-accent hover:bg-surface-container-low"
             onDragOver={(event) => event.preventDefault()}
             onDrop={(event) => {
               event.preventDefault();

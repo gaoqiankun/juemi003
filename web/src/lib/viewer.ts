@@ -11,6 +11,11 @@ const MODEL_CACHE_NAME = "app-model-artifacts-v1";
 const MODEL_ETAG_STORAGE_KEY_PREFIX = "app:model-etag:";
 const loader = new GLTFLoader();
 
+export interface ViewerModelStats {
+  triangleCount: number;
+  meshCount: number;
+}
+
 function hasFiniteBox(box: THREE.Box3) {
   return Number.isFinite(box.min.x)
     && Number.isFinite(box.min.y)
@@ -114,6 +119,7 @@ function createShadowKeyLight(
   key.shadow.camera.far = 60;
   key.shadow.bias = -0.00012;
   scene.add(key);
+  return key;
 }
 
 function createEnvironmentMap(scene: THREE.Scene, renderer: THREE.WebGLRenderer) {
@@ -147,11 +153,14 @@ function createEnvironmentMap(scene: THREE.Scene, renderer: THREE.WebGLRenderer)
   const envMap = pmremGenerator.fromScene(roomEnvironment, 0.05).texture;
   scene.environment = envMap;
 
-  return () => {
-    scene.environment = null;
-    envMap.dispose();
-    roomEnvironment.dispose();
-    pmremGenerator.dispose();
+  return {
+    texture: envMap,
+    dispose: () => {
+      scene.environment = null;
+      envMap.dispose();
+      roomEnvironment.dispose();
+      pmremGenerator.dispose();
+    },
   };
 }
 
@@ -175,6 +184,54 @@ function placeShadowFloor(floor: THREE.Mesh, object: THREE.Object3D) {
   floor.scale.set(floorSize, floorSize, 1);
   floor.position.set(center.x, box.min.y - 0.002, center.z);
   floor.visible = true;
+}
+
+function createGridHelper(primaryColor: string, secondaryColor: string) {
+  const grid = new THREE.GridHelper(4, 16, primaryColor, secondaryColor);
+  const materials = Array.isArray(grid.material) ? grid.material : [grid.material];
+  materials.forEach((material) => {
+    material.transparent = true;
+    material.opacity = 0.3;
+    material.depthWrite = false;
+  });
+  grid.visible = false;
+  return grid;
+}
+
+function placeGridHelper(grid: THREE.GridHelper, object: THREE.Object3D) {
+  const { box, center, maxDim } = getObjectBounds(object);
+  const gridSize = Math.max(maxDim * 3, 4);
+  grid.scale.setScalar(gridSize / 4);
+  grid.position.set(center.x, box.min.y + 0.001, center.z);
+  grid.visible = true;
+}
+
+function getModelStats(object: THREE.Object3D): ViewerModelStats {
+  let triangleCount = 0;
+  let meshCount = 0;
+
+  object.traverse((child: any) => {
+    if (!child.isMesh) {
+      return;
+    }
+    const geometry = child.geometry as THREE.BufferGeometry | undefined;
+    if (!geometry) {
+      return;
+    }
+    meshCount += 1;
+    const position = geometry.getAttribute("position");
+    if (!position) {
+      return;
+    }
+    triangleCount += geometry.index
+      ? geometry.index.count / 3
+      : position.count / 3;
+  });
+
+  return {
+    triangleCount: Math.round(triangleCount),
+    meshCount,
+  };
 }
 
 function fitCameraToObject(
@@ -231,7 +288,7 @@ function createRenderer({
   return renderer;
 }
 
-function formatBytes(bytes: number) {
+export function formatBytes(bytes: number) {
   if (!Number.isFinite(bytes) || bytes <= 0) {
     return "0 B";
   }
@@ -459,25 +516,53 @@ function formatViewerErrorMessage(error: unknown) {
 
 export class Viewer3D {
   container: HTMLElement;
-  options: { background: string; autoRotate: boolean; shadowFloor: boolean };
+  options: {
+    background: string;
+    autoRotate: boolean;
+    shadowFloor: boolean;
+    showGrid: boolean;
+    lightingEnabled: boolean;
+    gridPrimaryColor: string;
+    gridSecondaryColor: string;
+  };
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
   renderer: THREE.WebGLRenderer;
   controls: OrbitControls;
   modelRoot: THREE.Object3D | null;
   shadowFloor: THREE.Mesh | null;
+  gridHelper: THREE.GridHelper;
+  keyLight: THREE.DirectionalLight;
+  environmentTexture: THREE.Texture | null;
   disposeEnvironment: (() => void) | null;
+  gridVisible: boolean;
+  lightingEnabled: boolean;
   frameHandle = 0;
   loadToken = 0;
   overlay: HTMLDivElement;
   resizeObserver: ResizeObserver;
 
-  constructor(container: HTMLElement, options: { background?: string; autoRotate?: boolean; shadowFloor?: boolean } = {}) {
+  constructor(
+    container: HTMLElement,
+    options: {
+      background?: string;
+      autoRotate?: boolean;
+      shadowFloor?: boolean;
+      showGrid?: boolean;
+      lightingEnabled?: boolean;
+      gridPrimaryColor?: string;
+      gridSecondaryColor?: string;
+    } = {},
+  ) {
     this.container = container;
     this.options = {
       background: options.background || DEFAULT_BACKGROUND,
       autoRotate: Boolean(options.autoRotate),
       shadowFloor: options.shadowFloor !== false,
+      showGrid: Boolean(options.showGrid),
+      lightingEnabled: options.lightingEnabled !== false,
+      gridPrimaryColor: options.gridPrimaryColor || "rgba(189, 200, 206, 0.3)",
+      gridSecondaryColor: options.gridSecondaryColor || "rgba(8, 145, 178, 0.2)",
     };
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(35, 1, 0.1, 1000);
@@ -494,23 +579,33 @@ export class Viewer3D {
     this.controls.autoRotateSpeed = 1.25;
     this.modelRoot = null;
     this.shadowFloor = this.options.shadowFloor ? createShadowFloor() : null;
+    this.gridHelper = createGridHelper(this.options.gridPrimaryColor, this.options.gridSecondaryColor);
+    this.keyLight = new THREE.DirectionalLight(0xffffff, 1.25);
+    this.environmentTexture = null;
     this.disposeEnvironment = null;
+    this.gridVisible = this.options.showGrid;
+    this.lightingEnabled = this.options.lightingEnabled;
 
     this.container.innerHTML = "";
     this.renderer.domElement.className = "size-full";
     this.container.appendChild(this.renderer.domElement);
 
     this.overlay = document.createElement("div");
-    this.overlay.className = "absolute inset-0 flex items-center justify-center bg-black/20 backdrop-blur-[1px]";
+    this.overlay.className = "absolute inset-0 flex items-center justify-center bg-[color:color-mix(in_srgb,var(--surface-container-lowest)_74%,transparent)] backdrop-blur-[1px]";
     this.overlay.style.display = "none";
     this.container.appendChild(this.overlay);
 
     this.scene.background = new THREE.Color(this.options.background);
-    createShadowKeyLight(this.scene);
-    this.disposeEnvironment = createEnvironmentMap(this.scene, this.renderer);
+    this.keyLight = createShadowKeyLight(this.scene);
+    const environment = createEnvironmentMap(this.scene, this.renderer);
+    this.environmentTexture = environment.texture;
+    this.disposeEnvironment = environment.dispose;
     if (this.shadowFloor) {
       this.scene.add(this.shadowFloor);
     }
+    this.scene.add(this.gridHelper);
+    this.setLightingEnabled(this.lightingEnabled);
+    this.setGridVisible(this.gridVisible);
     this.camera.position.set(2.5, 1.8, 2.5);
     this.controls.update();
 
@@ -538,22 +633,70 @@ export class Viewer3D {
 
   setMessage(message: string, tone: "info" | "loading" | "error" = "info") {
     const toneClass = tone === "error"
-      ? "border-white/12 bg-black/70 text-white"
+      ? "border-[color:color-mix(in_srgb,var(--danger)_28%,transparent)] bg-surface-glass text-text-primary"
       : tone === "loading"
-        ? "border-white/12 bg-black/70 text-white"
-        : "border-white/12 bg-black/60 text-white/80";
+        ? "border-outline bg-surface-glass text-text-primary"
+        : "border-outline bg-surface-glass text-text-secondary";
     this.overlay.hidden = false;
     this.overlay.style.display = "flex";
     this.overlay.innerHTML = `<div class="rounded-full border px-4 py-2 text-sm ${toneClass}">${message}</div>`;
   }
 
+  setAutoRotate(enabled: boolean) {
+    this.controls.autoRotate = enabled;
+    this.controls.update();
+  }
+
+  setGridVisible(enabled: boolean) {
+    this.gridVisible = enabled;
+    if (!enabled || !this.modelRoot) {
+      this.gridHelper.visible = false;
+      return;
+    }
+    placeGridHelper(this.gridHelper, this.modelRoot);
+  }
+
+  setLightingEnabled(enabled: boolean) {
+    this.lightingEnabled = enabled;
+    this.keyLight.visible = enabled;
+    this.scene.environment = enabled ? this.environmentTexture : null;
+    this.renderer.toneMappingExposure = enabled ? 1.04 : 0.86;
+    if (this.shadowFloor) {
+      this.shadowFloor.visible = enabled && Boolean(this.modelRoot);
+      if (enabled && this.modelRoot) {
+        placeShadowFloor(this.shadowFloor, this.modelRoot);
+      }
+    }
+  }
+
+  zoomBy(factor: number) {
+    const direction = this.camera.position.clone().sub(this.controls.target);
+    const nextDistance = THREE.MathUtils.clamp(
+      direction.length() * factor,
+      this.controls.minDistance,
+      this.controls.maxDistance,
+    );
+    direction.setLength(nextDistance);
+    this.camera.position.copy(this.controls.target).add(direction);
+    this.controls.update();
+    this.renderer.render(this.scene, this.camera);
+  }
+
   clearModel() {
     if (!this.modelRoot) {
+      this.gridHelper.visible = false;
+      if (this.shadowFloor) {
+        this.shadowFloor.visible = false;
+      }
       return;
     }
     this.scene.remove(this.modelRoot);
     disposeObject(this.modelRoot);
     this.modelRoot = null;
+    this.gridHelper.visible = false;
+    if (this.shadowFloor) {
+      this.shadowFloor.visible = false;
+    }
   }
 
   async load(url?: string | null, requestHeaders: Record<string, string> = {}) {
@@ -562,8 +705,9 @@ export class Viewer3D {
       if (this.shadowFloor) {
         this.shadowFloor.visible = false;
       }
+      this.gridHelper.visible = false;
       this.setMessage("模型尚未就绪");
-      return;
+      return null;
     }
 
     const currentToken = ++this.loadToken;
@@ -583,8 +727,11 @@ export class Viewer3D {
       this.clearModel();
       this.modelRoot = root;
       this.scene.add(root);
-      if (this.shadowFloor) {
+      if (this.shadowFloor && this.lightingEnabled) {
         placeShadowFloor(this.shadowFloor, root);
+      }
+      if (this.gridVisible) {
+        placeGridHelper(this.gridHelper, root);
       }
       fitCameraToObject(
         this.camera,
@@ -595,6 +742,7 @@ export class Viewer3D {
       this.overlay.hidden = true;
       this.overlay.style.display = "none";
       this.renderer.render(this.scene, this.camera);
+      return getModelStats(root);
     } catch (error) {
       if (root) {
         disposeObject(root);
@@ -603,6 +751,7 @@ export class Viewer3D {
       if (this.shadowFloor) {
         this.shadowFloor.visible = false;
       }
+      this.gridHelper.visible = false;
       this.setMessage(formatViewerErrorMessage(error), "error");
       throw error;
     }
@@ -618,6 +767,11 @@ export class Viewer3D {
     this.clearModel();
     this.disposeEnvironment?.();
     this.disposeEnvironment = null;
+    this.environmentTexture = null;
+    this.scene.remove(this.gridHelper);
+    this.gridHelper.geometry.dispose();
+    const gridMaterials = Array.isArray(this.gridHelper.material) ? this.gridHelper.material : [this.gridHelper.material];
+    gridMaterials.forEach((material) => material.dispose());
     this.renderer.dispose();
     this.container.innerHTML = "";
   }
@@ -645,7 +799,7 @@ export async function renderModelThumbnail(
     height,
     preserveDrawingBuffer: true,
   });
-  const disposeEnvironment = createEnvironmentMap(scene, renderer);
+  const environment = createEnvironmentMap(scene, renderer);
   createShadowKeyLight(scene, {
     keyIntensity: 1.1,
   });
@@ -665,7 +819,7 @@ export async function renderModelThumbnail(
       scene.remove(root);
       disposeObject(root);
     }
-    disposeEnvironment();
+    environment.dispose();
     renderer.dispose();
   }
 }

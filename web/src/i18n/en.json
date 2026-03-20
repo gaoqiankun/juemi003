@@ -401,10 +401,13 @@
     },
     "viewer": {
       "title": "3D Viewer",
-      "panelLabel": "Model details",
-      "previewPlaceholder": "3D Preview",
       "backButton": "Back to library",
-      "downloadFormat": "Download {{format}}",
+      "identityLabel": "Model identity",
+      "attributesLabel": "Attributes",
+      "exportsLabel": "Export formats",
+      "previewPlaceholder": "3D Preview",
+      "loadingModel": "Loading model",
+      "emptyCopy": "This model is not available yet.",
       "details": {
         "quality": "Quality",
         "format": "Primary format",
@@ -412,7 +415,19 @@
         "fileSize": "File size",
         "updated": "Updated"
       },
-      "previewLabel": "Preview"
+      "previewLabel": "Preview",
+      "toolbar": {
+        "orbit": "Toggle auto orbit",
+        "zoomIn": "Zoom in",
+        "grid": "Toggle grid",
+        "light": "Toggle lighting"
+      },
+      "actions": {
+        "downloadGlb": "Download GLB",
+        "exportObj": "Export OBJ",
+        "exportEngine": "EXPORT TO ENGINE",
+        "comingSoon": "Coming soon"
+      }
     },
     "setup": {
       "title": "Connect your instance",
