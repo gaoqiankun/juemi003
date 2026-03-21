@@ -3,9 +3,9 @@ import { useTranslation } from "react-i18next";
 import type { AdminLocale } from "@/data/admin-mocks";
 
 export const LANGUAGE_STORAGE_KEY = "app-admin-language";
-export const LOCALE_OPTIONS: Array<{ code: AdminLocale; short: string }> = [
-  { code: "en", short: "EN" },
-  { code: "zh-CN", short: "中" },
+export const LOCALE_OPTIONS: Array<{ code: AdminLocale; short: string; nativeName: string }> = [
+  { code: "en", short: "EN", nativeName: "English" },
+  { code: "zh-CN", short: "中", nativeName: "简体中文" },
 ];
 
 export function useLocale() {

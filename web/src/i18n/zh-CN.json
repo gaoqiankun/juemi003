@@ -22,7 +22,7 @@
       "models": "模型",
       "apiKeys": "API 密钥",
       "settings": "设置",
-      "generate": "生成",
+      "generate": "工作台",
       "gallery": "资产"
     }
   },
@@ -321,7 +321,7 @@
       "brandEyebrow": "创作工作台",
       "navigation": "用户工作区",
       "nav": {
-        "generate": "生成",
+        "generate": "工作台",
         "gallery": "资产",
         "generations": "我的生成",
         "setup": "连接设置"
@@ -377,7 +377,6 @@
         "fileTypes": "JPG / PNG / WEBP",
         "clearImage": "清除图片",
         "modelLabel": "生成模型",
-        "comingSoon": "后续将支持生成模式、文本条件和更多高级参数。",
         "generateButton": "生成",
         "cancelButton": "取消",
         "openRecent": "打开最近列表",

@@ -39,40 +39,40 @@ export function GalleryPage({ initialSelectedTaskId: _initialSelectedTaskId = ""
   const filteredTasks = useMemo(() => getFilteredTasks(galleryFilter), [galleryFilter, getFilteredTasks]);
 
   return (
-    <section className="grid gap-4 pb-20">
-      <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-[-0.03em] text-text-primary">
-            {t("user.gallery.title")}
-          </h1>
+    <section className="pb-20">
+      <div className="mx-auto grid w-full max-w-7xl gap-4">
+        <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-[-0.03em] text-text-primary">
+              {t("user.gallery.title")}
+            </h1>
+          </div>
+
+          <div className="overflow-x-auto pb-1 md:pb-0">
+            <div className="inline-flex min-w-max items-center rounded-xl bg-surface-container-low p-1">
+              {filters.map((filter) => {
+                const active = galleryFilter === filter.value;
+                return (
+                  <button
+                    key={filter.value}
+                    type="button"
+                    className={[
+                      "inline-flex h-9 items-center rounded-lg px-4 text-xs font-semibold transition-colors duration-200",
+                      active
+                        ? "bg-surface-container-highest text-accent-strong shadow-soft"
+                        : "text-text-secondary hover:text-text-primary",
+                    ].join(" ")}
+                    onClick={() => setGalleryFilter(filter.value)}
+                  >
+                    {t(filter.labelKey)}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </div>
 
-        <div className="overflow-x-auto pb-1 md:pb-0">
-          <div className="inline-flex min-w-max items-center rounded-xl bg-surface-container-low p-1">
-          {filters.map((filter) => {
-            const active = galleryFilter === filter.value;
-            return (
-              <button
-                key={filter.value}
-                type="button"
-                className={[
-                  "inline-flex h-9 items-center rounded-lg px-4 text-xs font-semibold transition-colors duration-200",
-                  active
-                    ? "bg-surface-container-highest text-accent-strong shadow-soft"
-                    : "text-text-secondary hover:text-text-primary",
-                ].join(" ")}
-                onClick={() => setGalleryFilter(filter.value)}
-              >
-                {t(filter.labelKey)}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-      </div>
-
-      {filteredTasks.length ? (
-        <div className="mx-auto w-full max-w-7xl">
+        {filteredTasks.length ? (
           <div
             className="grid gap-4"
             style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}
@@ -104,25 +104,25 @@ export function GalleryPage({ initialSelectedTaskId: _initialSelectedTaskId = ""
               </Link>
             ))}
           </div>
-        </div>
-      ) : (
-        <div className="flex min-h-[320px] items-center justify-center rounded-[24px] border border-dashed border-outline bg-[image:var(--page-gradient)] bg-surface-container-low px-6 text-sm text-text-secondary">
-          {t("user.gallery.empty")}
-        </div>
-      )}
+        ) : (
+          <div className="flex min-h-[320px] items-center justify-center rounded-[24px] border border-dashed border-outline bg-[image:var(--page-gradient)] bg-surface-container-low px-6 text-sm text-text-secondary">
+            {t("user.gallery.empty")}
+          </div>
+        )}
 
-      {taskPage.hasMore ? (
-        <div className="flex justify-center pt-1">
-          <Button
-            variant="outline"
-            className="h-11 rounded-xl bg-surface-container-lowest px-5 shadow-soft hover:border-[color:color-mix(in_srgb,var(--accent)_26%,transparent)] hover:bg-surface-container-low hover:text-accent-strong"
-            disabled={taskPage.isLoading}
-            onClick={() => refreshTaskList({ append: true, resubscribe: false, silent: false }).catch(() => undefined)}
-          >
-            {taskPage.isLoading ? t("user.gallery.loadingMore") : t("user.gallery.loadMore")}
-          </Button>
-        </div>
-      ) : null}
+        {taskPage.hasMore ? (
+          <div className="flex justify-center pt-1">
+            <Button
+              variant="outline"
+              className="h-11 rounded-xl bg-surface-container-lowest px-5 shadow-soft hover:border-[color:color-mix(in_srgb,var(--accent)_26%,transparent)] hover:bg-surface-container-low hover:text-accent-strong"
+              disabled={taskPage.isLoading}
+              onClick={() => refreshTaskList({ append: true, resubscribe: false, silent: false }).catch(() => undefined)}
+            >
+              {taskPage.isLoading ? t("user.gallery.loadingMore") : t("user.gallery.loadMore")}
+            </Button>
+          </div>
+        ) : null}
+      </div>
 
       <Button
         asChild

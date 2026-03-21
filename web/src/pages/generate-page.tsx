@@ -163,12 +163,9 @@ export function GeneratePage() {
           </Select>
         </div>
 
-        <div className="rounded-xl border border-dashed border-outline px-3 py-2.5 text-xs text-text-muted">
-          {t("user.generate.panel.comingSoon")}
-        </div>
       </div>
 
-      <div className="mt-auto pt-4">
+      <div className="mt-4">
         <Button
           variant={isProcessing ? "secondary" : "primary"}
           className="w-full justify-center"

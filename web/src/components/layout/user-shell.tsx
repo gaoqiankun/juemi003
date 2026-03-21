@@ -1,4 +1,4 @@
-import { Check, Globe2, MoonStar, Settings, SunMedium } from "lucide-react";
+import { Check, Languages, MoonStar, Settings, SunMedium } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link, Outlet, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -98,7 +98,7 @@ export function UserShell() {
                 title={t("shell.languageToggle")}
                 onClick={() => setIsLanguageMenuOpen((current) => !current)}
               >
-                <Globe2 className="h-4 w-4" />
+                <Languages className="h-4 w-4" />
               </button>
               {isLanguageMenuOpen ? (
                 <div
@@ -108,9 +108,6 @@ export function UserShell() {
                 >
                   {locales.map((locale) => {
                     const isSelected = language === locale.code;
-                    const localeLabel = locale.code === "zh-CN"
-                      ? t("shell.languages.zhCN")
-                      : t("shell.languages.en");
                     return (
                       <button
                         key={locale.code}
@@ -128,7 +125,7 @@ export function UserShell() {
                           setIsLanguageMenuOpen(false);
                         }}
                       >
-                        <span>{localeLabel}</span>
+                        <span>{locale.nativeName}</span>
                         {isSelected ? <Check className="h-4 w-4" /> : null}
                       </button>
                     );

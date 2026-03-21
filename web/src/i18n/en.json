@@ -22,7 +22,7 @@
       "models": "Models",
       "apiKeys": "API Keys",
       "settings": "Settings",
-      "generate": "Generate",
+      "generate": "Workspace",
       "gallery": "Assets"
     }
   },
@@ -321,7 +321,7 @@
       "brandEyebrow": "Creator workspace",
       "navigation": "User workspace",
       "nav": {
-        "generate": "Generate",
+        "generate": "Workspace",
         "gallery": "Assets",
         "generations": "My Generations",
         "setup": "Connection"
@@ -377,7 +377,6 @@
         "fileTypes": "JPG / PNG / WEBP",
         "clearImage": "Clear image",
         "modelLabel": "Model",
-        "comingSoon": "More controls are coming soon: mode, text guidance, and advanced options.",
         "generateButton": "Generate",
         "cancelButton": "Cancel",
         "openRecent": "Open recent list",
