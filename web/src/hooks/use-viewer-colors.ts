@@ -17,8 +17,8 @@ const COLORS = {
     textPrimary: "#f5f7fa",
   },
   light: {
-    backgroundCenter: "#f7f7fa",
-    backgroundEdge: "#dddde2",
+    backgroundCenter: "#eeeff3",
+    backgroundEdge: "#e4e5ea",
     gridPrimary: "#e2e2e5",
     gridSecondary: "#00647c",
     textPrimary: "#1a1c1d",

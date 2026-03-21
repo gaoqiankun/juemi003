@@ -1,8 +1,7 @@
-import { ArrowLeft, Clock, Download, FileBox, Layers, Share2, Trash2, Triangle } from "lucide-react";
+import { ArrowLeft, Clock, Download, FileBox, Layers, Trash2, Triangle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { toast } from "sonner";
 
 import { useGen3d } from "@/app/gen3d-provider";
 import { ModelViewport } from "@/components/model-viewport";
@@ -19,11 +18,11 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { buildApiUrl } from "@/lib/api";
+import { formatRelativeTime, getTaskShortId, isActiveStatus } from "@/lib/format";
 import { formatBytes, type ViewerModelStats } from "@/lib/viewer";
-import { formatTime, getTaskShortId, isActiveStatus } from "@/lib/format";
 import type { ArtifactPayload, TaskRecord } from "@/lib/types";
-import { cn } from "@/lib/utils";
 
 
 function getArtifactForType(task: TaskRecord | null, type: string) {
@@ -66,17 +65,14 @@ type ExportFormat = "glb" | "obj";
 const FORMAT_OPTIONS: {
   value: ExportFormat;
   labelKey: string;
-  descriptionKey: string;
 }[] = [
   {
     value: "glb",
     labelKey: "user.viewer.exportFormats.glb.label",
-    descriptionKey: "user.viewer.exportFormats.glb.description",
   },
   {
     value: "obj",
     labelKey: "user.viewer.exportFormats.obj.label",
-    descriptionKey: "user.viewer.exportFormats.obj.description",
   },
 ];
 
@@ -112,7 +108,6 @@ export function ViewerPage() {
   const objFileName = getArtifactFileName(objArtifact, task, "obj");
   const glbUrl = getArtifactUrl(task, config.baseUrl, glbArtifact, "glb");
   const objUrl = getArtifactUrl(task, config.baseUrl, objArtifact, "obj");
-  const displayFileName = glbFileName || `${getTaskShortId(taskId).toUpperCase() || t("user.viewer.defaultFileBase")}.glb`;
   const shortTaskId = getTaskShortId(task?.taskId || taskId).toUpperCase();
 
   const polygonCount = modelStats?.triangleCount
@@ -126,7 +121,9 @@ export function ViewerPage() {
     : objArtifact?.size_bytes
       ? formatBytes(objArtifact.size_bytes)
       : "--";
-  const updatedLabel = task ? formatTime(task.updatedAt || task.createdAt) : "--";
+  const updatedLabel = task
+    ? formatRelativeTime(task.updatedAt || task.createdAt, i18n.resolvedLanguage)
+    : "--";
 
   const viewerMessage = !task
     ? t("user.viewer.emptyCopy")
@@ -156,22 +153,29 @@ export function ViewerPage() {
   };
 
   const sidebarPanel = (
-    <div className="flex w-full flex-col overflow-hidden rounded-[30px] border border-outline bg-surface-glass shadow-soft backdrop-blur-xl">
+    <div className="flex w-full flex-col overflow-hidden rounded-2xl border border-outline bg-surface-glass shadow-soft backdrop-blur-xl">
       <div className="flex flex-1 flex-col gap-7 overflow-y-auto p-6">
         <div className="space-y-2">
           <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-text-muted">
             {t("user.viewer.breadcrumb")}
           </div>
           <h1 className="text-xl font-bold leading-tight tracking-[-0.02em] text-text-primary">
-            {displayFileName}
+            {shortTaskId}
           </h1>
           <div className="flex flex-wrap items-center gap-2 pt-1">
-            <code className="rounded-lg border border-[color:color-mix(in_srgb,var(--accent)_18%,transparent)] bg-[color:color-mix(in_srgb,var(--accent)_10%,transparent)] px-2.5 py-1 font-mono text-xs text-accent-strong">
-              {shortTaskId}
-            </code>
             {task ? <TaskStatusBadge task={task} compact /> : null}
           </div>
         </div>
+
+        {task?.previewDataUrl ? (
+          <div className="overflow-hidden rounded-xl border border-outline bg-surface-container-lowest">
+            <img
+              src={task.previewDataUrl}
+              alt=""
+              className="h-40 w-full object-cover"
+            />
+          </div>
+        ) : null}
 
         <div className="grid grid-cols-2 gap-3">
           <StatCard icon={<Triangle className="h-4 w-4" />} label={t("user.viewer.details.polygons")} value={polygonCount} />
@@ -181,40 +185,27 @@ export function ViewerPage() {
         </div>
 
         <div className="space-y-3">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-text-muted">
-            {t("user.viewer.exportsLabel")}
-          </div>
-          <div className="space-y-2">
-            {FORMAT_OPTIONS.map((fmt) => {
-              const isAvailable = fmt.value === "glb" ? Boolean(glbUrl) : Boolean(objUrl);
-              const isSelected = selectedFormat === fmt.value;
-              return (
-                <button
-                  key={fmt.value}
-                  type="button"
-                  disabled={!isAvailable}
-                  onClick={() => setSelectedFormat(fmt.value)}
-                  className={cn(
-                    "flex w-full items-center gap-3 rounded-2xl border px-4 py-3.5 text-left transition-all",
-                    isSelected
-                      ? "border-accent bg-[color:color-mix(in_srgb,var(--accent)_8%,transparent)]"
-                      : "border-outline bg-surface-container-lowest hover:bg-surface-container-high",
-                    !isAvailable && "cursor-not-allowed opacity-40",
-                  )}
-                >
-                  <span className={cn(
-                    "flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors",
-                    isSelected ? "border-accent" : "border-text-muted",
-                  )}>
-                    {isSelected ? <span className="h-2.5 w-2.5 rounded-full bg-accent" /> : null}
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block text-sm font-medium text-text-primary">{t(fmt.labelKey)}</span>
-                    <span className="block text-xs text-text-secondary">{t(fmt.descriptionKey)}</span>
-                  </span>
-                </button>
-              );
-            })}
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-text-muted">
+              {t("user.viewer.exportsLabel")}
+            </div>
+            <div className="w-[11.25rem]">
+              <Select value={selectedFormat} onValueChange={(next) => setSelectedFormat(next as ExportFormat)}>
+                <SelectTrigger className="h-10 rounded-xl border-outline bg-surface-container-low text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {FORMAT_OPTIONS.map((fmt) => {
+                    const isAvailable = fmt.value === "glb" ? Boolean(glbUrl) : Boolean(objUrl);
+                    return (
+                      <SelectItem key={fmt.value} value={fmt.value} disabled={!isAvailable}>
+                        {t(fmt.labelKey)}
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </div>
 
@@ -236,21 +227,6 @@ export function ViewerPage() {
               </>
             )}
           </Button>
-
-          <button
-            type="button"
-            className="flex w-full items-center justify-center gap-2 py-2 text-sm text-text-secondary transition-colors hover:text-text-primary"
-            onClick={() => {
-              const url = window.location.href;
-              navigator.clipboard.writeText(url).then(
-                () => toast(t("user.viewer.actions.linkCopied")),
-                () => toast.error(t("user.viewer.actions.linkCopyFailed")),
-              );
-            }}
-          >
-            <Share2 className="h-3.5 w-3.5" />
-            {t("user.viewer.actions.shareLink")}
-          </button>
 
           <button
             type="button"
@@ -334,10 +310,12 @@ export function ViewerPage() {
 
 function StatCard({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
   return (
-    <div className="flex flex-col gap-2.5 rounded-2xl border border-outline bg-surface-container-lowest p-4">
-      <span className="text-text-muted">{icon}</span>
-      <div>
+    <div className="flex flex-col gap-1.5 rounded-2xl border border-outline bg-surface-container-lowest p-3">
+      <div className="flex items-center gap-1.5">
+        <span className="text-text-muted">{icon}</span>
         <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">{label}</div>
+      </div>
+      <div>
         <div className="mt-0.5 text-base font-bold tracking-tight text-text-primary">{value}</div>
       </div>
     </div>

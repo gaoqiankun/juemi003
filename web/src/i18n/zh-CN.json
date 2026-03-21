@@ -482,7 +482,7 @@
         "reset": "重置视角",
         "displayMode": {
           "texture": "纹理",
-          "clay": "Clay",
+          "clay": "素模",
           "wireframe": "线框"
         },
         "light": {
