@@ -1,4 +1,4 @@
-import { ArrowRight, Download, Eye, RotateCcw, Sparkles, UploadCloud, X } from "lucide-react";
+import { ArrowRight, Download, Eye, History, RotateCcw, Sparkles, UploadCloud, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useNavigate } from "react-router-dom";
@@ -34,9 +34,13 @@ function getRecentStatus(task: TaskRecord): {
 
 export function GeneratePage() {
   const { t } = useTranslation();
-  const inputRef = useRef<HTMLInputElement | null>(null);
+  const desktopInputRef = useRef<HTMLInputElement | null>(null);
+  const tabletInputRef = useRef<HTMLInputElement | null>(null);
+  const mobileInputRef = useRef<HTMLInputElement | null>(null);
   const navigate = useNavigate();
+
   const [selectedModel, setSelectedModel] = useState("trellis-v2");
+  const [isTabletRecentOpen, setIsTabletRecentOpen] = useState(false);
 
   const {
     config,
@@ -68,6 +72,21 @@ export function GeneratePage() {
     clearCurrentTaskSelection({ lockAutoSync: true });
   }, [clearCurrentTaskSelection]);
 
+  useEffect(() => {
+    if (!isTabletRecentOpen) {
+      return;
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsTabletRecentOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isTabletRecentOpen]);
+
   const handlePrimaryAction = () => {
     if (isProcessing && currentTask) {
       cancelTask(currentTask.taskId).catch(() => undefined);
@@ -75,6 +94,163 @@ export function GeneratePage() {
     }
     submitCurrentFile().catch(() => undefined);
   };
+
+  const renderGenerateConfigCard = (inputRef: React.RefObject<HTMLInputElement>) => (
+    <Card tone="low" className="flex flex-1 flex-col border border-outline bg-surface-glass p-4 shadow-soft backdrop-blur-xl">
+      <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-text-muted">
+        {t("user.generate.panel.title")}
+      </div>
+
+      <div className="mt-3 space-y-4">
+        <div>
+          <div className="mb-2 text-xs font-medium text-text-secondary">{t("user.generate.panel.uploadLabel")}</div>
+          <label
+            className="group relative flex h-44 cursor-pointer items-center justify-center overflow-hidden rounded-xl border border-dashed border-outline bg-surface-container-lowest transition-all duration-200 hover:border-accent hover:bg-surface-container-low"
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={(event) => {
+              event.preventDefault();
+              selectFile(event.dataTransfer.files?.[0] || null).catch(() => undefined);
+            }}
+          >
+            <input
+              ref={inputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              className="hidden"
+              onChange={(event) => selectFile(event.target.files?.[0] || null).catch(() => undefined)}
+            />
+            {previewUrl ? (
+              <>
+                <img src={previewUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
+                <button
+                  type="button"
+                  className="absolute right-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-full bg-surface/80 text-text-primary backdrop-blur transition hover:bg-surface"
+                  aria-label={t("user.generate.panel.clearImage")}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    clearSelectedFile(false);
+                    if (inputRef.current) {
+                      inputRef.current.value = "";
+                    }
+                  }}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </>
+            ) : (
+              <div className="grid justify-items-center gap-2.5 px-4 text-center">
+                <UploadCloud className="h-7 w-7 text-text-muted" />
+                <div>
+                  <div className="text-sm font-medium text-text-primary">{t("user.generate.panel.uploadHint")}</div>
+                  <div className="mt-1 text-xs text-text-muted">JPG / PNG / WEBP</div>
+                </div>
+              </div>
+            )}
+          </label>
+        </div>
+
+        <div>
+          <div className="mb-2 text-xs font-medium text-text-secondary">{t("user.generate.panel.modelLabel")}</div>
+          <select
+            value={selectedModel}
+            onChange={(event) => setSelectedModel(event.target.value)}
+            className="h-10 w-full rounded-xl border border-outline bg-surface-container-low px-3 text-sm text-text-primary outline-none transition focus:border-accent"
+          >
+            <option value="trellis-v2">Trellis v2</option>
+          </select>
+        </div>
+
+        <div className="rounded-xl border border-dashed border-outline px-3 py-2.5 text-xs text-text-muted">
+          {t("user.generate.panel.comingSoon")}
+        </div>
+      </div>
+
+      <div className="mt-auto pt-4">
+        <Button
+          variant={isProcessing ? "secondary" : "primary"}
+          className="w-full justify-center"
+          disabled={isProcessing ? !canCancel : !canStart}
+          onClick={handlePrimaryAction}
+        >
+          {isProcessing ? (
+            <><X className="h-4 w-4" />{t("user.generate.panel.cancelButton")}</>
+          ) : (
+            <><Sparkles className="h-4 w-4" />{t("user.generate.panel.generateButton")}</>
+          )}
+        </Button>
+      </div>
+    </Card>
+  );
+
+  const renderRecentCard = (onClose?: () => void) => (
+    <Card tone="low" className="flex h-full flex-col overflow-hidden border border-outline bg-surface-glass p-4 shadow-soft backdrop-blur-xl">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-semibold uppercase tracking-wider text-text-muted">最近生成</span>
+        <div className="flex items-center gap-1.5">
+          <Link
+            to="/gallery"
+            className="inline-flex items-center gap-0.5 text-xs text-text-muted transition hover:text-text-primary"
+          >
+            全部<ArrowRight className="h-3 w-3" />
+          </Link>
+          {onClose ? (
+            <button
+              type="button"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-full text-text-secondary transition hover:bg-surface-container-high hover:text-text-primary"
+              aria-label={t("user.generate.panel.closeRecent")}
+              onClick={onClose}
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="mt-3 flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto scrollbar-thin">
+        {recentTasks.length ? (
+          recentTasks.map((task) => {
+            const status = getRecentStatus(task);
+            const isActive = currentTask?.taskId === task.taskId;
+            return (
+              <button
+                key={task.taskId}
+                type="button"
+                className={cn(
+                  "flex items-center gap-2.5 rounded-xl px-2 py-2 text-left transition-all",
+                  isActive
+                    ? "bg-surface-container-highest"
+                    : "hover:bg-surface-container",
+                )}
+                onClick={() => {
+                  setCurrentTaskId(task.taskId);
+                  onClose?.();
+                }}
+              >
+                <TaskThumbnail task={task} variant="recent" className="h-11 w-11 shrink-0 rounded-xl" />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-xs font-medium text-text-primary">
+                    {formatRelativeTime(task.createdAt)}
+                  </div>
+                  <div className={cn(
+                    "mt-0.5 flex items-center gap-1 text-[11px]",
+                    status.tone === "success" && "text-success",
+                    status.tone === "danger" && "text-danger",
+                    status.tone === "warning" && "text-warning",
+                  )}>
+                    <span className="h-1 w-1 rounded-full bg-current" />
+                    {status.label}
+                  </div>
+                </div>
+              </button>
+            );
+          })
+        ) : (
+          <div className="py-6 text-center text-xs text-text-muted">暂无记录</div>
+        )}
+      </div>
+    </Card>
+  );
 
   return (
     <section className="relative min-h-[calc(100vh-6rem)] overflow-hidden">
@@ -167,147 +343,58 @@ export function GeneratePage() {
         ) : null}
       </div>
 
-      <div className="pointer-events-none relative z-10 grid min-h-[calc(100vh-6rem)] gap-4 xl:grid-cols-[300px_minmax(0,1fr)_300px]">
-        <aside className="pointer-events-auto flex flex-col py-2 xl:sticky xl:top-20 xl:max-h-[calc(100vh-6.5rem)]">
-          <Card tone="low" className="flex flex-1 flex-col border border-outline bg-surface-glass p-4 shadow-soft backdrop-blur-xl">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-text-muted">
-              {t("user.generate.panel.title")}
-            </div>
+      <div className="pointer-events-none relative z-10 hidden min-h-[calc(100vh-6rem)] md:block">
+        <div className="hidden min-h-[calc(100vh-6rem)] gap-4 py-2 xl:grid xl:grid-cols-[300px_minmax(0,1fr)_300px]">
+          <aside className="pointer-events-auto flex flex-col xl:sticky xl:top-20 xl:max-h-[calc(100vh-6.5rem)]">
+            {renderGenerateConfigCard(desktopInputRef)}
+          </aside>
 
-            <div className="mt-3 space-y-4">
-              <div>
-                <div className="mb-2 text-xs font-medium text-text-secondary">{t("user.generate.panel.uploadLabel")}</div>
-                <label
-                  className="group relative flex h-44 cursor-pointer items-center justify-center overflow-hidden rounded-xl border border-dashed border-outline bg-surface-container-lowest transition-all duration-200 hover:border-accent hover:bg-surface-container-low"
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={(e) => { e.preventDefault(); selectFile(e.dataTransfer.files?.[0] || null).catch(() => undefined); }}
-                >
-                  <input
-                    ref={inputRef}
-                    type="file"
-                    accept="image/png,image/jpeg,image/webp"
-                    className="hidden"
-                    onChange={(e) => selectFile(e.target.files?.[0] || null).catch(() => undefined)}
-                  />
-                  {previewUrl ? (
-                    <>
-                      <img src={previewUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
-                      <button
-                        type="button"
-                        className="absolute right-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-full bg-surface/80 text-text-primary backdrop-blur transition hover:bg-surface"
-                        aria-label={t("user.generate.panel.clearImage")}
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          clearSelectedFile(false);
-                          if (inputRef.current) {
-                            inputRef.current.value = "";
-                          }
-                        }}
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </button>
-                    </>
-                  ) : (
-                    <div className="grid justify-items-center gap-2.5 px-4 text-center">
-                      <UploadCloud className="h-7 w-7 text-text-muted" />
-                      <div>
-                        <div className="text-sm font-medium text-text-primary">{t("user.generate.panel.uploadHint")}</div>
-                        <div className="mt-1 text-xs text-text-muted">JPG / PNG / WEBP</div>
-                      </div>
-                    </div>
-                  )}
-                </label>
-              </div>
+          <div />
 
-              <div>
-                <div className="mb-2 text-xs font-medium text-text-secondary">{t("user.generate.panel.modelLabel")}</div>
-                <select
-                  value={selectedModel}
-                  onChange={(event) => setSelectedModel(event.target.value)}
-                  className="h-10 w-full rounded-xl border border-outline bg-surface-container-low px-3 text-sm text-text-primary outline-none transition focus:border-accent"
-                >
-                  <option value="trellis-v2">Trellis v2</option>
-                </select>
-              </div>
+          <aside className="pointer-events-auto flex flex-col xl:sticky xl:top-20 xl:max-h-[calc(100vh-6.5rem)]">
+            {renderRecentCard()}
+          </aside>
+        </div>
 
-              <div className="rounded-xl border border-dashed border-outline px-3 py-2.5 text-xs text-text-muted">
-                {t("user.generate.panel.comingSoon")}
-              </div>
-            </div>
+        <div className="relative hidden min-h-[calc(100vh-6rem)] xl:hidden md:block">
+          <aside className="pointer-events-auto absolute bottom-4 left-4 top-4 z-20 w-[300px]">
+            {renderGenerateConfigCard(tabletInputRef)}
+          </aside>
 
-            <div className="mt-auto pt-4">
-              <Button
-                variant={isProcessing ? "secondary" : "primary"}
-                className="w-full justify-center"
-                disabled={isProcessing ? !canCancel : !canStart}
-                onClick={handlePrimaryAction}
-              >
-                {isProcessing ? (
-                  <><X className="h-4 w-4" />{t("user.generate.panel.cancelButton")}</>
-                ) : (
-                  <><Sparkles className="h-4 w-4" />{t("user.generate.panel.generateButton")}</>
-                )}
-              </Button>
-            </div>
-          </Card>
-        </aside>
+          <button
+            type="button"
+            className="pointer-events-auto absolute right-4 top-1/2 z-20 inline-flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-outline bg-surface-glass text-text-primary shadow-float backdrop-blur-xl transition hover:bg-surface-container-high"
+            aria-label={t("user.generate.panel.openRecent")}
+            title={t("user.generate.panel.openRecent")}
+            onClick={() => setIsTabletRecentOpen(true)}
+          >
+            <History className="h-4 w-4" />
+          </button>
 
-        <div />
+          <button
+            type="button"
+            className={cn(
+              "pointer-events-auto absolute inset-0 z-20 bg-background/20 transition",
+              isTabletRecentOpen ? "opacity-100" : "pointer-events-none opacity-0",
+            )}
+            aria-label={t("user.generate.panel.closeRecent")}
+            onClick={() => setIsTabletRecentOpen(false)}
+          />
 
-        <aside className="pointer-events-auto flex flex-col py-2 xl:sticky xl:top-20 xl:max-h-[calc(100vh-6.5rem)]">
-          <Card tone="low" className="flex flex-1 flex-col overflow-hidden border border-outline bg-surface-glass p-4 shadow-soft backdrop-blur-xl">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold uppercase tracking-wider text-text-muted">最近生成</span>
-              <Link
-                to="/gallery"
-                className="inline-flex items-center gap-0.5 text-xs text-text-muted transition hover:text-text-primary"
-              >
-                全部<ArrowRight className="h-3 w-3" />
-              </Link>
-            </div>
+          <div
+            className={cn(
+              "pointer-events-auto absolute bottom-4 right-4 top-4 z-30 w-[300px] transform-gpu transition duration-200",
+              isTabletRecentOpen ? "translate-x-0 opacity-100" : "translate-x-[110%] opacity-0",
+            )}
+          >
+            {renderRecentCard(() => setIsTabletRecentOpen(false))}
+          </div>
+        </div>
+      </div>
 
-            <div className="mt-3 flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto scrollbar-thin">
-              {recentTasks.length ? (
-                recentTasks.map((task) => {
-                  const status = getRecentStatus(task);
-                  const isActive = currentTask?.taskId === task.taskId;
-                  return (
-                    <button
-                      key={task.taskId}
-                      type="button"
-                      className={cn(
-                        "flex items-center gap-2.5 rounded-xl px-2 py-2 text-left transition-all",
-                        isActive
-                          ? "bg-surface-container-highest"
-                          : "hover:bg-surface-container",
-                      )}
-                      onClick={() => setCurrentTaskId(task.taskId)}
-                    >
-                      <TaskThumbnail task={task} variant="recent" className="h-11 w-11 shrink-0 rounded-xl" />
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-xs font-medium text-text-primary">
-                          {formatRelativeTime(task.createdAt)}
-                        </div>
-                        <div className={cn(
-                          "mt-0.5 flex items-center gap-1 text-[11px]",
-                          status.tone === "success" && "text-success",
-                          status.tone === "danger" && "text-danger",
-                          status.tone === "warning" && "text-warning",
-                        )}>
-                          <span className="h-1 w-1 rounded-full bg-current" />
-                          {status.label}
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })
-              ) : (
-                <div className="py-6 text-center text-xs text-text-muted">暂无记录</div>
-              )}
-            </div>
-          </Card>
-        </aside>
+      <div className="pointer-events-auto relative z-10 mt-3 grid gap-3 px-3 pb-3 md:hidden">
+        {renderGenerateConfigCard(mobileInputRef)}
+        {renderRecentCard()}
       </div>
     </section>
   );

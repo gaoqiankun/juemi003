@@ -315,7 +315,7 @@
       "navigation": "User workspace",
       "nav": {
         "generate": "Generate",
-        "gallery": "Model Library",
+        "gallery": "Gallery",
         "generations": "My Generations",
         "setup": "Connection"
       }
@@ -371,7 +371,9 @@
         "modelLabel": "Model",
         "comingSoon": "More controls are coming soon: mode, text guidance, and advanced options.",
         "generateButton": "Generate",
-        "cancelButton": "Cancel"
+        "cancelButton": "Cancel",
+        "openRecent": "Open recent list",
+        "closeRecent": "Close recent list"
       }
     },
     "gallery": {
@@ -469,6 +471,7 @@
       "serverUrlLabel": "Server URL",
       "noteLabel": "Connection",
       "helper": "These settings are saved on this device. You can update them here at any time.",
+      "cancelButton": "Cancel",
       "connectButton": "Save and connect"
     },
     "sampleTitles": {

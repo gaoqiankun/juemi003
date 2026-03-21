@@ -116,7 +116,7 @@ export function ViewerPage() {
   const canDownload = Boolean(downloadUrl);
 
   return (
-    <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_22rem] xl:min-h-[calc(100vh-7.5rem)]">
+    <section className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_20rem] lg:min-h-[calc(100vh-7.5rem)] xl:grid-cols-[minmax(0,1fr)_22rem]">
       {/* ── Viewer ── */}
       <ModelViewport
         url={glbUrl || undefined}
@@ -145,7 +145,7 @@ export function ViewerPage() {
       />
 
       {/* ── Sidebar ── */}
-      <aside className="flex w-full flex-col overflow-hidden rounded-[30px] border border-outline bg-surface-container-low shadow-soft xl:w-[22rem]">
+      <aside className="flex w-full flex-col overflow-hidden rounded-[30px] border border-outline bg-surface-container-low shadow-soft lg:w-[20rem] xl:w-[22rem]">
         <div className="flex flex-1 flex-col gap-7 overflow-y-auto p-6">
           {/* Header */}
           <div className="space-y-2">

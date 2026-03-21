@@ -25,6 +25,7 @@ export function SetupPage() {
   const [isSaving, setIsSaving] = useState(false);
 
   const canSubmit = apiKey.trim().length > 0 && serverUrl.trim().length > 0 && !isSaving;
+  const fallbackPath = (location.state as SetupLocationState | null)?.from || "/generate";
 
   const handleSave = async () => {
     if (!canSubmit) {
@@ -38,8 +39,7 @@ export function SetupPage() {
         baseUrl: serverUrl,
       });
 
-      const nextPath = (location.state as SetupLocationState | null)?.from || "/generate";
-      navigate(nextPath, { replace: true });
+      navigate(fallbackPath, { replace: true });
     } catch (error) {
       setIsSaving(false);
       throw error;
@@ -86,16 +86,32 @@ export function SetupPage() {
             <p className="mt-2 text-sm leading-6 text-text-secondary">{t("user.setup.helper")}</p>
           </div>
 
-          <Button
-            variant="primary"
-            className="w-full justify-center"
-            onClick={() => {
-              handleSave().catch(() => undefined);
-            }}
-            disabled={!canSubmit}
-          >
-            {t("user.setup.connectButton")}
-          </Button>
+          <div className="flex items-center justify-end gap-2">
+            <Button
+              variant="secondary"
+              className="min-w-24 justify-center"
+              onClick={() => {
+                if (window.history.length > 1) {
+                  navigate(-1);
+                  return;
+                }
+                navigate(fallbackPath, { replace: true });
+              }}
+              disabled={isSaving}
+            >
+              {t("user.setup.cancelButton")}
+            </Button>
+            <Button
+              variant="primary"
+              className="min-w-28 justify-center"
+              onClick={() => {
+                handleSave().catch(() => undefined);
+              }}
+              disabled={!canSubmit}
+            >
+              {t("user.setup.connectButton")}
+            </Button>
+          </div>
         </div>
       </Card>
     </div>

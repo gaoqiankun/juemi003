@@ -371,7 +371,9 @@
         "modelLabel": "生成模型",
         "comingSoon": "后续将支持生成模式、文本条件和更多高级参数。",
         "generateButton": "生成",
-        "cancelButton": "取消"
+        "cancelButton": "取消",
+        "openRecent": "打开最近列表",
+        "closeRecent": "关闭最近列表"
       }
     },
     "gallery": {
@@ -469,6 +471,7 @@
       "serverUrlLabel": "服务地址",
       "noteLabel": "连接说明",
       "helper": "这些设置会保存在当前设备上，你可以随时返回此页更新。",
+      "cancelButton": "取消",
       "connectButton": "保存并连接"
     },
     "sampleTitles": {
