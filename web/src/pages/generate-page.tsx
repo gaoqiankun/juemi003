@@ -1,13 +1,14 @@
-import { ArrowRight, Download, Eye, History, RotateCcw, Sparkles, UploadCloud, X } from "lucide-react";
+import { ArrowRight, History, RotateCcw, Sparkles, UploadCloud, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 
 import { useGen3d } from "@/app/gen3d-provider";
 import { ModelViewport } from "@/components/model-viewport";
 import { ProgressParticleStage } from "@/components/progress-particle-stage";
 import { TaskThumbnail } from "@/components/task-thumbnail";
 import { Button, Card } from "@/components/ui/primitives";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useViewerColors } from "@/hooks/use-viewer-colors";
 import { formatRelativeTime, getVisualStatus } from "@/lib/format";
 import { getTaskArtifactProxyUrl } from "@/lib/task-artifacts";
@@ -38,7 +39,6 @@ export function GeneratePage() {
   const desktopInputRef = useRef<HTMLInputElement | null>(null);
   const tabletInputRef = useRef<HTMLInputElement | null>(null);
   const mobileInputRef = useRef<HTMLInputElement | null>(null);
-  const navigate = useNavigate();
 
   const [selectedModel, setSelectedModel] = useState("trellis-v2");
   const [isTabletRecentOpen, setIsTabletRecentOpen] = useState(false);
@@ -68,7 +68,6 @@ export function GeneratePage() {
   const canStart = Boolean(generate.previewDataUrl) && !generate.isSubmitting && !generate.isUploading;
   const downloadUrl = getTaskArtifactProxyUrl(currentTask, config.baseUrl);
   const viewerColors = useViewerColors();
-  const showCompletedActions = generateView === "completed" && Boolean(currentTask);
 
   useEffect(() => {
     clearCurrentTaskSelection({ lockAutoSync: true });
@@ -154,13 +153,14 @@ export function GeneratePage() {
 
         <div>
           <div className="mb-2 text-xs font-medium text-text-secondary">{t("user.generate.panel.modelLabel")}</div>
-          <select
-            value={selectedModel}
-            onChange={(event) => setSelectedModel(event.target.value)}
-            className="h-10 w-full rounded-xl border border-outline bg-surface-container-low px-3 text-sm text-text-primary outline-none transition focus:border-accent"
-          >
-            <option value="trellis-v2">Trellis v2</option>
-          </select>
+          <Select value={selectedModel} onValueChange={setSelectedModel}>
+            <SelectTrigger className="h-10 rounded-xl border-outline bg-surface-container-low px-3 text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="trellis-v2">Trellis v2</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
 
         <div className="rounded-xl border border-dashed border-outline px-3 py-2.5 text-xs text-text-muted">
@@ -181,44 +181,6 @@ export function GeneratePage() {
             <><Sparkles className="h-4 w-4" />{t("user.generate.panel.generateButton")}</>
           )}
         </Button>
-
-        {showCompletedActions ? (
-          <div className="mt-2.5 space-y-2">
-            {downloadUrl ? (
-              <Button asChild variant="primary" className="w-full justify-center">
-                <a href={downloadUrl} target="_blank" rel="noreferrer" download="model.glb">
-                  <Download className="h-4 w-4" />
-                  {t("user.viewer.actions.download")}
-                </a>
-              </Button>
-            ) : null}
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                variant="secondary"
-                className="flex-1 justify-center"
-                onClick={() => retryCurrentTask().catch(() => undefined)}
-              >
-                <RotateCcw className="h-4 w-4" />
-                {t("user.generate.actions.retry")}
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                className="flex-1 justify-center"
-                onClick={() => {
-                  if (!currentTask) {
-                    return;
-                  }
-                  navigate(`/viewer/${currentTask.taskId}`);
-                }}
-              >
-                <Eye className="h-4 w-4" />
-                {t("user.generate.actions.details")}
-              </Button>
-            </div>
-          </div>
-        ) : null}
       </div>
     </Card>
   );

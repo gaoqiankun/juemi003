@@ -4,6 +4,7 @@ import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 
 import { useGen3d } from "@/app/gen3d-provider";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useLocale } from "@/hooks/use-locale";
 import { useTheme } from "@/hooks/use-theme";
 import { cn } from "@/lib/utils";
@@ -78,23 +79,26 @@ export function AppShell({
           </nav>
 
           <div className="flex items-center gap-1.5">
-            <label className="relative inline-flex items-center">
-              <Globe2 className="pointer-events-none absolute left-2 h-3.5 w-3.5 text-text-muted" />
-              <select
+            <div className="relative">
+              <Globe2 className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-muted" />
+              <Select
                 value={language}
-                onChange={(event) => {
-                  void setLanguage(event.target.value as "en" | "zh-CN");
+                onValueChange={(nextValue) => {
+                  void setLanguage(nextValue as "en" | "zh-CN");
                 }}
-                aria-label={t("shell.languageToggle")}
-                className="h-9 rounded-lg border border-outline bg-surface-container-low pl-7 pr-6 text-xs font-medium text-text-primary outline-none transition focus:border-accent"
               >
-                {locales.map((locale) => (
-                  <option key={locale.code} value={locale.code}>
-                    {locale.short}
-                  </option>
-                ))}
-              </select>
-            </label>
+                <SelectTrigger aria-label={t("shell.languageToggle")} className="h-9 w-[5.25rem] rounded-lg border-outline bg-surface-container-low pl-7 pr-2 text-xs font-medium">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {locales.map((locale) => (
+                    <SelectItem key={locale.code} value={locale.code}>
+                      {locale.short}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
             <button
               type="button"

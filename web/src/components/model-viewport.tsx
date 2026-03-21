@@ -227,7 +227,7 @@ export function ModelViewport({
                         step={0.01}
                         value={lightIntensity}
                         onChange={(event) => setLightIntensity(Number(event.target.value))}
-                        className="w-full accent-accent"
+                        className="viewer-range"
                       />
                     </label>
                     <label className="block">
@@ -242,7 +242,7 @@ export function ModelViewport({
                         step={1}
                         value={lightAngle}
                         onChange={(event) => setLightAngle(Number(event.target.value))}
-                        className="w-full accent-accent"
+                        className="viewer-range"
                       />
                     </label>
                     <button
