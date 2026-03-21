@@ -227,6 +227,7 @@ export function ReferenceComparePage() {
     deleteTask: noopVoid,
     subscribeToTask: noopVoid,
     setCurrentTaskId: () => undefined,
+    clearCurrentTaskSelection: () => undefined,
   }), [galleryTask]);
 
   const completedValue = useMemo<Gen3dContextValue>(() => ({
@@ -256,6 +257,7 @@ export function ReferenceComparePage() {
     deleteTask: noopVoid,
     subscribeToTask: noopVoid,
     setCurrentTaskId: () => undefined,
+    clearCurrentTaskSelection: () => undefined,
   }), [completedTask]);
 
   return (

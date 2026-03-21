@@ -21,7 +21,7 @@ function getArtifactRequestHeaders(url?: string | null, baseUrl?: string, token?
 }
 
 export interface ThreeViewerHandle {
-  zoomIn: () => void;
+  resetCamera: () => void;
 }
 
 export const ThreeViewer = forwardRef<ThreeViewerHandle, {
@@ -34,7 +34,6 @@ export const ThreeViewer = forwardRef<ThreeViewerHandle, {
   className?: string;
   autoRotate?: boolean;
   showGrid?: boolean;
-  lightingEnabled?: boolean;
   gridPrimaryColor?: string;
   gridSecondaryColor?: string;
   onModelStatsChange?: (stats: ViewerModelStats | null) => void;
@@ -48,7 +47,6 @@ export const ThreeViewer = forwardRef<ThreeViewerHandle, {
   className = "",
   autoRotate = false,
   showGrid = false,
-  lightingEnabled = true,
   gridPrimaryColor,
   gridSecondaryColor,
   onModelStatsChange,
@@ -57,7 +55,7 @@ export const ThreeViewer = forwardRef<ThreeViewerHandle, {
   const viewerRef = useRef<Viewer3D | null>(null);
 
   useImperativeHandle(ref, () => ({
-    zoomIn: () => viewerRef.current?.zoomBy(0.84),
+    resetCamera: () => viewerRef.current?.resetCamera(),
   }), []);
 
   useEffect(() => {
@@ -71,7 +69,6 @@ export const ThreeViewer = forwardRef<ThreeViewerHandle, {
       shadowFloor: true,
       autoRotate,
       showGrid,
-      lightingEnabled,
       gridPrimaryColor,
       gridSecondaryColor,
     });
@@ -93,10 +90,6 @@ export const ThreeViewer = forwardRef<ThreeViewerHandle, {
   useEffect(() => {
     viewerRef.current?.setGridVisible(showGrid);
   }, [showGrid]);
-
-  useEffect(() => {
-    viewerRef.current?.setLightingEnabled(lightingEnabled);
-  }, [lightingEnabled]);
 
   useEffect(() => {
     viewerRef.current?.setGridColors(gridPrimaryColor, gridSecondaryColor);

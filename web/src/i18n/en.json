@@ -416,9 +416,8 @@
       },
       "toolbar": {
         "orbit": "Toggle auto orbit",
-        "zoomIn": "Zoom in",
         "grid": "Toggle grid",
-        "light": "Toggle lighting"
+        "reset": "Reset view"
       },
       "actions": {
         "download": "Download Model",

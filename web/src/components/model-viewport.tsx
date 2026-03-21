@@ -1,4 +1,4 @@
-import { Grid3X3, Orbit, SunMedium, ZoomIn } from "lucide-react";
+import { Grid3X3, Orbit, RotateCcw } from "lucide-react";
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -29,7 +29,6 @@ export function ModelViewport({
   const viewerRef = useRef<ThreeViewerHandle | null>(null);
   const [autoRotate, setAutoRotate] = useState(true);
   const [showGrid, setShowGrid] = useState(false);
-  const [lightingEnabled, setLightingEnabled] = useState(true);
 
   const toolbarBtnClass = (active = false) => cn(
     "inline-flex h-11 w-11 items-center justify-center rounded-full border text-sm transition-all duration-200",
@@ -51,7 +50,6 @@ export function ModelViewport({
           backgroundEdge={viewerColors.backgroundEdge}
           autoRotate={autoRotate}
           showGrid={showGrid}
-          lightingEnabled={lightingEnabled}
           gridPrimaryColor={viewerColors.gridPrimary}
           gridSecondaryColor={viewerColors.gridSecondary}
           onModelStatsChange={onModelStatsChange}
@@ -71,15 +69,11 @@ export function ModelViewport({
           <button type="button" className={toolbarBtnClass(autoRotate)} aria-label={t("user.viewer.toolbar.orbit")} title={t("user.viewer.toolbar.orbit")} onClick={() => setAutoRotate((c) => !c)}>
             <Orbit className="h-4 w-4" />
           </button>
-          <button type="button" className={toolbarBtnClass(false)} aria-label={t("user.viewer.toolbar.zoomIn")} title={t("user.viewer.toolbar.zoomIn")} onClick={() => viewerRef.current?.zoomIn()}>
-            <ZoomIn className="h-4 w-4" />
-          </button>
-          <div className="mx-1 h-6 w-px bg-outline" />
           <button type="button" className={toolbarBtnClass(showGrid)} aria-label={t("user.viewer.toolbar.grid")} title={t("user.viewer.toolbar.grid")} onClick={() => setShowGrid((c) => !c)}>
             <Grid3X3 className="h-4 w-4" />
           </button>
-          <button type="button" className={toolbarBtnClass(lightingEnabled)} aria-label={t("user.viewer.toolbar.light")} title={t("user.viewer.toolbar.light")} onClick={() => setLightingEnabled((c) => !c)}>
-            <SunMedium className="h-4 w-4" />
+          <button type="button" className={toolbarBtnClass(false)} aria-label={t("user.viewer.toolbar.reset")} title={t("user.viewer.toolbar.reset")} onClick={() => viewerRef.current?.resetCamera()}>
+            <RotateCcw className="h-4 w-4" />
           </button>
         </div>
       </div>

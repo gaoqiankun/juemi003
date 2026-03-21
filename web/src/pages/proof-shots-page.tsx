@@ -288,6 +288,7 @@ export function ProofShotsPage() {
       deleteTask: noopVoid,
       subscribeToTask: noopVoid,
       setCurrentTaskId: () => undefined,
+      clearCurrentTaskSelection: () => undefined,
     };
   }, [completedTask, generateTasks, mode, processingTask]);
 
@@ -326,6 +327,7 @@ export function ProofShotsPage() {
     deleteTask: noopVoid,
     subscribeToTask: noopVoid,
     setCurrentTaskId: () => undefined,
+    clearCurrentTaskSelection: () => undefined,
   }), [galleryTasks]);
 
   return (

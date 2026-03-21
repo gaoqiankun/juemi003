@@ -416,9 +416,8 @@
       },
       "toolbar": {
         "orbit": "自动环绕",
-        "zoomIn": "放大",
         "grid": "网格",
-        "light": "光照"
+        "reset": "重置视角"
       },
       "actions": {
         "download": "下载模型",

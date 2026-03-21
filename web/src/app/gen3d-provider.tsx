@@ -178,6 +178,7 @@ export interface Gen3dContextValue {
   deleteTask: (taskId: string) => Promise<void>;
   subscribeToTask: (taskId: string, force?: boolean) => Promise<void>;
   setCurrentTaskId: (taskId: string) => void;
+  clearCurrentTaskSelection: (options?: { lockAutoSync?: boolean }) => void;
 }
 
 export const Gen3dContext = createContext<Gen3dContextValue | null>(null);
@@ -199,6 +200,7 @@ export function Gen3dProvider({ children }: { children: ReactNode }) {
   const tasksRef = useRef(tasks);
   const taskPageRef = useRef(taskPage);
   const generateRef = useRef(generate);
+  const autoSelectionLockedRef = useRef(false);
   const subscriptionsRef = useRef<Map<string, SubscriptionHandle>>(new Map());
 
   useEffect(() => {
@@ -255,9 +257,22 @@ export function Gen3dProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const setCurrentTaskId = useCallback((taskId: string) => {
+    if (taskId) {
+      autoSelectionLockedRef.current = false;
+    }
     setGenerate((previous) => ({
       ...previous,
       currentTaskId: taskId,
+    }));
+  }, []);
+
+  const clearCurrentTaskSelection = useCallback(({ lockAutoSync = false }: { lockAutoSync?: boolean } = {}) => {
+    if (lockAutoSync) {
+      autoSelectionLockedRef.current = true;
+    }
+    setGenerate((previous) => ({
+      ...previous,
+      currentTaskId: "",
     }));
   }, []);
 
@@ -327,12 +342,19 @@ export function Gen3dProvider({ children }: { children: ReactNode }) {
       hasMore: false,
       isLoading: false,
     }));
-    setCurrentTaskId("");
-  }, [setCurrentTaskId, stopSubscription, updateTaskPage, updateTasks]);
+    autoSelectionLockedRef.current = false;
+    clearCurrentTaskSelection();
+  }, [clearCurrentTaskSelection, stopSubscription, updateTaskPage, updateTasks]);
 
   const syncCurrentTaskSelection = useCallback((nextTasks: Record<string, TaskRecord>) => {
     const currentTaskId = generateRef.current.currentTaskId;
     if (currentTaskId && nextTasks[currentTaskId]) {
+      return;
+    }
+    if (autoSelectionLockedRef.current) {
+      if (currentTaskId && !nextTasks[currentTaskId]) {
+        clearCurrentTaskSelection();
+      }
       return;
     }
     const latestActive = Object.values(nextTasks)
@@ -343,9 +365,9 @@ export function Gen3dProvider({ children }: { children: ReactNode }) {
       return;
     }
     if (currentTaskId && !nextTasks[currentTaskId]) {
-      setCurrentTaskId("");
+      clearCurrentTaskSelection();
     }
-  }, [setCurrentTaskId]);
+  }, [clearCurrentTaskSelection, setCurrentTaskId]);
 
   const resolveArtifactUrl = useCallback((url?: string | null) => {
     const raw = String(url || "").trim();
@@ -538,7 +560,10 @@ export function Gen3dProvider({ children }: { children: ReactNode }) {
     if (TERMINAL_STATUSES.has(hydratedTask.status)) {
       stopSubscription(taskId);
     }
-    if (generateRef.current.currentTaskId === taskId || (isActiveStatus(hydratedTask.status) && !generateRef.current.currentTaskId)) {
+    const shouldAutoSelectActiveTask = isActiveStatus(hydratedTask.status)
+      && !generateRef.current.currentTaskId
+      && !autoSelectionLockedRef.current;
+    if (generateRef.current.currentTaskId === taskId || shouldAutoSelectActiveTask) {
       setCurrentTaskId(taskId);
     }
   }, [appendTaskEvent, hydrateArtifact, setCurrentTaskId, stopSubscription, upsertTask]);
@@ -888,6 +913,11 @@ export function Gen3dProvider({ children }: { children: ReactNode }) {
       clearSelectedFile(false);
       return;
     }
+    const selectedTask = tasksRef.current[generateRef.current.currentTaskId];
+    const shouldClearSelection = Boolean(selectedTask && TERMINAL_STATUSES.has(selectedTask.status));
+    if (shouldClearSelection) {
+      autoSelectionLockedRef.current = true;
+    }
     const previewDataUrl = await readFileAsDataUrl(file);
     setGenerate((previous) => ({
       ...previous,
@@ -900,6 +930,7 @@ export function Gen3dProvider({ children }: { children: ReactNode }) {
         ? "图片已准备；确认后会自动上传并开始生成。"
         : "图片预览已就绪；请先填写 API 密钥。",
       statusTone: configRef.current.token ? "info" : "error",
+      currentTaskId: shouldClearSelection ? "" : previous.currentTaskId,
     }));
   }, [clearSelectedFile]);
 
@@ -1023,8 +1054,11 @@ export function Gen3dProvider({ children }: { children: ReactNode }) {
     if (!currentTask?.inputUrl) {
       throw new Error("当前记录缺少原图，请重新上传图片。");
     }
+    if (TERMINAL_STATUSES.has(currentTask.status)) {
+      clearCurrentTaskSelection({ lockAutoSync: true });
+    }
     return submitNewTask(currentTask.inputUrl, currentTask.previewDataUrl || generateRef.current.previewDataUrl);
-  }, [submitNewTask]);
+  }, [clearCurrentTaskSelection, submitNewTask]);
 
   const cancelTask = useCallback(async (taskId: string) => {
     upsertTask(taskId, { pendingCancel: true });
@@ -1179,6 +1213,7 @@ export function Gen3dProvider({ children }: { children: ReactNode }) {
     deleteTask,
     subscribeToTask,
     setCurrentTaskId,
+    clearCurrentTaskSelection,
   }), [
     cancelTask,
     clearSelectedFile,
@@ -1201,6 +1236,7 @@ export function Gen3dProvider({ children }: { children: ReactNode }) {
     taskPage,
     tasks,
     deleteTask,
+    clearCurrentTaskSelection,
     setCurrentTaskId,
   ]);
 
