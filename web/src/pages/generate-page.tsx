@@ -20,7 +20,7 @@ function isTerminal(status?: string) {
 }
 
 export function GeneratePage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
 
   const getRecentStatus = (recentTask: TaskRecord): {
     label: string;
@@ -232,7 +232,7 @@ export function GeneratePage() {
                 <TaskThumbnail task={task} variant="recent" className="h-11 w-11 shrink-0 rounded-xl" />
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-xs font-medium text-text-primary">
-                    {formatRelativeTime(task.createdAt)}
+                    {formatRelativeTime(task.createdAt, i18n.resolvedLanguage)}
                   </div>
                   <div className={cn(
                     "mt-0.5 flex items-center gap-1 text-[11px]",

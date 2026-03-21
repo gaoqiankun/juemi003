@@ -42,7 +42,7 @@ function isTerminal(status?: string) {
 }
 
 export function GalleryPage({ initialSelectedTaskId = "" }: { initialSelectedTaskId?: string }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const {
     taskMap,
     taskPage,
@@ -140,7 +140,7 @@ export function GalleryPage({ initialSelectedTaskId = "" }: { initialSelectedTas
 
               <div className="absolute inset-x-0 bottom-0 bg-[linear-gradient(180deg,transparent,color-mix(in_srgb,var(--surface-container-lowest)_92%,transparent))] px-4 pb-4 pt-10">
                 <div className="flex items-end justify-between gap-3">
-                  <div className="text-xs font-medium text-text-secondary">{formatRelativeTime(task.createdAt)}</div>
+                  <div className="text-xs font-medium text-text-secondary">{formatRelativeTime(task.createdAt, i18n.resolvedLanguage)}</div>
                   <span
                     className={`h-2.5 w-2.5 rounded-full ring-4 ring-[color:color-mix(in_srgb,var(--surface-container-lowest)_78%,transparent)] ${getStatusDotClass(task.status)}`}
                   />

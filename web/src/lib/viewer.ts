@@ -137,10 +137,10 @@ function createDisplayModeMaterial(baseMaterial: THREE.Material, mode: ViewerDis
   const side = typeof (template as any).side === "number" ? template.side : THREE.FrontSide;
   const isWireframeMode = mode === "wireframe";
   return new THREE.MeshStandardMaterial({
-    color: "#c2c3c7",
-    roughness: 0.8,
+    color: isWireframeMode ? "#d6dae3" : "#c2c3c7",
+    roughness: isWireframeMode ? 0.9 : 0.8,
     metalness: 0,
-    envMapIntensity: Math.min(Math.max((template.envMapIntensity ?? 1) * 0.45, 0), 1),
+    envMapIntensity: Math.min(Math.max((template.envMapIntensity ?? 1) * (isWireframeMode ? 0.28 : 0.45), 0), 1),
     opacity: 1,
     transparent: false,
     side,
@@ -1153,9 +1153,9 @@ export class Viewer3D {
     }
     const wireframeGeometry = new THREE.WireframeGeometry(geometry);
     const wireframeMaterial = new THREE.LineBasicMaterial({
-      color: "#9199a8",
+      color: "#2a2d35",
       transparent: true,
-      opacity: 0.95,
+      opacity: 1,
       depthWrite: false,
       toneMapped: false,
     });

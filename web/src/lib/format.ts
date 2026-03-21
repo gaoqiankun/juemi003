@@ -121,9 +121,16 @@ export function formatTime(value?: string | null) {
   }).format(date);
 }
 
-export function formatRelativeTime(value?: string | null) {
+function normalizeRelativeLocale(locale?: string | null) {
+  const value = String(locale || "").toLowerCase();
+  return value.startsWith("zh") ? "zh-CN" : "en";
+}
+
+export function formatRelativeTime(value?: string | null, locale?: string | null) {
+  const resolvedLocale = normalizeRelativeLocale(locale);
+  const justNowLabel = resolvedLocale === "zh-CN" ? "刚刚" : "just now";
   if (!value) {
-    return "刚刚";
+    return justNowLabel;
   }
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
@@ -131,7 +138,10 @@ export function formatRelativeTime(value?: string | null) {
   }
   const diffMs = date.getTime() - Date.now();
   const diffMinutes = Math.round(diffMs / 60000);
-  const formatter = new Intl.RelativeTimeFormat("zh-CN", { numeric: "auto" });
+  const formatter = new Intl.RelativeTimeFormat(resolvedLocale, { numeric: "auto" });
+  if (Math.abs(diffMinutes) < 1) {
+    return justNowLabel;
+  }
   if (Math.abs(diffMinutes) < 60) {
     return formatter.format(diffMinutes, "minute");
   }

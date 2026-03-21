@@ -57,7 +57,7 @@ export function UserShell() {
   return (
     <div className="min-h-screen bg-[image:var(--page-gradient)] bg-background text-text-primary">
       <header className="sticky top-0 z-40 border-b border-outline bg-surface/90 backdrop-blur-xl">
-        <div className="mx-auto flex h-16 w-full max-w-[1560px] items-center justify-between gap-4 px-4 md:px-6">
+        <div className="flex h-16 w-full items-center justify-between gap-4 px-4 md:px-6">
           <Link to="/generate" className="inline-flex min-w-fit items-center gap-2.5 text-text-primary">
             <img
               src={`${import.meta.env.BASE_URL}favicon.svg`}
