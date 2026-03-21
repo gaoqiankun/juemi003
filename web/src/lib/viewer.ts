@@ -642,6 +642,42 @@ export class Viewer3D {
     this.overlay.innerHTML = `<div class="rounded-full border px-4 py-2 text-sm ${toneClass}">${message}</div>`;
   }
 
+  setBackground(background: string) {
+    if (!background || background === this.options.background) {
+      return;
+    }
+    this.options.background = background;
+    this.scene.background = new THREE.Color(background);
+    this.renderer.render(this.scene, this.camera);
+  }
+
+  setGridColors(primaryColor?: string, secondaryColor?: string) {
+    const nextPrimaryColor = primaryColor || this.options.gridPrimaryColor;
+    const nextSecondaryColor = secondaryColor || this.options.gridSecondaryColor;
+    if (
+      nextPrimaryColor === this.options.gridPrimaryColor
+      && nextSecondaryColor === this.options.gridSecondaryColor
+    ) {
+      return;
+    }
+
+    this.options.gridPrimaryColor = nextPrimaryColor;
+    this.options.gridSecondaryColor = nextSecondaryColor;
+
+    const previousGrid = this.gridHelper;
+    this.scene.remove(previousGrid);
+    previousGrid.geometry.dispose();
+    const previousMaterials = Array.isArray(previousGrid.material)
+      ? previousGrid.material
+      : [previousGrid.material];
+    previousMaterials.forEach((material) => material.dispose());
+
+    this.gridHelper = createGridHelper(nextPrimaryColor, nextSecondaryColor);
+    this.scene.add(this.gridHelper);
+    this.setGridVisible(this.gridVisible);
+    this.renderer.render(this.scene, this.camera);
+  }
+
   setAutoRotate(enabled: boolean) {
     this.controls.autoRotate = enabled;
     this.controls.update();

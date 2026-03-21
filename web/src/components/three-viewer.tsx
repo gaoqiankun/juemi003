@@ -77,7 +77,11 @@ export const ThreeViewer = forwardRef<ThreeViewerHandle, {
       viewer.dispose();
       viewerRef.current = null;
     };
-  }, [background, gridPrimaryColor, gridSecondaryColor]);
+  }, []);
+
+  useEffect(() => {
+    viewerRef.current?.setBackground(background);
+  }, [background]);
 
   useEffect(() => {
     viewerRef.current?.setAutoRotate(autoRotate);
@@ -90,6 +94,10 @@ export const ThreeViewer = forwardRef<ThreeViewerHandle, {
   useEffect(() => {
     viewerRef.current?.setLightingEnabled(lightingEnabled);
   }, [lightingEnabled]);
+
+  useEffect(() => {
+    viewerRef.current?.setGridColors(gridPrimaryColor, gridSecondaryColor);
+  }, [gridPrimaryColor, gridSecondaryColor]);
 
   useEffect(() => {
     const viewer = viewerRef.current;
