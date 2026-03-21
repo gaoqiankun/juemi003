@@ -1,24 +1,14 @@
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { Download, X } from "lucide-react";
-import { useMemo } from "react";
 
-import { useTheme } from "@/hooks/use-theme";
 import { ThreeViewer } from "@/components/three-viewer";
 import { TaskStatusBadge } from "@/components/task-status-badge";
 import { useGen3d } from "@/app/gen3d-provider";
 import { Button } from "@/components/ui/button";
+import { useViewerColors } from "@/hooks/use-viewer-colors";
 import { formatTime } from "@/lib/format";
 import { getTaskArtifactProxyUrl } from "@/lib/task-artifacts";
 import type { TaskRecord } from "@/lib/types";
-
-function readTokenColor(tokenName: string, fallbackTokenName = "--surface") {
-  if (typeof window === "undefined") {
-    return "";
-  }
-
-  const styles = getComputedStyle(document.documentElement);
-  return styles.getPropertyValue(tokenName).trim() || styles.getPropertyValue(fallbackTokenName).trim();
-}
 
 export function TaskSheet({
   task,
@@ -32,11 +22,8 @@ export function TaskSheet({
   onDeleteRequest: (taskId: string) => void;
 }) {
   const { config } = useGen3d();
-  const { theme } = useTheme();
   const viewerUrl = getTaskArtifactProxyUrl(task, config.baseUrl);
-  const viewerBackground = useMemo(() => {
-    return readTokenColor("--surface-container-lowest");
-  }, [theme]);
+  const viewerColors = useViewerColors();
 
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
@@ -58,7 +45,8 @@ export function TaskSheet({
                   message="模型准备中"
                   baseUrl={config.baseUrl}
                   token={config.token}
-                  background={viewerBackground}
+                  backgroundCenter={viewerColors.backgroundCenter}
+                  backgroundEdge={viewerColors.backgroundEdge}
                   className="rounded-none bg-surface-container-lowest"
                 />
               </div>

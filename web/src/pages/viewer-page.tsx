@@ -1,5 +1,5 @@
 import { ArrowLeft, Box, Download, Orbit, SunMedium, Upload, ZoomIn, Grid3X3 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -9,21 +9,13 @@ import { ThreeViewer, type ThreeViewerHandle } from "@/components/three-viewer";
 import { TaskStatusBadge } from "@/components/task-status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { useTheme } from "@/hooks/use-theme";
+import { useViewerColors } from "@/hooks/use-viewer-colors";
 import { buildApiUrl } from "@/lib/api";
 import { formatBytes, type ViewerModelStats } from "@/lib/viewer";
 import { formatTime, getTaskShortId, isActiveStatus } from "@/lib/format";
 import type { ArtifactPayload, TaskRecord } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-function readTokenColor(tokenName: string, fallbackTokenName = "--surface") {
-  if (typeof window === "undefined") {
-    return "";
-  }
-
-  const styles = getComputedStyle(document.documentElement);
-  return styles.getPropertyValue(tokenName).trim() || styles.getPropertyValue(fallbackTokenName).trim();
-}
 
 function getArtifactForType(task: TaskRecord | null, type: string) {
   if (!task) {
@@ -66,7 +58,7 @@ function formatTriangleCount(value: number, locale: string) {
 
 export function ViewerPage() {
   const { t, i18n } = useTranslation();
-  const { theme } = useTheme();
+  const viewerColors = useViewerColors();
   const { taskId = "" } = useParams();
   const { config, taskMap, refreshTask, subscribeToTask } = useGen3d();
   const viewerRef = useRef<ThreeViewerHandle | null>(null);
@@ -91,9 +83,8 @@ export function ViewerPage() {
     subscribeToTask(taskId, true).catch(() => undefined);
   }, [subscribeToTask, task?.status, taskId]);
 
-  const viewerBackground = useMemo(() => readTokenColor("--surface-container-lowest"), [theme]);
-  const gridPrimaryColor = useMemo(() => readTokenColor("--outline-variant", "--ghost-outline"), [theme]);
-  const gridSecondaryColor = useMemo(() => readTokenColor("--accent-strong", "--accent"), [theme]);
+  const gridPrimaryColor = viewerColors.gridPrimary;
+  const gridSecondaryColor = viewerColors.gridSecondary;
 
   const glbArtifact = getArtifactForType(task, "glb");
   const objArtifact = getArtifactForType(task, "obj");
@@ -134,7 +125,8 @@ export function ViewerPage() {
             message={viewerMessage}
             baseUrl={config.baseUrl}
             token={config.token}
-            background={viewerBackground}
+            backgroundCenter={viewerColors.backgroundCenter}
+            backgroundEdge={viewerColors.backgroundEdge}
             autoRotate={autoRotate}
             showGrid={showGrid}
             lightingEnabled={lightingEnabled}

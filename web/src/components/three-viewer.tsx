@@ -29,7 +29,8 @@ export const ThreeViewer = forwardRef<ThreeViewerHandle, {
   message?: string;
   baseUrl?: string;
   token?: string;
-  background?: string;
+  backgroundCenter?: string;
+  backgroundEdge?: string;
   className?: string;
   autoRotate?: boolean;
   showGrid?: boolean;
@@ -42,7 +43,8 @@ export const ThreeViewer = forwardRef<ThreeViewerHandle, {
   message,
   baseUrl,
   token,
-  background = "#2a2a2a",
+  backgroundCenter = "#2a2a2a",
+  backgroundEdge = "#2a2a2a",
   className = "",
   autoRotate = false,
   showGrid = false,
@@ -64,7 +66,8 @@ export const ThreeViewer = forwardRef<ThreeViewerHandle, {
       return;
     }
     const viewer = new Viewer3D(container, {
-      background,
+      backgroundCenter,
+      backgroundEdge,
       shadowFloor: true,
       autoRotate,
       showGrid,
@@ -80,8 +83,8 @@ export const ThreeViewer = forwardRef<ThreeViewerHandle, {
   }, []);
 
   useEffect(() => {
-    viewerRef.current?.setBackground(background);
-  }, [background]);
+    viewerRef.current?.setBackground(backgroundCenter, backgroundEdge);
+  }, [backgroundCenter, backgroundEdge]);
 
   useEffect(() => {
     viewerRef.current?.setAutoRotate(autoRotate);

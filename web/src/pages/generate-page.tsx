@@ -1,5 +1,5 @@
 import { ArrowRight, Download, RotateCcw, Sparkles, UploadCloud, X } from "lucide-react";
-import { useMemo, useRef } from "react";
+import { useRef } from "react";
 import { Link } from "react-router-dom";
 
 import { useGen3d } from "@/app/gen3d-provider";
@@ -7,7 +7,7 @@ import { ProgressParticleStage } from "@/components/progress-particle-stage";
 import { TaskThumbnail } from "@/components/task-thumbnail";
 import { ThreeViewer } from "@/components/three-viewer";
 import { Button, Card } from "@/components/ui/primitives";
-import { useTheme } from "@/hooks/use-theme";
+import { useViewerColors } from "@/hooks/use-viewer-colors";
 import { formatRelativeTime, getVisualStatus } from "@/lib/format";
 import { getTaskArtifactProxyUrl } from "@/lib/task-artifacts";
 import type { TaskRecord } from "@/lib/types";
@@ -74,7 +74,6 @@ const eyebrowClassName = "font-display text-[0.6875rem] font-semibold uppercase 
 
 export function GeneratePage() {
   const inputRef = useRef<HTMLInputElement | null>(null);
-  const { theme } = useTheme();
   const {
     config,
     tasks,
@@ -99,22 +98,8 @@ export function GeneratePage() {
   const canStart = Boolean(generate.previewDataUrl) && !generate.isSubmitting && !generate.isUploading;
   const downloadUrl = getTaskArtifactProxyUrl(currentTask, config.baseUrl);
   const currentTaskInfo = currentTask?.artifacts?.[0]?.type?.toUpperCase() || "GLB";
-  const viewerBackground = useMemo(() => {
-    if (typeof window === "undefined") {
-      return theme === "light" ? "#ffffff" : "#16161a";
-    }
-
-    return getComputedStyle(document.documentElement).getPropertyValue("--surface-container-lowest").trim()
-      || (theme === "light" ? "#ffffff" : "#16161a");
-  }, [theme]);
-  const stageParticleColor = useMemo(() => {
-    if (typeof window === "undefined") {
-      return theme === "light" ? "#1a1c1d" : "#f5f7fa";
-    }
-
-    return getComputedStyle(document.documentElement).getPropertyValue("--text-primary").trim()
-      || (theme === "light" ? "#1a1c1d" : "#f5f7fa");
-  }, [theme]);
+  const viewerColors = useViewerColors();
+  const stageParticleColor = viewerColors.textPrimary;
 
   const handlePrimaryAction = () => {
     if (isProcessing && currentTask) {
@@ -218,7 +203,7 @@ export function GeneratePage() {
           <div className="relative min-h-[640px] overflow-hidden bg-surface-container-lowest">
             <ProgressParticleStage
               progress={progress}
-              background={viewerBackground}
+              background={viewerColors.backgroundEdge}
               particleColor={stageParticleColor}
             />
             <div className="pointer-events-none absolute inset-x-0 bottom-10 grid justify-items-center gap-2 px-6 text-center">
@@ -238,7 +223,8 @@ export function GeneratePage() {
                 message="模型准备中"
                 baseUrl={config.baseUrl}
                 token={config.token}
-                background={viewerBackground}
+                backgroundCenter={viewerColors.backgroundCenter}
+                backgroundEdge={viewerColors.backgroundEdge}
                 className="!rounded-none !bg-transparent"
               />
             </div>

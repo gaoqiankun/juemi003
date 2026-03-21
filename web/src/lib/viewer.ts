@@ -514,10 +514,27 @@ function formatViewerErrorMessage(error: unknown) {
   return "模型预览加载失败";
 }
 
+function createRadialGradientTexture(centerColor: string, edgeColor: string): THREE.CanvasTexture {
+  const size = 512;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d")!;
+  const gradient = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size * 0.7);
+  gradient.addColorStop(0, centerColor);
+  gradient.addColorStop(1, edgeColor);
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, size, size);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
 export class Viewer3D {
   container: HTMLElement;
   options: {
-    background: string;
+    backgroundCenter: string;
+    backgroundEdge: string;
     autoRotate: boolean;
     shadowFloor: boolean;
     showGrid: boolean;
@@ -525,6 +542,7 @@ export class Viewer3D {
     gridPrimaryColor: string;
     gridSecondaryColor: string;
   };
+  backgroundTexture: THREE.CanvasTexture | null;
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
   renderer: THREE.WebGLRenderer;
@@ -545,7 +563,8 @@ export class Viewer3D {
   constructor(
     container: HTMLElement,
     options: {
-      background?: string;
+      backgroundCenter?: string;
+      backgroundEdge?: string;
       autoRotate?: boolean;
       shadowFloor?: boolean;
       showGrid?: boolean;
@@ -556,7 +575,8 @@ export class Viewer3D {
   ) {
     this.container = container;
     this.options = {
-      background: options.background || DEFAULT_BACKGROUND,
+      backgroundCenter: options.backgroundCenter || DEFAULT_BACKGROUND,
+      backgroundEdge: options.backgroundEdge || DEFAULT_BACKGROUND,
       autoRotate: Boolean(options.autoRotate),
       shadowFloor: options.shadowFloor !== false,
       showGrid: Boolean(options.showGrid),
@@ -564,6 +584,7 @@ export class Viewer3D {
       gridPrimaryColor: options.gridPrimaryColor || "rgba(189, 200, 206, 0.3)",
       gridSecondaryColor: options.gridSecondaryColor || "rgba(8, 145, 178, 0.2)",
     };
+    this.backgroundTexture = null;
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(35, 1, 0.1, 1000);
     this.renderer = createRenderer({
@@ -595,7 +616,8 @@ export class Viewer3D {
     this.overlay.style.display = "none";
     this.container.appendChild(this.overlay);
 
-    this.scene.background = new THREE.Color(this.options.background);
+    this.backgroundTexture = createRadialGradientTexture(this.options.backgroundCenter, this.options.backgroundEdge);
+    this.scene.background = this.backgroundTexture;
     this.keyLight = createShadowKeyLight(this.scene);
     const environment = createEnvironmentMap(this.scene, this.renderer);
     this.environmentTexture = environment.texture;
@@ -642,12 +664,17 @@ export class Viewer3D {
     this.overlay.innerHTML = `<div class="rounded-full border px-4 py-2 text-sm ${toneClass}">${message}</div>`;
   }
 
-  setBackground(background: string) {
-    if (!background || background === this.options.background) {
+  setBackground(centerColor: string, edgeColor: string) {
+    if (centerColor === this.options.backgroundCenter && edgeColor === this.options.backgroundEdge) {
       return;
     }
-    this.options.background = background;
-    this.scene.background = new THREE.Color(background);
+    this.options.backgroundCenter = centerColor;
+    this.options.backgroundEdge = edgeColor;
+    if (this.backgroundTexture) {
+      this.backgroundTexture.dispose();
+    }
+    this.backgroundTexture = createRadialGradientTexture(centerColor, edgeColor);
+    this.scene.background = this.backgroundTexture;
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -808,6 +835,8 @@ export class Viewer3D {
     this.gridHelper.geometry.dispose();
     const gridMaterials = Array.isArray(this.gridHelper.material) ? this.gridHelper.material : [this.gridHelper.material];
     gridMaterials.forEach((material) => material.dispose());
+    this.backgroundTexture?.dispose();
+    this.backgroundTexture = null;
     this.renderer.dispose();
     this.container.innerHTML = "";
   }
