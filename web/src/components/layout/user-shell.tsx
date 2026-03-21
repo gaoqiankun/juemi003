@@ -18,6 +18,8 @@ export function UserShell() {
   const [isLanguageMenuOpen, setIsLanguageMenuOpen] = useState(false);
 
   const currentThemeLabel = theme === "dark" ? t("shell.themeDark") : t("shell.themeLight");
+  const isGenerateActive = location.pathname.startsWith("/generate");
+  const isGalleryActive = location.pathname.startsWith("/gallery") || location.pathname.startsWith("/viewer/");
   const isSetupActive = location.pathname.startsWith("/setup");
 
   const statusDotClass = connection.tone === "ready"
@@ -27,6 +29,12 @@ export function UserShell() {
       : "bg-text-muted";
 
   const toolBtnClass = "inline-flex h-9 w-9 items-center justify-center rounded-lg border border-transparent bg-transparent text-text-secondary transition-colors hover:border-outline hover:bg-surface-container-low hover:text-text-primary";
+  const navLinkClass = (active: boolean) => cn(
+    "relative inline-flex h-9 items-center text-sm transition-colors",
+    active
+      ? "font-semibold text-text-primary after:absolute after:-bottom-0.5 after:left-0 after:h-0.5 after:w-full after:rounded-full after:bg-accent"
+      : "font-medium text-text-secondary hover:text-text-primary",
+  );
 
   useEffect(() => {
     if (!isLanguageMenuOpen) {
@@ -58,14 +66,25 @@ export function UserShell() {
     <div className="min-h-screen bg-[image:var(--page-gradient)] bg-background text-text-primary">
       <header className="sticky top-0 z-40 border-b border-outline bg-surface/90 backdrop-blur-xl">
         <div className="flex h-16 w-full items-center justify-between gap-4 px-4 md:px-6">
-          <Link to="/generate" className="inline-flex min-w-fit items-center gap-2.5 text-text-primary">
-            <img
-              src={`${import.meta.env.BASE_URL}favicon.svg`}
-              alt="Cubie 3D"
-              className="h-7 w-7 rounded-md"
-            />
-            <span className="text-[15px] font-semibold tracking-[0.02em]">Cubie 3D</span>
-          </Link>
+          <div className="flex min-w-0 items-center gap-6">
+            <Link to="/generate" className="inline-flex min-w-fit items-center gap-2.5 text-text-primary">
+              <img
+                src={`${import.meta.env.BASE_URL}favicon.svg`}
+                alt="Cubie 3D"
+                className="h-7 w-7 rounded-md"
+              />
+              <span className="text-[15px] font-semibold tracking-[0.02em]">Cubie 3D</span>
+            </Link>
+
+            <nav className="flex items-center gap-5" aria-label={t("shell.navigation")}>
+              <Link to="/generate" className={navLinkClass(isGenerateActive)}>
+                {t("shell.nav.generate")}
+              </Link>
+              <Link to="/gallery" className={navLinkClass(isGalleryActive)}>
+                {t("shell.nav.gallery")}
+              </Link>
+            </nav>
+          </div>
 
           <div className="flex items-center gap-1.5">
             <div ref={languageMenuRef} className="relative">

@@ -1,12 +1,22 @@
-import { ArrowLeft, Clock, Download, FileBox, Share2, Layers, Triangle } from "lucide-react";
+import { ArrowLeft, Clock, Download, FileBox, Layers, Share2, Trash2, Triangle } from "lucide-react";
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 
 import { useGen3d } from "@/app/gen3d-provider";
 import { ModelViewport } from "@/components/model-viewport";
 import { TaskStatusBadge } from "@/components/task-status-badge";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { buildApiUrl } from "@/lib/api";
@@ -73,9 +83,12 @@ const FORMAT_OPTIONS: {
 export function ViewerPage() {
   const { t, i18n } = useTranslation();
   const { taskId = "" } = useParams();
-  const { config, taskMap, refreshTask, subscribeToTask } = useGen3d();
+  const navigate = useNavigate();
+  const { config, taskMap, refreshTask, subscribeToTask, deleteTask } = useGen3d();
   const [modelStats, setModelStats] = useState<ViewerModelStats | null>(null);
   const [selectedFormat, setSelectedFormat] = useState<ExportFormat>("glb");
+  const [isDeleteOpen, setIsDeleteOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const locale = i18n.resolvedLanguage === "zh-CN" ? "zh-CN" : "en-US";
   const task = taskId ? taskMap[taskId] || null : null;
 
@@ -126,139 +139,195 @@ export function ViewerPage() {
     ? (glbFileName || "model.glb")
     : (objFileName || "model.obj");
   const canDownload = Boolean(downloadUrl);
+  const canDelete = Boolean(task?.taskId) && !isDeleting;
 
-  return (
-    <section className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_20rem] lg:min-h-[calc(100vh-7.5rem)] xl:grid-cols-[minmax(0,1fr)_22rem]">
-      {/* ── Viewer ── */}
-      <ModelViewport
-        url={glbUrl || undefined}
-        message={viewerMessage}
-        baseUrl={config.baseUrl}
-        token={config.token}
-        className="min-h-[38rem] rounded-[30px] border border-outline shadow-soft"
-        onModelStatsChange={setModelStats}
-        topOverlay={
-          <div className="pointer-events-none flex items-start justify-between gap-3">
-            <Link
-              to="/gallery"
-              className="pointer-events-auto inline-flex h-11 items-center gap-2 rounded-full border border-outline bg-surface-glass px-4 text-sm font-medium text-text-primary shadow-float backdrop-blur-xl transition hover:border-[color:color-mix(in_srgb,var(--accent)_24%,transparent)] hover:text-accent-strong"
-            >
-              <ArrowLeft className="h-4 w-4" />
-              {t("user.viewer.backButton")}
-            </Link>
-            <Badge
-              variant="accent"
-              className="pointer-events-auto h-11 rounded-full px-4 text-[11px] font-semibold uppercase tracking-[0.16em]"
-            >
-              ID · {shortTaskId}
-            </Badge>
+  const handleDeleteConfirm = () => {
+    if (!task?.taskId || isDeleting) {
+      return;
+    }
+    setIsDeleting(true);
+    deleteTask(task.taskId)
+      .then(() => {
+        setIsDeleteOpen(false);
+        navigate("/gallery", { replace: true });
+      })
+      .catch(() => undefined)
+      .finally(() => setIsDeleting(false));
+  };
+
+  const sidebarPanel = (
+    <div className="flex w-full flex-col overflow-hidden rounded-[30px] border border-outline bg-surface-glass shadow-soft backdrop-blur-xl">
+      <div className="flex flex-1 flex-col gap-7 overflow-y-auto p-6">
+        <div className="space-y-2">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-text-muted">
+            {t("user.viewer.breadcrumb")}
           </div>
-        }
-      />
-
-      {/* ── Sidebar ── */}
-      <aside className="flex w-full flex-col overflow-hidden rounded-[30px] border border-outline bg-surface-container-low shadow-soft lg:w-[20rem] xl:w-[22rem]">
-        <div className="flex flex-1 flex-col gap-7 overflow-y-auto p-6">
-          {/* Header */}
-          <div className="space-y-2">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-text-muted">
-              {t("user.viewer.breadcrumb")}
-            </div>
-            <h1 className="text-xl font-bold tracking-[-0.02em] text-text-primary leading-tight">
-              {displayFileName}
-            </h1>
-            <div className="flex flex-wrap items-center gap-2 pt-1">
-              <code className="rounded-lg border border-[color:color-mix(in_srgb,var(--accent)_18%,transparent)] bg-[color:color-mix(in_srgb,var(--accent)_10%,transparent)] px-2.5 py-1 font-mono text-xs text-accent-strong">
-                {shortTaskId}
-              </code>
-              {task ? <TaskStatusBadge task={task} compact /> : null}
-            </div>
-          </div>
-
-          {/* Stats 2×2 grid */}
-          <div className="grid grid-cols-2 gap-3">
-            <StatCard icon={<Triangle className="h-4 w-4" />} label={t("user.viewer.details.polygons")} value={polygonCount} />
-            <StatCard icon={<FileBox className="h-4 w-4" />} label={t("user.viewer.details.fileSize")} value={fileSizeLabel} />
-            <StatCard icon={<Layers className="h-4 w-4" />} label={t("user.viewer.details.meshes")} value={meshCount} />
-            <StatCard icon={<Clock className="h-4 w-4" />} label={t("user.viewer.details.updated")} value={updatedLabel} />
-          </div>
-
-          {/* Export options */}
-          <div className="space-y-3">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-text-muted">
-              {t("user.viewer.exportsLabel")}
-            </div>
-            <div className="space-y-2">
-              {FORMAT_OPTIONS.map((fmt) => {
-                const isAvailable = fmt.value === "glb" ? Boolean(glbUrl) : Boolean(objUrl);
-                const isSelected = selectedFormat === fmt.value;
-                return (
-                  <button
-                    key={fmt.value}
-                    type="button"
-                    disabled={!isAvailable}
-                    onClick={() => setSelectedFormat(fmt.value)}
-                    className={cn(
-                      "flex w-full items-center gap-3 rounded-2xl border px-4 py-3.5 text-left transition-all",
-                      isSelected
-                        ? "border-accent bg-[color:color-mix(in_srgb,var(--accent)_8%,transparent)]"
-                        : "border-outline bg-surface-container-lowest hover:bg-surface-container-high",
-                      !isAvailable && "cursor-not-allowed opacity-40",
-                    )}
-                  >
-                    <span className={cn(
-                      "flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors",
-                      isSelected ? "border-accent" : "border-text-muted",
-                    )}>
-                      {isSelected ? <span className="h-2.5 w-2.5 rounded-full bg-accent" /> : null}
-                    </span>
-                    <span className="min-w-0">
-                      <span className="block text-sm font-medium text-text-primary">{t(fmt.labelKey)}</span>
-                      <span className="block text-xs text-text-secondary">{t(fmt.descriptionKey)}</span>
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Download button */}
-          <div className="mt-auto space-y-3">
-            <Button
-              asChild={canDownload}
-              className="h-12 w-full justify-center gap-2.5 rounded-xl text-sm font-semibold"
-              disabled={!canDownload}
-            >
-              {canDownload ? (
-                <a href={downloadUrl} target="_blank" rel="noreferrer" download={downloadFileName}>
-                  <Download className="h-4 w-4" />
-                  {t("user.viewer.actions.download")}
-                </a>
-              ) : (
-                <>
-                  <Download className="h-4 w-4" />
-                  {t("user.viewer.actions.download")}
-                </>
-              )}
-            </Button>
-
-            <button
-              type="button"
-              className="flex w-full items-center justify-center gap-2 py-2 text-sm text-text-secondary transition-colors hover:text-text-primary"
-              onClick={() => {
-                const url = window.location.href;
-                navigator.clipboard.writeText(url).then(
-                  () => toast(t("user.viewer.actions.linkCopied")),
-                  () => toast.error(t("user.viewer.actions.linkCopyFailed")),
-                );
-              }}
-            >
-              <Share2 className="h-3.5 w-3.5" />
-              {t("user.viewer.actions.shareLink")}
-            </button>
+          <h1 className="text-xl font-bold leading-tight tracking-[-0.02em] text-text-primary">
+            {displayFileName}
+          </h1>
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            <code className="rounded-lg border border-[color:color-mix(in_srgb,var(--accent)_18%,transparent)] bg-[color:color-mix(in_srgb,var(--accent)_10%,transparent)] px-2.5 py-1 font-mono text-xs text-accent-strong">
+              {shortTaskId}
+            </code>
+            {task ? <TaskStatusBadge task={task} compact /> : null}
           </div>
         </div>
-      </aside>
+
+        <div className="grid grid-cols-2 gap-3">
+          <StatCard icon={<Triangle className="h-4 w-4" />} label={t("user.viewer.details.polygons")} value={polygonCount} />
+          <StatCard icon={<FileBox className="h-4 w-4" />} label={t("user.viewer.details.fileSize")} value={fileSizeLabel} />
+          <StatCard icon={<Layers className="h-4 w-4" />} label={t("user.viewer.details.meshes")} value={meshCount} />
+          <StatCard icon={<Clock className="h-4 w-4" />} label={t("user.viewer.details.updated")} value={updatedLabel} />
+        </div>
+
+        <div className="space-y-3">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-text-muted">
+            {t("user.viewer.exportsLabel")}
+          </div>
+          <div className="space-y-2">
+            {FORMAT_OPTIONS.map((fmt) => {
+              const isAvailable = fmt.value === "glb" ? Boolean(glbUrl) : Boolean(objUrl);
+              const isSelected = selectedFormat === fmt.value;
+              return (
+                <button
+                  key={fmt.value}
+                  type="button"
+                  disabled={!isAvailable}
+                  onClick={() => setSelectedFormat(fmt.value)}
+                  className={cn(
+                    "flex w-full items-center gap-3 rounded-2xl border px-4 py-3.5 text-left transition-all",
+                    isSelected
+                      ? "border-accent bg-[color:color-mix(in_srgb,var(--accent)_8%,transparent)]"
+                      : "border-outline bg-surface-container-lowest hover:bg-surface-container-high",
+                    !isAvailable && "cursor-not-allowed opacity-40",
+                  )}
+                >
+                  <span className={cn(
+                    "flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors",
+                    isSelected ? "border-accent" : "border-text-muted",
+                  )}>
+                    {isSelected ? <span className="h-2.5 w-2.5 rounded-full bg-accent" /> : null}
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-sm font-medium text-text-primary">{t(fmt.labelKey)}</span>
+                    <span className="block text-xs text-text-secondary">{t(fmt.descriptionKey)}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="mt-auto space-y-3">
+          <Button
+            asChild={canDownload}
+            className="h-12 w-full justify-center gap-2.5 rounded-xl text-sm font-semibold"
+            disabled={!canDownload}
+          >
+            {canDownload ? (
+              <a href={downloadUrl} target="_blank" rel="noreferrer" download={downloadFileName}>
+                <Download className="h-4 w-4" />
+                {t("user.viewer.actions.download")}
+              </a>
+            ) : (
+              <>
+                <Download className="h-4 w-4" />
+                {t("user.viewer.actions.download")}
+              </>
+            )}
+          </Button>
+
+          <button
+            type="button"
+            className="flex w-full items-center justify-center gap-2 py-2 text-sm text-text-secondary transition-colors hover:text-text-primary"
+            onClick={() => {
+              const url = window.location.href;
+              navigator.clipboard.writeText(url).then(
+                () => toast(t("user.viewer.actions.linkCopied")),
+                () => toast.error(t("user.viewer.actions.linkCopyFailed")),
+              );
+            }}
+          >
+            <Share2 className="h-3.5 w-3.5" />
+            {t("user.viewer.actions.shareLink")}
+          </button>
+
+          <button
+            type="button"
+            disabled={!canDelete}
+            className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-[color:color-mix(in_srgb,var(--danger)_24%,transparent)] bg-[color:color-mix(in_srgb,var(--danger)_10%,transparent)] px-4 text-sm font-medium text-danger-text transition hover:bg-[color:color-mix(in_srgb,var(--danger)_16%,transparent)] disabled:cursor-not-allowed disabled:opacity-55"
+            onClick={() => setIsDeleteOpen(true)}
+          >
+            <Trash2 className="h-4 w-4" />
+            {t("user.viewer.deleteButton")}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
+  return (
+    <section className="relative -mx-4 -my-6 min-h-[calc(100vh-6rem)] overflow-hidden md:-mx-6">
+      <div className="absolute inset-0 overflow-hidden bg-surface-container-lowest">
+        <ModelViewport
+          url={glbUrl || undefined}
+          message={viewerMessage}
+          baseUrl={config.baseUrl}
+          token={config.token}
+          className="absolute inset-0"
+          onModelStatsChange={setModelStats}
+          topOverlay={(
+            <div className="pointer-events-none flex items-start justify-between gap-3">
+              <Link
+                to="/gallery"
+                className="pointer-events-auto inline-flex h-11 items-center gap-2 rounded-full border border-outline bg-surface-glass px-4 text-sm font-medium text-text-primary shadow-float backdrop-blur-xl transition hover:border-[color:color-mix(in_srgb,var(--accent)_24%,transparent)] hover:text-accent-strong"
+              >
+                <ArrowLeft className="h-4 w-4" />
+                {t("user.viewer.backButton")}
+              </Link>
+              <Badge
+                variant="accent"
+                className="pointer-events-auto h-11 rounded-full px-4 text-[11px] font-semibold uppercase tracking-[0.16em]"
+              >
+                ID · {shortTaskId}
+              </Badge>
+            </div>
+          )}
+        />
+      </div>
+
+      <div className="pointer-events-none relative z-10 hidden min-h-[calc(100vh-6rem)] md:block">
+        <aside className="pointer-events-auto absolute bottom-4 right-4 top-4 w-[20rem] xl:w-[22rem]">
+          {sidebarPanel}
+        </aside>
+      </div>
+
+      <div className="pointer-events-auto relative z-10 mt-3 grid gap-3 px-3 pb-3 md:hidden">
+        {sidebarPanel}
+      </div>
+
+      <AlertDialog open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("user.viewer.deleteTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("user.viewer.deleteDescription")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel asChild>
+              <Button variant="outline" disabled={isDeleting}>
+                {t("user.viewer.cancelButton")}
+              </Button>
+            </AlertDialogCancel>
+            <AlertDialogAction asChild>
+              <Button variant="destructive" disabled={!canDelete} onClick={handleDeleteConfirm}>
+                {t("user.viewer.deleteButton")}
+              </Button>
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </section>
   );
 }

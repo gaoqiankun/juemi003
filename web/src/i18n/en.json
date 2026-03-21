@@ -21,7 +21,9 @@
       "tasks": "Tasks",
       "models": "Models",
       "apiKeys": "API Keys",
-      "settings": "Settings"
+      "settings": "Settings",
+      "generate": "Generate",
+      "gallery": "Gallery"
     }
   },
   "common": {
@@ -450,6 +452,10 @@
       "title": "3D Viewer",
       "backButton": "Back to library",
       "breadcrumb": "Models",
+      "deleteTitle": "Delete Model",
+      "deleteDescription": "This action cannot be undone. The model and all associated files will be permanently deleted.",
+      "deleteButton": "Delete",
+      "cancelButton": "Cancel",
       "defaultFileBase": "MODEL",
       "exportsLabel": "Export options",
       "exportFormats": {

@@ -255,7 +255,7 @@ export function GeneratePage() {
   );
 
   return (
-    <section className="relative min-h-[calc(100vh-6rem)] overflow-hidden">
+    <section className="relative -mx-4 -my-6 min-h-[calc(100vh-6rem)] overflow-hidden md:-mx-6">
       <div className="absolute inset-0 overflow-hidden bg-surface-container-lowest">
         {generateView === "idle" ? (
           <div className="flex h-full flex-col items-center justify-center px-8 text-center">

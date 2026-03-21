@@ -21,7 +21,9 @@
       "tasks": "任务",
       "models": "模型",
       "apiKeys": "API 密钥",
-      "settings": "设置"
+      "settings": "设置",
+      "generate": "生成",
+      "gallery": "历史"
     }
   },
   "common": {
@@ -450,6 +452,10 @@
       "title": "3D Viewer",
       "backButton": "返回模型库",
       "breadcrumb": "模型",
+      "deleteTitle": "删除模型",
+      "deleteDescription": "此操作不可撤销。模型及所有关联文件将被永久删除。",
+      "deleteButton": "删除",
+      "cancelButton": "取消",
       "defaultFileBase": "MODEL",
       "exportsLabel": "导出选项",
       "exportFormats": {
