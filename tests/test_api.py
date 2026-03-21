@@ -28,6 +28,7 @@ from gen3d.engine import async_engine as async_engine_module
 from gen3d.engine.sequence import RequestSequence, TaskStatus, TaskType, utcnow
 from gen3d.model.base import GenerationResult, ModelProviderConfigurationError, ModelProviderExecutionError
 from gen3d.model.hunyuan3d.provider import Hunyuan3DProvider, MockHunyuan3DProvider
+from gen3d.model.step1x3d.provider import MockStep1X3DProvider, Step1X3DProvider
 from gen3d.model.trellis2.provider import MockTrellis2Provider, Trellis2Provider
 from gen3d.stages.export.preview_renderer_service import (
     PreviewRendererService,
@@ -3850,6 +3851,142 @@ def test_build_provider_supports_hunyuan3d_mock(tmp_path: Path) -> None:
     )
     provider = server_module.build_provider(config)
     assert isinstance(provider, MockHunyuan3DProvider)
+
+
+# ---------------------------------------------------------------------------
+# Step1X-3D provider tests
+# ---------------------------------------------------------------------------
+
+
+def test_step1x3d_provider_accepts_huggingface_repo_id() -> None:
+    source_type, model_reference = Step1X3DProvider._resolve_model_reference(
+        "stepfun-ai/Step1X-3D"
+    )
+    assert source_type == "huggingface"
+    assert model_reference == "stepfun-ai/Step1X-3D"
+
+
+def test_step1x3d_provider_run_single_calls_both_pipelines() -> None:
+    observed: dict[str, object] = {}
+
+    class FakeGeometryPipeline:
+        def __call__(self, image, **kwargs):
+            observed["geo_kwargs"] = kwargs
+            from types import SimpleNamespace
+            return SimpleNamespace(mesh=["raw_mesh"])
+
+    class FakeTexturePipeline:
+        def __call__(self, image, mesh, **kwargs):
+            observed["tex_mesh_input"] = mesh
+            observed["tex_kwargs"] = kwargs
+            return "textured_mesh"
+
+    provider = Step1X3DProvider(
+        geometry_pipeline=FakeGeometryPipeline(),
+        texture_pipeline=FakeTexturePipeline(),
+        model_path="stepfun-ai/Step1X-3D",
+    )
+
+    result = provider._run_single(
+        image="image-object",
+        options={"num_inference_steps": 30, "guidance_scale": 6.0, "texture_steps": 10},
+    )
+
+    assert result == "textured_mesh"
+    assert observed["geo_kwargs"] == {
+        "guidance_scale": 6.0,
+        "num_inference_steps": 30,
+    }
+    assert observed["tex_mesh_input"] == "raw_mesh"
+    assert observed["tex_kwargs"] == {"num_inference_steps": 10}
+
+
+def test_step1x3d_provider_run_single_skips_texture_when_none() -> None:
+    class FakeGeometryPipeline:
+        def __call__(self, image, **kwargs):
+            from types import SimpleNamespace
+            return SimpleNamespace(mesh=["geo_mesh"])
+
+    provider = Step1X3DProvider(
+        geometry_pipeline=FakeGeometryPipeline(),
+        texture_pipeline=None,
+        model_path="stepfun-ai/Step1X-3D",
+    )
+    result = provider._run_single(image="img", options={})
+    assert result == "geo_mesh"
+
+
+def test_step1x3d_provider_export_glb_calls_mesh_export(tmp_path: Path) -> None:
+    observed: dict[str, object] = {}
+
+    class FakeMesh:
+        def export(self, path: str) -> None:
+            observed["export_path"] = path
+
+    provider = Step1X3DProvider(
+        geometry_pipeline=object(),
+        texture_pipeline=None,
+        model_path="stepfun-ai/Step1X-3D",
+    )
+    output = tmp_path / "model.glb"
+    provider.export_glb(GenerationResult(mesh=FakeMesh()), output, {})
+    assert observed["export_path"] == str(output)
+
+
+def test_step1x3d_mock_provider_emits_canonical_stages() -> None:
+    mock = MockStep1X3DProvider(stage_delay_ms=0)
+    assert mock.stages == [
+        {"name": "ss", "weight": 0.20},
+        {"name": "shape", "weight": 0.45},
+        {"name": "material", "weight": 0.35},
+    ]
+
+
+@pytest.mark.anyio
+async def test_step1x3d_mock_provider_run_batch() -> None:
+    mock = MockStep1X3DProvider(stage_delay_ms=0)
+    stages_seen: list[str] = []
+
+    async def progress_cb(progress):
+        stages_seen.append(progress.stage_name)
+
+    results = await mock.run_batch(
+        images=["img1"],
+        options={"resolution": 512},
+        progress_cb=progress_cb,
+    )
+    assert len(results) == 1
+    assert results[0].metadata["provider"] == "step1x3d"
+    assert stages_seen == ["ss", "shape", "material"]
+
+
+@pytest.mark.anyio
+async def test_step1x3d_mock_provider_failure_injection() -> None:
+    mock = MockStep1X3DProvider(stage_delay_ms=0)
+    with pytest.raises(ModelProviderExecutionError, match="gpu_shape"):
+        await mock.run_batch(
+            images=["img"],
+            options={"mock_failure_stage": "gpu_shape"},
+        )
+
+
+def test_step1x3d_mock_provider_export_glb_valid(tmp_path: Path) -> None:
+    mock = MockStep1X3DProvider()
+    output = tmp_path / "mock.glb"
+    mock.export_glb(GenerationResult(mesh=None), output, {})
+    data = output.read_bytes()
+    assert data[:4] == b"glTF"
+
+
+def test_build_provider_supports_step1x3d_mock(tmp_path: Path) -> None:
+    config = ServingConfig(
+        provider_mode="mock",
+        model_provider="step1x3d",
+        database_path=tmp_path / "app.sqlite3",
+        artifacts_dir=tmp_path / "artifacts",
+    )
+    provider = server_module.build_provider(config)
+    assert isinstance(provider, MockStep1X3DProvider)
 
 
 def test_build_provider_rejects_unknown_provider(tmp_path: Path) -> None:

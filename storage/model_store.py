@@ -33,6 +33,16 @@ _SEED_MODELS = [
         "min_vram_mb": 24000,
         "config_json": "{}",
     },
+    {
+        "id": "step1x3d",
+        "provider_type": "step1x3d",
+        "display_name": "Step1X-3D",
+        "model_path": "stepfun-ai/Step1X-3D",
+        "is_enabled": 0,
+        "is_default": 0,
+        "min_vram_mb": 27000,
+        "config_json": "{}",
+    },
 ]
 
 _UPDATABLE_FIELDS = frozenset(

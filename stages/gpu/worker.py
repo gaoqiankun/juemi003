@@ -18,6 +18,7 @@ from gen3d.model.base import (
     StageProgress,
 )
 from gen3d.model.hunyuan3d.provider import Hunyuan3DProvider
+from gen3d.model.step1x3d.provider import Step1X3DProvider
 from gen3d.model.trellis2.provider import MockTrellis2Provider, Trellis2Provider
 
 ProgressCallback = Callable[[StageProgress], Awaitable[None] | None]
@@ -381,6 +382,8 @@ def _build_process_provider(process_config: WorkerProcessConfig) -> BaseModelPro
         return Trellis2Provider.from_pretrained(process_config.model_path)
     if process_config.provider_name == "hunyuan3d":
         return Hunyuan3DProvider.from_pretrained(process_config.model_path)
+    if process_config.provider_name == "step1x3d":
+        return Step1X3DProvider.from_pretrained(process_config.model_path)
     raise ModelProviderConfigurationError(
         f"unsupported MODEL_PROVIDER in GPU worker: {process_config.provider_name}"
     )

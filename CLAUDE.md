@@ -20,7 +20,7 @@
 
 ## 当前状态（2026-03-21）
 
-后端测试基线：`python -m pytest tests -q` → **116 passed**
+后端测试基线：`python -m pytest tests -q` → **125 passed**
 
 ### v0.1 模块进度
 
@@ -113,6 +113,7 @@ pointer-events-none（外层禁止事件）
 | `mock`（MockTrellis2Provider）| ✅ 可用 |
 | `real`（Trellis2Provider）| ✅ 可用 |
 | `hunyuan3d`（HunYuan3D-2）| ✅ mock + real 可用 |
+| `step1x3d`（Step1X-3D）| ✅ mock + real 可用 |
 
 ---
 

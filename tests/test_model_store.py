@@ -16,9 +16,9 @@ async def store(tmp_path):
 @pytest.mark.anyio
 async def test_initialize_seeds_defaults(store: ModelStore):
     models = await store.list_models()
-    assert len(models) == 2
+    assert len(models) == 3
     ids = {m["id"] for m in models}
-    assert ids == {"trellis2", "hunyuan3d"}
+    assert ids == {"trellis2", "hunyuan3d", "step1x3d"}
 
     trellis = await store.get_model("trellis2")
     assert trellis is not None
@@ -37,10 +37,11 @@ async def test_initialize_seeds_defaults(store: ModelStore):
 async def test_list_models(store: ModelStore):
     models = await store.list_models()
     assert isinstance(models, list)
-    assert len(models) == 2
-    # sorted by created_at — both seeded at the same time, order is stable
+    assert len(models) == 3
+    # sorted by created_at — all seeded at the same time, order is stable
     assert models[0]["id"] == "trellis2"
     assert models[1]["id"] == "hunyuan3d"
+    assert models[2]["id"] == "step1x3d"
 
 
 @pytest.mark.anyio
@@ -97,7 +98,7 @@ async def test_delete_model(store: ModelStore):
     assert await store.delete_model("hunyuan3d") is False
 
     models = await store.list_models()
-    assert len(models) == 1
+    assert len(models) == 2
 
 
 @pytest.mark.anyio

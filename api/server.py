@@ -50,6 +50,7 @@ from gen3d.engine.pipeline import PipelineCoordinator, PipelineQueueFullError
 from gen3d.engine.sequence import TERMINAL_STATUSES, TaskStatus
 from gen3d.model.base import ModelProviderConfigurationError
 from gen3d.model.hunyuan3d.provider import Hunyuan3DProvider, MockHunyuan3DProvider
+from gen3d.model.step1x3d.provider import MockStep1X3DProvider, Step1X3DProvider
 from gen3d.model.trellis2.provider import MockTrellis2Provider, Trellis2Provider
 from gen3d.observability.metrics import render_metrics
 from gen3d.security import (
@@ -211,6 +212,11 @@ def build_provider(config: ServingConfig):
             return MockHunyuan3DProvider(stage_delay_ms=config.mock_gpu_stage_delay_ms)
         if provider_mode == "real":
             return Hunyuan3DProvider.from_pretrained(config.model_path)
+    elif provider_name == "step1x3d":
+        if provider_mode == "mock":
+            return MockStep1X3DProvider(stage_delay_ms=config.mock_gpu_stage_delay_ms)
+        if provider_mode == "real":
+            return Step1X3DProvider.from_pretrained(config.model_path)
     else:
         raise ModelProviderConfigurationError(
             f"unsupported MODEL_PROVIDER: {config.model_provider}"
