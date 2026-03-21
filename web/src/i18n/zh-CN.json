@@ -404,20 +404,16 @@
     "viewer": {
       "title": "3D Viewer",
       "backButton": "返回模型库",
-      "identityLabel": "模型信息",
-      "attributesLabel": "属性",
-      "exportsLabel": "导出格式",
-      "previewPlaceholder": "3D 预览",
+      "breadcrumb": "模型",
+      "exportsLabel": "导出选项",
       "loadingModel": "模型加载中",
       "emptyCopy": "当前模型尚不可用。",
       "details": {
-        "quality": "质量",
-        "format": "主格式",
         "polygons": "面数",
-        "fileSize": "文件大小",
+        "fileSize": "大小",
+        "meshes": "网格",
         "updated": "更新时间"
       },
-      "previewLabel": "预览",
       "toolbar": {
         "orbit": "自动环绕",
         "zoomIn": "放大",
@@ -425,10 +421,10 @@
         "light": "光照"
       },
       "actions": {
-        "downloadGlb": "Download GLB",
-        "exportObj": "Export OBJ",
-        "exportEngine": "EXPORT TO ENGINE",
-        "comingSoon": "即将推出"
+        "download": "下载模型",
+        "shareLink": "分享模型链接",
+        "linkCopied": "链接已复制",
+        "linkCopyFailed": "复制失败"
       }
     },
     "setup": {

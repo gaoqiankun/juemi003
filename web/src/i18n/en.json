@@ -404,20 +404,16 @@
     "viewer": {
       "title": "3D Viewer",
       "backButton": "Back to library",
-      "identityLabel": "Model identity",
-      "attributesLabel": "Attributes",
-      "exportsLabel": "Export formats",
-      "previewPlaceholder": "3D Preview",
+      "breadcrumb": "Models",
+      "exportsLabel": "Export options",
       "loadingModel": "Loading model",
       "emptyCopy": "This model is not available yet.",
       "details": {
-        "quality": "Quality",
-        "format": "Primary format",
         "polygons": "Polygons",
-        "fileSize": "File size",
-        "updated": "Updated"
+        "fileSize": "Size",
+        "meshes": "Meshes",
+        "updated": "Modified"
       },
-      "previewLabel": "Preview",
       "toolbar": {
         "orbit": "Toggle auto orbit",
         "zoomIn": "Zoom in",
@@ -425,10 +421,10 @@
         "light": "Toggle lighting"
       },
       "actions": {
-        "downloadGlb": "Download GLB",
-        "exportObj": "Export OBJ",
-        "exportEngine": "EXPORT TO ENGINE",
-        "comingSoon": "Coming soon"
+        "download": "Download Model",
+        "shareLink": "Share Model Link",
+        "linkCopied": "Link copied to clipboard",
+        "linkCopyFailed": "Failed to copy link"
       }
     },
     "setup": {

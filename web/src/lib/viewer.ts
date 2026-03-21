@@ -520,14 +520,44 @@ function createRadialGradientTexture(centerColor: string, edgeColor: string): TH
   canvas.width = size;
   canvas.height = size;
   const ctx = canvas.getContext("2d")!;
-  const gradient = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size * 0.7);
-  gradient.addColorStop(0, centerColor);
-  gradient.addColorStop(1, edgeColor);
-  ctx.fillStyle = gradient;
+
+  // Fill base with edge color
+  ctx.fillStyle = edgeColor;
   ctx.fillRect(0, 0, size, size);
+
+  // Main light: elliptical glow, shifted slightly above center to simulate top-down studio lighting
+  const cx = size * 0.5;
+  const cy = size * 0.38;
+  const rx = size * 0.6;
+  const ry = size * 0.5;
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.scale(rx / ry, 1);
+  const mainGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, ry);
+  mainGrad.addColorStop(0, centerColor);
+  mainGrad.addColorStop(0.55, blendColors(centerColor, edgeColor, 0.6));
+  mainGrad.addColorStop(1, "transparent");
+  ctx.fillStyle = mainGrad;
+  ctx.fillRect(-rx, -ry, rx * 2, ry * 2);
+  ctx.restore();
+
+  // Subtle secondary fill at bottom to soften the hard edge
+  const bottomGrad = ctx.createLinearGradient(0, size * 0.75, 0, size);
+  bottomGrad.addColorStop(0, "transparent");
+  bottomGrad.addColorStop(1, blendColors(edgeColor, centerColor, 0.08));
+  ctx.fillStyle = bottomGrad;
+  ctx.fillRect(0, size * 0.75, size, size * 0.25);
+
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   return texture;
+}
+
+function blendColors(c1: string, c2: string, t: number): string {
+  const a = new THREE.Color(c1);
+  const b = new THREE.Color(c2);
+  a.lerp(b, t);
+  return `#${a.getHexString()}`;
 }
 
 export class Viewer3D {

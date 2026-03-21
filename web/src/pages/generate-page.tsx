@@ -3,9 +3,9 @@ import { useRef } from "react";
 import { Link } from "react-router-dom";
 
 import { useGen3d } from "@/app/gen3d-provider";
+import { ModelViewport } from "@/components/model-viewport";
 import { ProgressParticleStage } from "@/components/progress-particle-stage";
 import { TaskThumbnail } from "@/components/task-thumbnail";
-import { ThreeViewer } from "@/components/three-viewer";
 import { Button, Card } from "@/components/ui/primitives";
 import { useViewerColors } from "@/hooks/use-viewer-colors";
 import { formatRelativeTime, getVisualStatus } from "@/lib/format";
@@ -97,7 +97,6 @@ export function GeneratePage() {
   const canCancel = Boolean(currentTask && !isTerminal(currentTask.status) && !currentTask.pendingCancel);
   const canStart = Boolean(generate.previewDataUrl) && !generate.isSubmitting && !generate.isUploading;
   const downloadUrl = getTaskArtifactProxyUrl(currentTask, config.baseUrl);
-  const currentTaskInfo = currentTask?.artifacts?.[0]?.type?.toUpperCase() || "GLB";
   const viewerColors = useViewerColors();
   const stageParticleColor = viewerColors.textPrimary;
 
@@ -165,25 +164,44 @@ export function GeneratePage() {
 
           <div className="mt-4 text-center text-sm text-text-muted">JPG · PNG · WEBP</div>
 
-          <div className="mt-auto pt-6">
-            <Button
-              variant={isProcessing ? "secondary" : "primary"}
-              className="w-full justify-center"
-              disabled={isProcessing ? !canCancel : !canStart}
-              onClick={handlePrimaryAction}
-            >
-              {isProcessing ? (
-                <>
-                  <X className="h-4 w-4" />
-                  取消
-                </>
-              ) : (
-                <>
-                  <Sparkles className="h-4 w-4" />
-                  生成
-                </>
-              )}
-            </Button>
+          <div className="mt-auto space-y-3 pt-6">
+            {generateView === "completed" && downloadUrl ? (
+              <>
+                <Button variant="primary" className="w-full justify-center" asChild>
+                  <a href={downloadUrl} target="_blank" rel="noreferrer" download="model.glb">
+                    <Download className="h-4 w-4" />
+                    下载模型
+                  </a>
+                </Button>
+                <Button
+                  variant="secondary"
+                  className="w-full justify-center"
+                  onClick={() => retryCurrentTask().catch(() => undefined)}
+                >
+                  <RotateCcw className="h-4 w-4" />
+                  重新生成
+                </Button>
+              </>
+            ) : (
+              <Button
+                variant={isProcessing ? "secondary" : "primary"}
+                className="w-full justify-center"
+                disabled={isProcessing ? !canCancel : !canStart}
+                onClick={handlePrimaryAction}
+              >
+                {isProcessing ? (
+                  <>
+                    <X className="h-4 w-4" />
+                    取消
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="h-4 w-4" />
+                    生成
+                  </>
+                )}
+              </Button>
+            )}
           </div>
         </Card>
       </aside>
@@ -216,48 +234,13 @@ export function GeneratePage() {
         ) : null}
 
         {generateView === "completed" && currentTask ? (
-          <div className="grid min-h-[640px] grid-rows-[minmax(0,1fr)_auto]">
-            <div className="min-h-0 bg-surface-container-lowest">
-              <ThreeViewer
-                url={downloadUrl}
-                message="模型准备中"
-                baseUrl={config.baseUrl}
-                token={config.token}
-                backgroundCenter={viewerColors.backgroundCenter}
-                backgroundEdge={viewerColors.backgroundEdge}
-                className="!rounded-none !bg-transparent"
-              />
-            </div>
-
-            <div className="flex flex-col gap-4 border-t border-outline bg-surface-container px-5 py-4 md:flex-row md:items-center md:justify-between">
-              <div className="min-w-0">
-                <div className="text-sm font-semibold text-text-primary">模型已就绪</div>
-                <div className="mt-1 text-sm text-text-secondary">{currentTaskInfo} 已准备好下载或重新生成</div>
-              </div>
-
-              <div className="flex flex-wrap gap-3">
-                <Button variant="primary" asChild>
-                  <a
-                    href={downloadUrl || "#"}
-                    target="_blank"
-                    rel="noreferrer"
-                    download="model.glb"
-                    className={!downloadUrl ? "pointer-events-none opacity-50" : undefined}
-                  >
-                    <Download className="h-4 w-4" />
-                    下载
-                  </a>
-                </Button>
-                <Button
-                  variant="secondary"
-                  onClick={() => retryCurrentTask().catch(() => undefined)}
-                >
-                  <RotateCcw className="h-4 w-4" />
-                  重新生成
-                </Button>
-              </div>
-            </div>
-          </div>
+          <ModelViewport
+            url={downloadUrl}
+            message="模型准备中"
+            baseUrl={config.baseUrl}
+            token={config.token}
+            className="min-h-[640px]"
+          />
         ) : null}
 
         {generateView === "failed" && currentTask ? (

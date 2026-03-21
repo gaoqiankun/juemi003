@@ -1,11 +1,10 @@
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { Download, X } from "lucide-react";
 
-import { ThreeViewer } from "@/components/three-viewer";
+import { ModelViewport } from "@/components/model-viewport";
 import { TaskStatusBadge } from "@/components/task-status-badge";
 import { useGen3d } from "@/app/gen3d-provider";
 import { Button } from "@/components/ui/button";
-import { useViewerColors } from "@/hooks/use-viewer-colors";
 import { formatTime } from "@/lib/format";
 import { getTaskArtifactProxyUrl } from "@/lib/task-artifacts";
 import type { TaskRecord } from "@/lib/types";
@@ -23,7 +22,6 @@ export function TaskSheet({
 }) {
   const { config } = useGen3d();
   const viewerUrl = getTaskArtifactProxyUrl(task, config.baseUrl);
-  const viewerColors = useViewerColors();
 
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
@@ -39,17 +37,13 @@ export function TaskSheet({
 
           {task ? (
             <div className="grid h-full grid-cols-1 lg:grid-cols-[minmax(0,65fr)_minmax(360px,35fr)]">
-              <div className="min-w-0 bg-surface-container-lowest">
-                <ThreeViewer
-                  url={viewerUrl}
-                  message="模型准备中"
-                  baseUrl={config.baseUrl}
-                  token={config.token}
-                  backgroundCenter={viewerColors.backgroundCenter}
-                  backgroundEdge={viewerColors.backgroundEdge}
-                  className="rounded-none bg-surface-container-lowest"
-                />
-              </div>
+              <ModelViewport
+                url={viewerUrl}
+                message="模型准备中"
+                baseUrl={config.baseUrl}
+                token={config.token}
+                className="min-w-0"
+              />
 
               <div className="flex min-w-0 flex-col bg-surface-container-low p-6">
                 <div className="space-y-6">

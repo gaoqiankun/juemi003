@@ -10,15 +10,15 @@ import { useTheme } from "./use-theme";
 
 const COLORS = {
   dark: {
-    backgroundCenter: "#222228",
-    backgroundEdge: "#111114",
+    backgroundCenter: "#2a2a32",
+    backgroundEdge: "#0e0e11",
     gridPrimary: "rgba(189, 200, 206, 0.15)",
     gridSecondary: "#6cd3f7",
     textPrimary: "#f5f7fa",
   },
   light: {
-    backgroundCenter: "#f4f4f7",
-    backgroundEdge: "#e0e0e4",
+    backgroundCenter: "#f7f7fa",
+    backgroundEdge: "#dddde2",
     gridPrimary: "#e2e2e5",
     gridSecondary: "#00647c",
     textPrimary: "#1a1c1d",
