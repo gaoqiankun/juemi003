@@ -8,6 +8,11 @@
     "deployCopy": "Review system capacity, model readiness, and access settings in one place.",
     "themeToggle": "Toggle theme",
     "languageToggle": "Toggle language",
+    "languageMenu": "Choose language",
+    "languages": {
+      "en": "English",
+      "zhCN": "Simplified Chinese"
+    },
     "themeDark": "Dark",
     "themeLight": "Light",
     "environment": "Primary cluster",
@@ -367,6 +372,7 @@
         "title": "Generation Setup",
         "uploadLabel": "Reference Image",
         "uploadHint": "Click or drop an image",
+        "fileTypes": "JPG / PNG / WEBP",
         "clearImage": "Clear image",
         "modelLabel": "Model",
         "comingSoon": "More controls are coming soon: mode, text guidance, and advanced options.",
@@ -374,6 +380,29 @@
         "cancelButton": "Cancel",
         "openRecent": "Open recent list",
         "closeRecent": "Close recent list"
+      },
+      "recent": {
+        "title": "Recent generations",
+        "empty": "No history yet"
+      },
+      "empty": {
+        "title": "Upload an image to start creating",
+        "description": "Generate a downloadable 3D model in minutes"
+      },
+      "processing": {
+        "title": "Generating"
+      },
+      "status": {
+        "modelPreparing": "Preparing model"
+      },
+      "actions": {
+        "retry": "Retry",
+        "details": "Details"
+      },
+      "failed": {
+        "title": "Generation incomplete",
+        "fallback": "Please upload again and retry.",
+        "retry": "Regenerate"
       }
     },
     "gallery": {
@@ -393,6 +422,10 @@
       "cancel": "Cancel",
       "delete": "Delete",
       "create": "Create generation"
+    },
+    "taskSheet": {
+      "close": "Close",
+      "createdAt": "Created at"
     },
     "generations": {
       "title": "My Generations",
@@ -417,7 +450,18 @@
       "title": "3D Viewer",
       "backButton": "Back to library",
       "breadcrumb": "Models",
+      "defaultFileBase": "MODEL",
       "exportsLabel": "Export options",
+      "exportFormats": {
+        "glb": {
+          "label": "Binary glTF (.glb)",
+          "description": "Best for Web & AR"
+        },
+        "obj": {
+          "label": "Wavefront (.obj)",
+          "description": "Best for Desktop DCCs"
+        }
+      },
       "loadingModel": "Loading model",
       "emptyCopy": "This model is not available yet.",
       "details": {
@@ -461,6 +505,29 @@
         "shareLink": "Share Model Link",
         "linkCopied": "Link copied to clipboard",
         "linkCopyFailed": "Failed to copy link"
+      },
+      "runtime": {
+        "status": {
+          "notReady": "Model is not ready yet",
+          "requesting": "Requesting model…",
+          "retrying": "Retrying model request ({{attempt}}/3)…",
+          "readingCache": "Reading local cache…",
+          "cacheReady": "Model data loaded from cache. Parsing…",
+          "receiving": "Receiving model data…",
+          "receivingWithSize": "Receiving model data… {{size}}",
+          "downloadingStart": "Downloading model… 0% ({{size}})",
+          "downloadingPercent": "Downloading model… {{percent}}%",
+          "receivedAndParsing": "Model data received. Parsing…",
+          "parsingStructure": "Parsing model structure…",
+          "preparingView": "Preparing viewport…"
+        },
+        "errors": {
+          "invalidBounds": "Model bounds are invalid",
+          "requestFailed": "Model request failed: {{status}} {{statusText}}",
+          "incompleteFile": "Model file is incomplete",
+          "loadFailed": "Model loading failed",
+          "previewFailed": "Unable to load model preview"
+        }
       }
     },
     "setup": {

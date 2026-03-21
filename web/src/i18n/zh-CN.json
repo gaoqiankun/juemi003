@@ -8,6 +8,11 @@
     "deployCopy": "在一个界面中查看系统容量、模型状态和访问设置。",
     "themeToggle": "切换主题",
     "languageToggle": "切换语言",
+    "languageMenu": "选择语言",
+    "languages": {
+      "en": "English",
+      "zhCN": "简体中文"
+    },
     "themeDark": "深色",
     "themeLight": "浅色",
     "environment": "主集群",
@@ -367,6 +372,7 @@
         "title": "生成配置",
         "uploadLabel": "参考图片",
         "uploadHint": "点击或拖拽上传",
+        "fileTypes": "JPG / PNG / WEBP",
         "clearImage": "清除图片",
         "modelLabel": "生成模型",
         "comingSoon": "后续将支持生成模式、文本条件和更多高级参数。",
@@ -374,6 +380,29 @@
         "cancelButton": "取消",
         "openRecent": "打开最近列表",
         "closeRecent": "关闭最近列表"
+      },
+      "recent": {
+        "title": "最近生成",
+        "empty": "暂无记录"
+      },
+      "empty": {
+        "title": "上传图片开始创作",
+        "description": "几分钟内生成可下载的 3D 模型"
+      },
+      "processing": {
+        "title": "生成中"
+      },
+      "status": {
+        "modelPreparing": "模型准备中"
+      },
+      "actions": {
+        "retry": "重试",
+        "details": "详情"
+      },
+      "failed": {
+        "title": "生成未完成",
+        "fallback": "请重新上传后再试",
+        "retry": "重新生成"
       }
     },
     "gallery": {
@@ -393,6 +422,10 @@
       "cancel": "取消",
       "delete": "删除",
       "create": "前往生成"
+    },
+    "taskSheet": {
+      "close": "关闭",
+      "createdAt": "创建时间"
     },
     "generations": {
       "title": "我的生成",
@@ -417,7 +450,18 @@
       "title": "3D Viewer",
       "backButton": "返回模型库",
       "breadcrumb": "模型",
+      "defaultFileBase": "MODEL",
       "exportsLabel": "导出选项",
+      "exportFormats": {
+        "glb": {
+          "label": "二进制 glTF (.glb)",
+          "description": "适合 Web 与 AR"
+        },
+        "obj": {
+          "label": "Wavefront (.obj)",
+          "description": "适合桌面 DCC"
+        }
+      },
       "loadingModel": "模型加载中",
       "emptyCopy": "当前模型尚不可用。",
       "details": {
@@ -461,6 +505,29 @@
         "shareLink": "分享模型链接",
         "linkCopied": "链接已复制",
         "linkCopyFailed": "复制失败"
+      },
+      "runtime": {
+        "status": {
+          "notReady": "模型尚未就绪",
+          "requesting": "正在请求模型…",
+          "retrying": "正在重试请求模型（{{attempt}}/3）…",
+          "readingCache": "正在读取本地缓存…",
+          "cacheReady": "模型数据已读取，正在解析…",
+          "receiving": "正在接收模型数据…",
+          "receivingWithSize": "正在接收模型数据… {{size}}",
+          "downloadingStart": "正在下载模型… 0%（{{size}}）",
+          "downloadingPercent": "正在下载模型… {{percent}}%",
+          "receivedAndParsing": "模型数据已接收，正在解析…",
+          "parsingStructure": "正在解析模型结构…",
+          "preparingView": "正在准备视图…"
+        },
+        "errors": {
+          "invalidBounds": "模型边界无效",
+          "requestFailed": "模型文件请求失败：{{status}} {{statusText}}",
+          "incompleteFile": "模型文件内容不完整",
+          "loadFailed": "模型加载失败",
+          "previewFailed": "模型预览加载失败"
+        }
       }
     },
     "setup": {

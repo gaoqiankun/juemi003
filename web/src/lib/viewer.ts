@@ -2,15 +2,16 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
-import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
-import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
-import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 
+import i18n from "@/i18n";
 import { sleep } from "@/lib/utils";
 
 function easeOutCubic(t: number) {
   return 1 - (1 - t) ** 3;
+}
+
+function tv(key: string, options?: Record<string, unknown>) {
+  return i18n.t(key, options) as string;
 }
 
 const DEFAULT_BACKGROUND = "#2a2a2a";
@@ -80,7 +81,7 @@ function getObjectBounds(object: THREE.Object3D) {
 function normalizeModelRoot(root: THREE.Object3D) {
   const { center, maxDim } = getObjectBounds(root);
   if (!Number.isFinite(maxDim) || maxDim <= 0) {
-    throw new Error("模型边界无效");
+    throw new Error(tv("user.viewer.runtime.errors.invalidBounds"));
   }
   root.position.sub(center);
 
@@ -636,9 +637,9 @@ async function readCachedModelBlob(url: string, onStatus?: (message: string) => 
     if (!cachedResponse) {
       return null;
     }
-    onStatus?.("正在读取本地缓存…");
+    onStatus?.(tv("user.viewer.runtime.status.readingCache"));
     const blob = await cachedResponse.blob();
-    onStatus?.("模型数据已读取，正在解析…");
+    onStatus?.(tv("user.viewer.runtime.status.cacheReady"));
     return blob;
   } catch {
     return null;
@@ -680,8 +681,8 @@ async function readModelBlob(
   if (!response.body || typeof response.body.getReader !== "function") {
     onStatus?.(
       totalBytes > 0
-        ? `正在接收模型数据… ${formatBytes(totalBytes)}`
-        : "正在接收模型数据…",
+        ? tv("user.viewer.runtime.status.receivingWithSize", { size: formatBytes(totalBytes) })
+        : tv("user.viewer.runtime.status.receiving"),
     );
     return response.blob();
   }
@@ -707,16 +708,16 @@ async function readModelBlob(
 
       if (totalBytes > 0) {
         const percent = Math.min(99, Math.round((receivedBytes / totalBytes) * 100));
-        onStatus?.(`正在下载模型… ${percent}%`);
+        onStatus?.(tv("user.viewer.runtime.status.downloadingPercent", { percent }));
       } else {
-        onStatus?.(`正在接收模型数据… ${formatBytes(receivedBytes)}`);
+        onStatus?.(tv("user.viewer.runtime.status.receivingWithSize", { size: formatBytes(receivedBytes) }));
       }
     }
   } finally {
     reader.releaseLock();
   }
 
-  onStatus?.("模型数据已接收，正在解析…");
+  onStatus?.(tv("user.viewer.runtime.status.receivedAndParsing"));
   return new Blob(chunks, { type: contentType });
 }
 
@@ -736,13 +737,16 @@ async function fetchModelBlobUrl(
     credentials: "same-origin",
   });
   if (!response.ok) {
-    throw new Error(`模型文件请求失败：${response.status} ${response.statusText}`);
+    throw new Error(tv("user.viewer.runtime.errors.requestFailed", {
+      status: response.status,
+      statusText: response.statusText,
+    }));
   }
   const totalBytes = Number(response.headers.get("content-length") || 0);
   onStatus?.(
     totalBytes > 0
-      ? `正在下载模型… 0%（${formatBytes(totalBytes)}）`
-      : "正在接收模型数据…",
+      ? tv("user.viewer.runtime.status.downloadingStart", { size: formatBytes(totalBytes) })
+      : tv("user.viewer.runtime.status.receiving"),
   );
   const blob = await readModelBlob(response, onStatus);
   const contentType = response.headers.get("content-type") || "model/gltf-binary";
@@ -759,15 +763,19 @@ async function loadScene(
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     let objectUrl = "";
     try {
-      onStatus?.(attempt === 1 ? "正在请求模型…" : `正在重试请求模型（${attempt}/3）…`);
+      onStatus?.(
+        attempt === 1
+          ? tv("user.viewer.runtime.status.requesting")
+          : tv("user.viewer.runtime.status.retrying", { attempt }),
+      );
       objectUrl = await fetchModelBlobUrl(url, requestHeaders, onStatus);
-      onStatus?.("正在解析模型结构…");
+      onStatus?.(tv("user.viewer.runtime.status.parsingStructure"));
       const gltf = await loader.loadAsync(objectUrl);
       const root = gltf.scene || gltf.scenes?.[0];
       if (!root) {
-        throw new Error("模型文件内容不完整");
+        throw new Error(tv("user.viewer.runtime.errors.incompleteFile"));
       }
-      onStatus?.("正在准备视图…");
+      onStatus?.(tv("user.viewer.runtime.status.preparingView"));
       root.traverse((child: any) => {
         if (child.isMesh && child.material) {
           child.castShadow = true;
@@ -803,18 +811,18 @@ async function loadScene(
       }
     }
   }
-  throw lastError || new Error("模型加载失败");
+  throw lastError || new Error(tv("user.viewer.runtime.errors.loadFailed"));
 }
 
 function formatViewerErrorMessage(error: unknown) {
   if (error instanceof Error) {
     const detail = error.message.trim();
     if (!detail) {
-      return "模型预览加载失败";
+      return tv("user.viewer.runtime.errors.previewFailed");
     }
-    return detail.startsWith("模型") ? detail : `模型预览加载失败：${detail}`;
+    return detail;
   }
-  return "模型预览加载失败";
+  return tv("user.viewer.runtime.errors.previewFailed");
 }
 
 function createRadialGradientTexture(centerColor: string, edgeColor: string): THREE.CanvasTexture {
@@ -882,8 +890,6 @@ export class Viewer3D {
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
   renderer: THREE.WebGLRenderer;
-  composer: EffectComposer;
-  bloomPass: UnrealBloomPass;
   controls: OrbitControls;
   modelRoot: THREE.Object3D | null;
   shadowFloor: THREE.Mesh | null;
@@ -1016,20 +1022,6 @@ export class Viewer3D {
     this.defaultCameraPosition = this.camera.position.clone();
     this.defaultCameraTarget = this.controls.target.clone();
 
-    // Post-processing: subtle bloom
-    const renderWidth = Math.max(this.container.clientWidth, 1);
-    const renderHeight = Math.max(this.container.clientHeight, 1);
-    this.composer = new EffectComposer(this.renderer);
-    this.composer.addPass(new RenderPass(this.scene, this.camera));
-    this.bloomPass = new UnrealBloomPass(
-      new THREE.Vector2(renderWidth, renderHeight),
-      0.15,  // strength — very subtle
-      0.6,   // radius
-      0.85,  // threshold — only bright spots bloom
-    );
-    this.composer.addPass(this.bloomPass);
-    this.composer.addPass(new OutputPass());
-
     this.handleResize = this.handleResize.bind(this);
     this.animate = this.animate.bind(this);
     this.resizeObserver = new ResizeObserver(this.handleResize);
@@ -1044,7 +1036,6 @@ export class Viewer3D {
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(width, height, false);
-    this.composer.setSize(width, height);
   }
 
   private animate() {
@@ -1088,7 +1079,7 @@ export class Viewer3D {
     }
 
     this.controls.update();
-    this.composer.render();
+    this.renderer.render(this.scene, this.camera);
   }
 
   setMessage(message: string, tone: "info" | "loading" | "error" = "info") {
@@ -1351,12 +1342,12 @@ export class Viewer3D {
         this.shadowFloor.visible = false;
       }
       this.gridHelper.visible = false;
-      this.setMessage("模型尚未就绪");
+      this.setMessage(tv("user.viewer.runtime.status.notReady"));
       return null;
     }
 
     const currentToken = ++this.loadToken;
-    this.setMessage("正在请求模型…", "loading");
+    this.setMessage(tv("user.viewer.runtime.status.requesting"), "loading");
     let root: THREE.Object3D | null = null;
     try {
       root = await loadScene(url, requestHeaders, (nextMessage) => {
@@ -1449,7 +1440,6 @@ export class Viewer3D {
     (this.contactShadow.material as THREE.MeshBasicMaterial).dispose();
     this.backgroundTexture?.dispose();
     this.backgroundTexture = null;
-    this.composer.dispose();
     this.renderer.dispose();
     this.container.innerHTML = "";
   }

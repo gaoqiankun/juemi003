@@ -1,9 +1,10 @@
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { Download, X } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
-import { ModelViewport } from "@/components/model-viewport";
 import { TaskStatusBadge } from "@/components/task-status-badge";
 import { useGen3d } from "@/app/gen3d-provider";
+import { ModelViewport } from "@/components/model-viewport";
 import { Button } from "@/components/ui/button";
 import { formatTime } from "@/lib/format";
 import { getTaskArtifactProxyUrl } from "@/lib/task-artifacts";
@@ -20,6 +21,7 @@ export function TaskSheet({
   onOpenChange: (open: boolean) => void;
   onDeleteRequest: (taskId: string) => void;
 }) {
+  const { t } = useTranslation();
   const { config } = useGen3d();
   const viewerUrl = getTaskArtifactProxyUrl(task, config.baseUrl);
 
@@ -30,7 +32,7 @@ export function TaskSheet({
         <DialogPrimitive.Content className="fixed inset-0 z-50 bg-transparent focus:outline-none">
           <DialogPrimitive.Close
             className="absolute right-5 top-5 z-20 flex h-10 w-10 items-center justify-center rounded-full border border-outline bg-surface-glass text-text-secondary shadow-float backdrop-blur-xl transition hover:bg-surface-container-high hover:text-text-primary"
-            aria-label="关闭"
+            aria-label={t("user.taskSheet.close")}
           >
             <X className="h-4 w-4" />
           </DialogPrimitive.Close>
@@ -39,7 +41,7 @@ export function TaskSheet({
             <div className="grid h-full grid-cols-1 lg:grid-cols-[minmax(0,65fr)_minmax(360px,35fr)]">
               <ModelViewport
                 url={viewerUrl}
-                message="模型准备中"
+                message={t("user.generate.status.modelPreparing")}
                 baseUrl={config.baseUrl}
                 token={config.token}
                 className="min-w-0"
@@ -49,7 +51,7 @@ export function TaskSheet({
                 <div className="space-y-6">
                   <TaskStatusBadge task={task} />
                   <div className="space-y-2">
-                    <div className="text-[12px] text-text-muted">创建时间</div>
+                    <div className="text-[12px] text-text-muted">{t("user.taskSheet.createdAt")}</div>
                     <div className="text-[14px] text-text-primary">{formatTime(task.createdAt)}</div>
                   </div>
                 </div>
@@ -67,7 +69,7 @@ export function TaskSheet({
                       className={!viewerUrl ? "pointer-events-none opacity-50" : ""}
                     >
                       <Download className="h-4 w-4" />
-                      下载模型
+                      {t("user.viewer.actions.download")}
                     </a>
                   </Button>
                 </div>
@@ -78,7 +80,7 @@ export function TaskSheet({
                     className="inline-flex h-10 items-center justify-center rounded-[10px] border border-[color:color-mix(in_srgb,var(--danger)_24%,transparent)] bg-[color:color-mix(in_srgb,var(--danger)_10%,transparent)] px-3 text-[14px] font-medium text-danger-text transition hover:bg-[color:color-mix(in_srgb,var(--danger)_16%,transparent)]"
                     onClick={() => onDeleteRequest(task.taskId)}
                   >
-                    删除
+                    {t("user.gallery.delete")}
                   </button>
                 </div>
               </div>

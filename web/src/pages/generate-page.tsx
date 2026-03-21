@@ -18,22 +18,23 @@ function isTerminal(status?: string) {
   return status === "succeeded" || status === "failed" || status === "cancelled";
 }
 
-function getRecentStatus(task: TaskRecord): {
-  label: string;
-  tone: "success" | "danger" | "warning";
-} {
-  const visual = getVisualStatus(task.status);
-  if (visual === "done") {
-    return { label: "已完成", tone: "success" };
-  }
-  if (visual === "failed") {
-    return { label: "失败", tone: "danger" };
-  }
-  return { label: `${Math.round(task.progress || 0)}%`, tone: "warning" };
-}
-
 export function GeneratePage() {
   const { t } = useTranslation();
+
+  const getRecentStatus = (recentTask: TaskRecord): {
+    label: string;
+    tone: "success" | "danger" | "warning";
+  } => {
+    const visual = getVisualStatus(recentTask.status);
+    if (visual === "done") {
+      return { label: t("user.gallery.filters.completed"), tone: "success" };
+    }
+    if (visual === "failed") {
+      return { label: t("user.gallery.filters.failed"), tone: "danger" };
+    }
+    return { label: `${Math.round(recentTask.progress || 0)}%`, tone: "warning" };
+  };
+
   const desktopInputRef = useRef<HTMLInputElement | null>(null);
   const tabletInputRef = useRef<HTMLInputElement | null>(null);
   const mobileInputRef = useRef<HTMLInputElement | null>(null);
@@ -67,6 +68,7 @@ export function GeneratePage() {
   const canStart = Boolean(generate.previewDataUrl) && !generate.isSubmitting && !generate.isUploading;
   const downloadUrl = getTaskArtifactProxyUrl(currentTask, config.baseUrl);
   const viewerColors = useViewerColors();
+  const showCompletedActions = generateView === "completed" && Boolean(currentTask);
 
   useEffect(() => {
     clearCurrentTaskSelection({ lockAutoSync: true });
@@ -143,7 +145,7 @@ export function GeneratePage() {
                 <UploadCloud className="h-7 w-7 text-text-muted" />
                 <div>
                   <div className="text-sm font-medium text-text-primary">{t("user.generate.panel.uploadHint")}</div>
-                  <div className="mt-1 text-xs text-text-muted">JPG / PNG / WEBP</div>
+                  <div className="mt-1 text-xs text-text-muted">{t("user.generate.panel.fileTypes")}</div>
                 </div>
               </div>
             )}
@@ -179,6 +181,44 @@ export function GeneratePage() {
             <><Sparkles className="h-4 w-4" />{t("user.generate.panel.generateButton")}</>
           )}
         </Button>
+
+        {showCompletedActions ? (
+          <div className="mt-2.5 space-y-2">
+            {downloadUrl ? (
+              <Button asChild variant="primary" className="w-full justify-center">
+                <a href={downloadUrl} target="_blank" rel="noreferrer" download="model.glb">
+                  <Download className="h-4 w-4" />
+                  {t("user.viewer.actions.download")}
+                </a>
+              </Button>
+            ) : null}
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                className="flex-1 justify-center"
+                onClick={() => retryCurrentTask().catch(() => undefined)}
+              >
+                <RotateCcw className="h-4 w-4" />
+                {t("user.generate.actions.retry")}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                className="flex-1 justify-center"
+                onClick={() => {
+                  if (!currentTask) {
+                    return;
+                  }
+                  navigate(`/viewer/${currentTask.taskId}`);
+                }}
+              >
+                <Eye className="h-4 w-4" />
+                {t("user.generate.actions.details")}
+              </Button>
+            </div>
+          </div>
+        ) : null}
       </div>
     </Card>
   );
@@ -186,13 +226,13 @@ export function GeneratePage() {
   const renderRecentCard = (onClose?: () => void) => (
     <Card tone="low" className="flex h-full flex-col overflow-hidden border border-outline bg-surface-glass p-4 shadow-soft backdrop-blur-xl">
       <div className="flex items-center justify-between">
-        <span className="text-xs font-semibold uppercase tracking-wider text-text-muted">最近生成</span>
+        <span className="text-xs font-semibold uppercase tracking-wider text-text-muted">{t("user.generate.recent.title")}</span>
         <div className="flex items-center gap-1.5">
           <Link
             to="/gallery"
             className="inline-flex items-center gap-0.5 text-xs text-text-muted transition hover:text-text-primary"
           >
-            全部<ArrowRight className="h-3 w-3" />
+            {t("user.gallery.filters.all")}<ArrowRight className="h-3 w-3" />
           </Link>
           {onClose ? (
             <button
@@ -246,7 +286,7 @@ export function GeneratePage() {
             );
           })
         ) : (
-          <div className="py-6 text-center text-xs text-text-muted">暂无记录</div>
+          <div className="py-6 text-center text-xs text-text-muted">{t("user.generate.recent.empty")}</div>
         )}
       </div>
     </Card>
@@ -262,8 +302,8 @@ export function GeneratePage() {
               <path d="M38.5 13.5 50 33H27L38.5 13.5Z" stroke="currentColor" strokeWidth="1.5" />
               <path d="M22 18 38 34" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
             </svg>
-            <div className="mt-4 text-lg font-semibold tracking-tight text-text-primary">上传图片开始创作</div>
-            <div className="mt-1.5 text-sm text-text-muted">几分钟内生成可下载的 3D 模型</div>
+            <div className="mt-4 text-lg font-semibold tracking-tight text-text-primary">{t("user.generate.empty.title")}</div>
+            <div className="mt-1.5 text-sm text-text-muted">{t("user.generate.empty.description")}</div>
           </div>
         ) : null}
 
@@ -276,60 +316,26 @@ export function GeneratePage() {
             />
             <div className="pointer-events-none absolute inset-x-0 bottom-8 grid justify-items-center gap-1 text-center">
               <div className="text-4xl font-bold tracking-tight text-text-primary">{progress}%</div>
-              <div className="text-xs uppercase tracking-widest text-text-muted">生成中</div>
+              <div className="text-xs uppercase tracking-widest text-text-muted">{t("user.generate.processing.title")}</div>
             </div>
           </div>
         ) : null}
 
         {generateView === "completed" && currentTask ? (
-          <>
-            <ModelViewport
-              url={downloadUrl}
-              message="模型准备中"
-              baseUrl={config.baseUrl}
-              token={config.token}
-              className="absolute inset-0"
-            />
-            <div className="absolute bottom-5 left-1/2 z-10 -translate-x-1/2">
-              <div className="flex items-center gap-1.5 rounded-full border border-outline bg-surface-glass p-1.5 shadow-float backdrop-blur-xl">
-                {downloadUrl ? (
-                  <a
-                    href={downloadUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    download="model.glb"
-                    className="inline-flex h-9 items-center gap-1.5 rounded-full bg-accent px-4 text-xs font-semibold text-accent-ink transition hover:bg-accent-deep"
-                  >
-                    <Download className="h-3.5 w-3.5" />
-                    下载
-                  </a>
-                ) : null}
-                <button
-                  type="button"
-                  className="inline-flex h-9 items-center gap-1.5 rounded-full px-3 text-xs font-medium text-text-secondary transition hover:bg-surface-container-highest hover:text-text-primary"
-                  onClick={() => retryCurrentTask().catch(() => undefined)}
-                >
-                  <RotateCcw className="h-3.5 w-3.5" />
-                  重试
-                </button>
-                <button
-                  type="button"
-                  className="inline-flex h-9 items-center gap-1.5 rounded-full px-3 text-xs font-medium text-text-secondary transition hover:bg-surface-container-highest hover:text-text-primary"
-                  onClick={() => navigate(`/viewer/${currentTask.taskId}`)}
-                >
-                  <Eye className="h-3.5 w-3.5" />
-                  详情
-                </button>
-              </div>
-            </div>
-          </>
+          <ModelViewport
+            url={downloadUrl}
+            message={t("user.generate.status.modelPreparing")}
+            baseUrl={config.baseUrl}
+            token={config.token}
+            className="absolute inset-0"
+          />
         ) : null}
 
         {generateView === "failed" && currentTask ? (
           <div className="flex h-full flex-col items-center justify-center px-8 text-center">
-            <div className="text-lg font-semibold tracking-tight text-text-primary">生成未完成</div>
+            <div className="text-lg font-semibold tracking-tight text-text-primary">{t("user.generate.failed.title")}</div>
             <div className="mt-1.5 max-w-sm text-sm text-text-muted">
-              {currentTask.error?.message || currentTask.note || "请重新上传后再试"}
+              {currentTask.error?.message || currentTask.note || t("user.generate.failed.fallback")}
             </div>
             <button
               type="button"
@@ -337,7 +343,7 @@ export function GeneratePage() {
               onClick={() => retryCurrentTask().catch(() => undefined)}
             >
               <RotateCcw className="h-3.5 w-3.5" />
-              重新生成
+              {t("user.generate.failed.retry")}
             </button>
           </div>
         ) : null}

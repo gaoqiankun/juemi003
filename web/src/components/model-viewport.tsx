@@ -79,7 +79,7 @@ export function ModelViewport({
   const viewerRef = useRef<ThreeViewerHandle | null>(null);
   const toolbarRef = useRef<HTMLDivElement | null>(null);
 
-  const [autoRotate, setAutoRotate] = useState(true);
+  const [autoRotate, setAutoRotate] = useState(false);
   const [showGrid, setShowGrid] = useState(false);
   const [displayMode, setDisplayMode] = useState<ViewerDisplayMode>("texture");
   const [lightIntensity, setLightIntensity] = useState(VIEWER_LIGHT_INTENSITY_DEFAULT);

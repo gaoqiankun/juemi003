@@ -53,9 +53,21 @@ function getArtifactUrl(task: TaskRecord | null, baseUrl: string, artifact: Arti
 
 type ExportFormat = "glb" | "obj";
 
-const FORMAT_OPTIONS: { value: ExportFormat; label: string; description: string }[] = [
-  { value: "glb", label: "Binary glTF (.glb)", description: "Best for Web & AR" },
-  { value: "obj", label: "Wavefront (.obj)", description: "Best for Desktop DCCs" },
+const FORMAT_OPTIONS: {
+  value: ExportFormat;
+  labelKey: string;
+  descriptionKey: string;
+}[] = [
+  {
+    value: "glb",
+    labelKey: "user.viewer.exportFormats.glb.label",
+    descriptionKey: "user.viewer.exportFormats.glb.description",
+  },
+  {
+    value: "obj",
+    labelKey: "user.viewer.exportFormats.obj.label",
+    descriptionKey: "user.viewer.exportFormats.obj.description",
+  },
 ];
 
 export function ViewerPage() {
@@ -87,7 +99,7 @@ export function ViewerPage() {
   const objFileName = getArtifactFileName(objArtifact, task, "obj");
   const glbUrl = getArtifactUrl(task, config.baseUrl, glbArtifact, "glb");
   const objUrl = getArtifactUrl(task, config.baseUrl, objArtifact, "obj");
-  const displayFileName = glbFileName || `${getTaskShortId(taskId).toUpperCase() || "MODEL"}.glb`;
+  const displayFileName = glbFileName || `${getTaskShortId(taskId).toUpperCase() || t("user.viewer.defaultFileBase")}.glb`;
   const shortTaskId = getTaskShortId(task?.taskId || taskId).toUpperCase();
 
   const polygonCount = modelStats?.triangleCount
@@ -201,8 +213,8 @@ export function ViewerPage() {
                       {isSelected ? <span className="h-2.5 w-2.5 rounded-full bg-accent" /> : null}
                     </span>
                     <span className="min-w-0">
-                      <span className="block text-sm font-medium text-text-primary">{fmt.label}</span>
-                      <span className="block text-xs text-text-secondary">{fmt.description}</span>
+                      <span className="block text-sm font-medium text-text-primary">{t(fmt.labelKey)}</span>
+                      <span className="block text-xs text-text-secondary">{t(fmt.descriptionKey)}</span>
                     </span>
                   </button>
                 );

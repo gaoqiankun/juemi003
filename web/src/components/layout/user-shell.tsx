@@ -1,4 +1,5 @@
-import { Globe2, MoonStar, Settings, SunMedium } from "lucide-react";
+import { Check, Globe2, MoonStar, Settings, SunMedium } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { Link, Outlet, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 
@@ -13,10 +14,10 @@ export function UserShell() {
   const { language, setLanguage, locales } = useLocale();
   const { connection } = useGen3d();
   const location = useLocation();
+  const languageMenuRef = useRef<HTMLDivElement | null>(null);
+  const [isLanguageMenuOpen, setIsLanguageMenuOpen] = useState(false);
 
   const currentThemeLabel = theme === "dark" ? t("shell.themeDark") : t("shell.themeLight");
-  const isGenerateActive = location.pathname.startsWith("/generate") || location.pathname.startsWith("/setup");
-  const isGalleryActive = location.pathname.startsWith("/gallery") || location.pathname.startsWith("/viewer/");
   const isSetupActive = location.pathname.startsWith("/setup");
 
   const statusDotClass = connection.tone === "ready"
@@ -25,14 +26,33 @@ export function UserShell() {
       ? "bg-danger"
       : "bg-text-muted";
 
-  const navItemClass = (active: boolean) => cn(
-    "relative inline-flex h-9 items-center rounded-full px-4 text-sm font-medium transition",
-    active
-      ? "bg-surface-container-high text-text-primary"
-      : "text-text-secondary hover:bg-surface-container-low hover:text-text-primary",
-  );
-
   const toolBtnClass = "inline-flex h-9 w-9 items-center justify-center rounded-lg border border-transparent bg-transparent text-text-secondary transition-colors hover:border-outline hover:bg-surface-container-low hover:text-text-primary";
+
+  useEffect(() => {
+    if (!isLanguageMenuOpen) {
+      return;
+    }
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!languageMenuRef.current?.contains(event.target as Node)) {
+        setIsLanguageMenuOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsLanguageMenuOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isLanguageMenuOpen]);
+
+  useEffect(() => {
+    setIsLanguageMenuOpen(false);
+  }, [location.pathname]);
 
   return (
     <div className="min-h-screen bg-[image:var(--page-gradient)] bg-background text-text-primary">
@@ -47,33 +67,56 @@ export function UserShell() {
             <span className="text-[15px] font-semibold tracking-[0.02em]">Cubie 3D</span>
           </Link>
 
-          <nav className="hidden items-center gap-1 rounded-full border border-outline bg-surface-container-low p-1 md:flex" aria-label={t("user.shell.navigation")}>
-            <Link to="/generate" className={navItemClass(isGenerateActive)}>
-              {t("user.shell.nav.generate")}
-            </Link>
-            <Link to="/gallery" className={navItemClass(isGalleryActive)}>
-              {t("user.shell.nav.gallery")}
-            </Link>
-          </nav>
-
           <div className="flex items-center gap-1.5">
-            <label className="relative inline-flex items-center">
-              <Globe2 className="pointer-events-none absolute left-2 h-3.5 w-3.5 text-text-muted" />
-              <select
-                value={language}
-                onChange={(event) => {
-                  void setLanguage(event.target.value as "en" | "zh-CN");
-                }}
+            <div ref={languageMenuRef} className="relative">
+              <button
+                type="button"
+                className={cn(
+                  toolBtnClass,
+                  isLanguageMenuOpen && "border-outline bg-surface-container-low text-text-primary",
+                )}
                 aria-label={t("shell.languageToggle")}
-                className="h-9 rounded-lg border border-outline bg-surface-container-low pl-7 pr-6 text-xs font-medium text-text-primary outline-none transition focus:border-accent"
+                title={t("shell.languageToggle")}
+                onClick={() => setIsLanguageMenuOpen((current) => !current)}
               >
-                {locales.map((locale) => (
-                  <option key={locale.code} value={locale.code}>
-                    {locale.short}
-                  </option>
-                ))}
-              </select>
-            </label>
+                <Globe2 className="h-4 w-4" />
+              </button>
+              {isLanguageMenuOpen ? (
+                <div
+                  className="absolute right-0 top-full z-20 mt-2 w-44 rounded-xl border border-outline bg-surface-glass p-1.5 shadow-float backdrop-blur-xl"
+                  role="menu"
+                  aria-label={t("shell.languageMenu")}
+                >
+                  {locales.map((locale) => {
+                    const isSelected = language === locale.code;
+                    const localeLabel = locale.code === "zh-CN"
+                      ? t("shell.languages.zhCN")
+                      : t("shell.languages.en");
+                    return (
+                      <button
+                        key={locale.code}
+                        type="button"
+                        className={cn(
+                          "flex h-9 w-full items-center justify-between rounded-lg px-2.5 text-sm transition-colors",
+                          isSelected
+                            ? "bg-surface-container-high text-text-primary"
+                            : "text-text-secondary hover:bg-surface-container-low hover:text-text-primary",
+                        )}
+                        role="menuitemradio"
+                        aria-checked={isSelected}
+                        onClick={() => {
+                          void setLanguage(locale.code);
+                          setIsLanguageMenuOpen(false);
+                        }}
+                      >
+                        <span>{localeLabel}</span>
+                        {isSelected ? <Check className="h-4 w-4" /> : null}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </div>
 
             <button
               type="button"
