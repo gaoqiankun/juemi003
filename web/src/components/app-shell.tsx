@@ -60,8 +60,8 @@ export function AppShell({
       >
         <div className="mx-auto flex h-full w-full max-w-[1560px] items-center justify-between gap-4 px-4 md:px-6">
           <Link to="/generate" className="inline-flex min-w-fit items-center gap-2.5 text-text-primary">
-            <img src={`${import.meta.env.BASE_URL}favicon.svg`} alt="Cubie 3D" className="h-7 w-7 rounded-md" />
-            <span className="text-[15px] font-semibold tracking-[0.02em]">Cubie 3D</span>
+            <img src={`${import.meta.env.BASE_URL}favicon.svg`} alt="Cubie" className="h-7 w-7 rounded-md" />
+            <span className="text-[15px] font-semibold tracking-[0.02em]">Cubie</span>
           </Link>
 
           <nav className="hidden items-center gap-1 rounded-full border border-outline bg-surface-container-low p-1 md:flex" aria-label={t("user.shell.navigation")}>

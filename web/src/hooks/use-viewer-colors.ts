@@ -19,7 +19,7 @@ const COLORS = {
   light: {
     backgroundCenter: "#eeeff3",
     backgroundEdge: "#e4e5ea",
-    gridPrimary: "#e2e2e5",
+    gridPrimary: "rgba(0, 0, 0, 0.14)",
     gridSecondary: "#00647c",
     textPrimary: "#1a1c1d",
   },

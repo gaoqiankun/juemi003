@@ -55,6 +55,26 @@ const BACKGROUND_PRESETS = [
   },
 ] as const;
 
+const CUSTOM_BACKGROUND_DEFAULT = "#8f97a6";
+
+function darkenHexColor(hexColor: string, ratio = 0.14) {
+  const raw = String(hexColor || "").trim();
+  const expanded = raw.startsWith("#") ? raw.slice(1) : raw;
+  const normalized = expanded.length === 3
+    ? expanded.split("").map((char) => `${char}${char}`).join("")
+    : expanded;
+  if (!/^[\da-fA-F]{6}$/.test(normalized)) {
+    return hexColor;
+  }
+  const clamp = (value: number) => Math.min(255, Math.max(0, Math.round(value)));
+  const red = Number.parseInt(normalized.slice(0, 2), 16);
+  const green = Number.parseInt(normalized.slice(2, 4), 16);
+  const blue = Number.parseInt(normalized.slice(4, 6), 16);
+  const factor = Math.min(0.4, Math.max(0.02, ratio));
+  const toHex = (value: number) => clamp(value).toString(16).padStart(2, "0");
+  return `#${toHex(red * (1 - factor))}${toHex(green * (1 - factor))}${toHex(blue * (1 - factor))}`;
+}
+
 type OpenPopover = "light" | "background";
 
 export function ModelViewport({
@@ -271,7 +291,7 @@ export function ModelViewport({
                 <Palette className="h-4 w-4" />
               </button>
               {openPopover === "background" ? (
-                <div className="absolute bottom-full right-0 mb-3 w-80 rounded-2xl border border-outline bg-surface-glass p-4 shadow-float backdrop-blur-xl">
+                <div className="absolute bottom-full right-0 mb-3 w-72 rounded-2xl border border-outline bg-surface-glass p-4 shadow-float backdrop-blur-xl">
                   <div className="text-xs font-semibold uppercase tracking-[0.14em] text-text-muted">
                     {t("user.viewer.toolbar.background.title")}
                   </div>
@@ -288,34 +308,67 @@ export function ModelViewport({
                     {!manualBackground ? <Check className="h-3.5 w-3.5" /> : null}
                     {t("user.viewer.toolbar.background.followTheme")}
                   </button>
-                  <div className="mt-3 grid grid-cols-2 gap-2">
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
                     {BACKGROUND_PRESETS.map((preset) => {
                       const isActive = manualBackground?.id === preset.id;
                       return (
                         <button
                           key={preset.id}
                           type="button"
+                          title={t(preset.labelKey)}
+                          aria-label={t(preset.labelKey)}
                           className={cn(
-                            "group rounded-xl border p-2 text-left transition",
+                            "group relative h-8 w-8 rounded-full border transition",
                             isActive
-                              ? "border-[color:color-mix(in_srgb,var(--accent)_30%,transparent)] bg-[color:color-mix(in_srgb,var(--accent)_10%,transparent)]"
-                              : "border-outline hover:bg-surface-container-high",
+                              ? "border-accent shadow-[0_0_0_2px_color-mix(in_srgb,var(--accent)_24%,transparent)]"
+                              : "border-outline hover:border-text-muted",
                           )}
                           onClick={() => setManualBackground(preset)}
+                          style={{
+                            background: `radial-gradient(circle at 50% 34%, ${preset.center} 0%, ${preset.edge} 90%)`,
+                          }}
                         >
-                          <span
-                            className="block h-8 rounded-lg border border-white/20"
-                            style={{
-                              background: `radial-gradient(circle at 50% 34%, ${preset.center} 0%, ${preset.edge} 90%)`,
-                            }}
-                          />
-                          <span className="mt-1.5 inline-flex items-center gap-1 text-[11px] text-text-secondary group-hover:text-text-primary">
-                            {isActive ? <Check className="h-3 w-3" /> : null}
-                            {t(preset.labelKey)}
-                          </span>
+                          {isActive ? (
+                            <span className="absolute inset-0 grid place-items-center text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.45)]">
+                              <Check className="h-3.5 w-3.5" />
+                            </span>
+                          ) : null}
                         </button>
                       );
                     })}
+                  </div>
+                  <div className="mt-3 flex items-center gap-2">
+                    <label
+                      className={cn(
+                        "relative h-8 w-8 overflow-hidden rounded-full border transition",
+                        manualBackground?.id === "custom"
+                          ? "border-accent shadow-[0_0_0_2px_color-mix(in_srgb,var(--accent)_24%,transparent)]"
+                          : "border-outline hover:border-text-muted",
+                      )}
+                      title={t("user.viewer.toolbar.background.custom")}
+                      aria-label={t("user.viewer.toolbar.background.custom")}
+                    >
+                      <input
+                        type="color"
+                        value={manualBackground?.id === "custom" ? manualBackground.center : CUSTOM_BACKGROUND_DEFAULT}
+                        onChange={(event) => {
+                          const center = event.target.value;
+                          setManualBackground({
+                            id: "custom",
+                            center,
+                            edge: darkenHexColor(center, 0.14),
+                          });
+                        }}
+                        className="absolute inset-0 cursor-pointer opacity-0"
+                      />
+                      <span
+                        className="block h-full w-full"
+                        style={{ backgroundColor: manualBackground?.id === "custom" ? manualBackground.center : CUSTOM_BACKGROUND_DEFAULT }}
+                      />
+                    </label>
+                    <span className="text-[11px] text-text-secondary">
+                      {t("user.viewer.toolbar.background.custom")}
+                    </span>
                   </div>
                 </div>
               ) : null}

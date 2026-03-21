@@ -1,6 +1,6 @@
 {
   "shell": {
-    "brandEyebrow": "Cubie 3D",
+    "brandEyebrow": "Cubie",
     "brandCopy": "在一个工作区内管理队列状态、模型可用性和访问控制。",
     "navigation": "工作区",
     "deployLabel": "环境",
@@ -23,7 +23,7 @@
       "apiKeys": "API 密钥",
       "settings": "设置",
       "generate": "生成",
-      "gallery": "历史"
+      "gallery": "资产"
     }
   },
   "common": {
@@ -322,7 +322,7 @@
       "navigation": "用户工作区",
       "nav": {
         "generate": "生成",
-        "gallery": "模型库",
+        "gallery": "资产",
         "generations": "我的生成",
         "setup": "连接设置"
       }
@@ -408,7 +408,7 @@
       }
     },
     "gallery": {
-      "title": "生成历史",
+      "title": "资产",
       "filters": {
         "all": "全部",
         "processing": "生成中",
@@ -420,7 +420,7 @@
       "loadingMore": "加载中…",
       "view": "查看",
       "deleteTitle": "删除这条记录？",
-      "deleteDescription": "删除后，这条记录会从模型库中移除。",
+      "deleteDescription": "删除后，这条记录会从资产中移除。",
       "cancel": "取消",
       "delete": "删除",
       "create": "前往生成"
@@ -450,8 +450,8 @@
     },
     "viewer": {
       "title": "3D Viewer",
-      "backButton": "返回模型库",
-      "breadcrumb": "模型",
+      "backButton": "返回资产",
+      "breadcrumb": "资产",
       "deleteTitle": "删除模型",
       "deleteDescription": "此操作不可撤销。模型及所有关联文件将被永久删除。",
       "deleteButton": "删除",
@@ -496,6 +496,7 @@
           "button": "背景预设",
           "title": "背景",
           "followTheme": "跟随主题",
+          "custom": "自定义",
           "presets": {
             "deepBlue": "Deep Blue",
             "slate": "Slate",
@@ -538,7 +539,7 @@
     },
     "setup": {
       "title": "连接你的实例",
-      "description": "输入 API Key 和服务地址以连接你的 Cubie 3D 实例。API Key 可在管理面板的 API Keys 页面创建。",
+      "description": "输入 API Key 和服务地址以连接你的 Cubie 实例。API Key 可在管理面板的 API Keys 页面创建。",
       "apiKeyLabel": "API Key",
       "apiKeyPlaceholder": "输入 API Key",
       "serverUrlLabel": "服务地址",

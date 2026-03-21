@@ -70,10 +70,10 @@ export function UserShell() {
             <Link to="/generate" className="inline-flex min-w-fit items-center gap-2.5 text-text-primary">
               <img
                 src={`${import.meta.env.BASE_URL}favicon.svg`}
-                alt="Cubie 3D"
+                alt="Cubie"
                 className="h-7 w-7 rounded-md"
               />
-              <span className="text-[15px] font-semibold tracking-[0.02em]">Cubie 3D</span>
+              <span className="text-[15px] font-semibold tracking-[0.02em]">Cubie</span>
             </Link>
 
             <nav className="flex items-center gap-5" aria-label={t("shell.navigation")}>

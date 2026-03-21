@@ -1,6 +1,6 @@
 {
   "shell": {
-    "brandEyebrow": "Cubie 3D",
+    "brandEyebrow": "Cubie",
     "brandCopy": "Manage queue health, model availability, and access controls from one workspace.",
     "navigation": "Workspace",
     "deployLabel": "Environment",
@@ -23,7 +23,7 @@
       "apiKeys": "API Keys",
       "settings": "Settings",
       "generate": "Generate",
-      "gallery": "Gallery"
+      "gallery": "Assets"
     }
   },
   "common": {
@@ -322,7 +322,7 @@
       "navigation": "User workspace",
       "nav": {
         "generate": "Generate",
-        "gallery": "Gallery",
+        "gallery": "Assets",
         "generations": "My Generations",
         "setup": "Connection"
       }
@@ -408,7 +408,7 @@
       }
     },
     "gallery": {
-      "title": "Generation History",
+      "title": "Assets",
       "filters": {
         "all": "All",
         "processing": "Processing",
@@ -420,7 +420,7 @@
       "loadingMore": "Loading…",
       "view": "View",
       "deleteTitle": "Delete this record?",
-      "deleteDescription": "After deletion, this record will be removed from the model library.",
+      "deleteDescription": "After deletion, this record will be removed from your assets.",
       "cancel": "Cancel",
       "delete": "Delete",
       "create": "Create generation"
@@ -450,8 +450,8 @@
     },
     "viewer": {
       "title": "3D Viewer",
-      "backButton": "Back to library",
-      "breadcrumb": "Models",
+      "backButton": "Back to Assets",
+      "breadcrumb": "Assets",
       "deleteTitle": "Delete Model",
       "deleteDescription": "This action cannot be undone. The model and all associated files will be permanently deleted.",
       "deleteButton": "Delete",
@@ -496,6 +496,7 @@
           "button": "Background presets",
           "title": "Background",
           "followTheme": "Follow theme",
+          "custom": "Custom",
           "presets": {
             "deepBlue": "Deep Blue",
             "slate": "Slate",
@@ -538,7 +539,7 @@
     },
     "setup": {
       "title": "Connect your instance",
-      "description": "Enter your API Key and service URL to connect your Cubie 3D instance. You can create an API Key in the API Keys page of the admin panel.",
+      "description": "Enter your API Key and service URL to connect your Cubie instance. You can create an API Key in the API Keys page of the admin panel.",
       "apiKeyLabel": "API Key",
       "apiKeyPlaceholder": "Enter your API Key",
       "serverUrlLabel": "Server URL",

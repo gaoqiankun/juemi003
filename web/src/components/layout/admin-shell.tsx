@@ -52,13 +52,13 @@ export function AdminShell() {
             <div className="flex items-center gap-3">
               <img
                 src={`${import.meta.env.BASE_URL}favicon.svg`}
-                alt="Cubie 3D"
+                alt="Cubie"
                 className="h-11 w-11 rounded-xl border border-outline bg-surface-container-low p-1.5"
               />
               <div className="min-w-0">
                 <div className={metaClassName}>{t("shell.brandEyebrow")}</div>
                 <div className="mt-1 text-xl font-semibold tracking-[-0.03em] text-text-primary">
-                  Cubie 3D
+                  Cubie
                 </div>
               </div>
             </div>
