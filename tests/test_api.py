@@ -26,7 +26,8 @@ from gen3d.api.server import create_app, run_real_mode_preflight
 from gen3d.config import ServingConfig
 from gen3d.engine import async_engine as async_engine_module
 from gen3d.engine.sequence import RequestSequence, TaskStatus, TaskType, utcnow
-from gen3d.model.base import GenerationResult, ModelProviderConfigurationError
+from gen3d.model.base import GenerationResult, ModelProviderConfigurationError, ModelProviderExecutionError
+from gen3d.model.hunyuan3d.provider import Hunyuan3DProvider, MockHunyuan3DProvider
 from gen3d.model.trellis2.provider import MockTrellis2Provider, Trellis2Provider
 from gen3d.stages.export.preview_renderer_service import (
     PreviewRendererService,
@@ -3695,6 +3696,171 @@ def test_real_mode_preflight_reports_runtime_and_artifact_backend(
         "artifacts_dir": str(tmp_path / "artifacts"),
     }
     assert report["provider"]["pipeline_loaded"] is True
+
+
+# ---------------------------------------------------------------------------
+# HunYuan3D provider tests
+# ---------------------------------------------------------------------------
+
+
+def test_hunyuan3d_provider_accepts_huggingface_repo_id_model_path() -> None:
+    source_type, model_reference = Hunyuan3DProvider._resolve_model_reference(
+        "tencent/Hunyuan3D-2"
+    )
+
+    assert source_type == "huggingface"
+    assert model_reference == "tencent/Hunyuan3D-2"
+
+
+def test_hunyuan3d_provider_run_single_uses_correct_kwargs() -> None:
+    observed: dict[str, object] = {}
+
+    class FakeShapePipeline:
+        def __call__(self, **kwargs):
+            observed["shape_kwargs"] = kwargs
+            return "raw_mesh"
+
+    class FakeTexturePipeline:
+        def __call__(self, mesh, **kwargs):
+            observed["texture_mesh_input"] = mesh
+            observed["texture_kwargs"] = kwargs
+            return "textured_mesh"
+
+    provider = Hunyuan3DProvider(
+        shape_pipeline=FakeShapePipeline(),
+        texture_pipeline=FakeTexturePipeline(),
+        model_path="tencent/Hunyuan3D-2",
+    )
+
+    result = provider._run_single(
+        image="image-object",
+        options={
+            "num_steps": 30,
+            "guidance_scale": 6.0,
+            "octree_resolution": 128,
+            "texture_steps": 10,
+        },
+    )
+
+    assert result == "textured_mesh"
+    assert observed["shape_kwargs"] == {
+        "image": "image-object",
+        "num_inference_steps": 30,
+        "guidance_scale": 6.0,
+        "octree_resolution": 128,
+    }
+    assert observed["texture_mesh_input"] == "raw_mesh"
+    assert observed["texture_kwargs"] == {
+        "image": "image-object",
+        "num_inference_steps": 10,
+    }
+
+
+def test_hunyuan3d_provider_run_single_skips_texture_when_none() -> None:
+    class FakeShapePipeline:
+        def __call__(self, **kwargs):
+            return "shape_mesh"
+
+    provider = Hunyuan3DProvider(
+        shape_pipeline=FakeShapePipeline(),
+        texture_pipeline=None,
+        model_path="tencent/Hunyuan3D-2",
+    )
+
+    result = provider._run_single(image="img", options={})
+
+    assert result == "shape_mesh"
+
+
+def test_hunyuan3d_provider_export_glb_calls_mesh_export(tmp_path: Path) -> None:
+    observed: dict[str, object] = {}
+
+    class FakeMesh:
+        def export(self, path: str) -> None:
+            observed["export_path"] = path
+
+    provider = Hunyuan3DProvider(
+        shape_pipeline=object(),
+        texture_pipeline=None,
+        model_path="tencent/Hunyuan3D-2",
+    )
+
+    output = tmp_path / "model.glb"
+    provider.export_glb(GenerationResult(mesh=FakeMesh()), output, {})
+
+    assert observed["export_path"] == str(output)
+
+
+def test_hunyuan3d_mock_provider_emits_canonical_stages() -> None:
+    mock = MockHunyuan3DProvider(stage_delay_ms=0)
+
+    assert mock.stages == [
+        {"name": "ss", "weight": 0.20},
+        {"name": "shape", "weight": 0.45},
+        {"name": "material", "weight": 0.35},
+    ]
+
+
+@pytest.mark.anyio
+async def test_hunyuan3d_mock_provider_run_batch_returns_results() -> None:
+    mock = MockHunyuan3DProvider(stage_delay_ms=0)
+    stages_seen: list[str] = []
+
+    async def progress_cb(progress):
+        stages_seen.append(progress.stage_name)
+
+    results = await mock.run_batch(
+        images=["img1"],
+        options={"resolution": 512},
+        progress_cb=progress_cb,
+    )
+
+    assert len(results) == 1
+    assert results[0].metadata["mock"] is True
+    assert results[0].metadata["provider"] == "hunyuan3d"
+    assert stages_seen == ["ss", "shape", "material"]
+
+
+@pytest.mark.anyio
+async def test_hunyuan3d_mock_provider_failure_injection() -> None:
+    mock = MockHunyuan3DProvider(stage_delay_ms=0)
+
+    with pytest.raises(ModelProviderExecutionError, match="gpu_shape"):
+        await mock.run_batch(
+            images=["img"],
+            options={"mock_failure_stage": "gpu_shape"},
+        )
+
+
+def test_hunyuan3d_mock_provider_export_glb_writes_valid_file(tmp_path: Path) -> None:
+    mock = MockHunyuan3DProvider()
+    output = tmp_path / "mock.glb"
+    mock.export_glb(GenerationResult(mesh=None), output, {})
+
+    data = output.read_bytes()
+    assert data[:4] == b"glTF"
+
+
+def test_build_provider_supports_hunyuan3d_mock(tmp_path: Path) -> None:
+    config = ServingConfig(
+        provider_mode="mock",
+        model_provider="hunyuan3d",
+        database_path=tmp_path / "app.sqlite3",
+        artifacts_dir=tmp_path / "artifacts",
+    )
+    provider = server_module.build_provider(config)
+    assert isinstance(provider, MockHunyuan3DProvider)
+
+
+def test_build_provider_rejects_unknown_provider(tmp_path: Path) -> None:
+    config = ServingConfig(
+        provider_mode="mock",
+        model_provider="unknown_model",
+        database_path=tmp_path / "app.sqlite3",
+        artifacts_dir=tmp_path / "artifacts",
+    )
+    with pytest.raises(ModelProviderConfigurationError, match="unsupported MODEL_PROVIDER"):
+        server_module.build_provider(config)
 
 
 def test_minio_artifact_store_requires_complete_config(tmp_path: Path) -> None:

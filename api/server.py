@@ -49,6 +49,7 @@ from gen3d.engine.model_registry import ModelRegistry, ModelRuntime
 from gen3d.engine.pipeline import PipelineCoordinator, PipelineQueueFullError
 from gen3d.engine.sequence import TERMINAL_STATUSES, TaskStatus
 from gen3d.model.base import ModelProviderConfigurationError
+from gen3d.model.hunyuan3d.provider import Hunyuan3DProvider, MockHunyuan3DProvider
 from gen3d.model.trellis2.provider import MockTrellis2Provider, Trellis2Provider
 from gen3d.observability.metrics import render_metrics
 from gen3d.security import (
@@ -170,15 +171,20 @@ def build_provider(config: ServingConfig):
     provider_name = config.model_provider.strip().lower()
     provider_mode = config.provider_mode.strip().lower()
 
-    if provider_name != "trellis2":
+    if provider_name == "trellis2":
+        if provider_mode == "mock":
+            return MockTrellis2Provider(stage_delay_ms=config.mock_gpu_stage_delay_ms)
+        if provider_mode == "real":
+            return Trellis2Provider.from_pretrained(config.model_path)
+    elif provider_name == "hunyuan3d":
+        if provider_mode == "mock":
+            return MockHunyuan3DProvider(stage_delay_ms=config.mock_gpu_stage_delay_ms)
+        if provider_mode == "real":
+            return Hunyuan3DProvider.from_pretrained(config.model_path)
+    else:
         raise ModelProviderConfigurationError(
             f"unsupported MODEL_PROVIDER: {config.model_provider}"
         )
-
-    if provider_mode == "mock":
-        return MockTrellis2Provider(stage_delay_ms=config.mock_gpu_stage_delay_ms)
-    if provider_mode == "real":
-        return Trellis2Provider.from_pretrained(config.model_path)
 
     raise ModelProviderConfigurationError(
         f"unsupported PROVIDER_MODE: {config.provider_mode}"

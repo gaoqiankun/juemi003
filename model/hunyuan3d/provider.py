@@ -1,6 +1,443 @@
+from __future__ import annotations
+
+import asyncio
+import importlib
+import inspect
+import json
+import struct
+from pathlib import Path
+from typing import Any
+
+from gen3d.model.base import (
+    GenerationResult,
+    ModelProviderConfigurationError,
+    ModelProviderExecutionError,
+    StageProgress,
+)
+
+
+# ---------------------------------------------------------------------------
+# Mock provider
+# ---------------------------------------------------------------------------
+
+
+class MockHunyuan3DProvider:
+    """Drop-in mock for HunYuan3D-2 that mirrors MockTrellis2Provider behaviour.
+
+    Emits the canonical three GPU stages (ss, shape, material) so the existing
+    pipeline / status-machine / API layer works unchanged.
+    """
+
+    def __init__(self, stage_delay_ms: int = 60) -> None:
+        self._stage_delay_seconds = max(stage_delay_ms, 0) / 1000
+
+    @classmethod
+    def from_pretrained(cls, model_path: str) -> "MockHunyuan3DProvider":
+        _ = model_path
+        return cls()
+
+    def estimate_vram_mb(self, batch_size: int, options: dict) -> int:
+        _ = options
+        return batch_size * 24_000
+
+    @property
+    def stages(self) -> list[dict[str, float | str]]:
+        return [
+            {"name": "ss", "weight": 0.20},
+            {"name": "shape", "weight": 0.45},
+            {"name": "material", "weight": 0.35},
+        ]
+
+    async def run_batch(self, images, options, progress_cb=None, cancel_flags=None):
+        _ = cancel_flags
+        failure_stage = self._normalize_failure_stage(options.get("mock_failure_stage"))
+        for stage_name in ("ss", "shape", "material"):
+            if self._stage_delay_seconds:
+                await asyncio.sleep(self._stage_delay_seconds)
+            if failure_stage == stage_name:
+                raise ModelProviderExecutionError(
+                    stage_name=f"gpu_{stage_name}",
+                    message=f"mock failure injected at gpu_{stage_name}",
+                )
+            await _emit_progress(progress_cb, stage_name)
+        return [
+            GenerationResult(
+                mesh={"mock_mesh": True, "input": image},
+                metadata={"mock": True, "provider": "hunyuan3d", "resolution": options.get("resolution", 512)},
+            )
+            for image in images
+        ]
+
+    def export_glb(
+        self,
+        result: GenerationResult,
+        output_path: str | Path,
+        options: dict,
+    ) -> None:
+        _ = result
+        _ = options
+        Path(output_path).write_bytes(_build_mock_glb_bytes())
+
+    @staticmethod
+    def _normalize_failure_stage(value: Any) -> str | None:
+        if value is None:
+            return None
+        stage = str(value).strip().lower()
+        if stage.startswith("gpu_"):
+            return stage.removeprefix("gpu_")
+        return stage
+
+
+# ---------------------------------------------------------------------------
+# Real provider
+# ---------------------------------------------------------------------------
+
+
 class Hunyuan3DProvider:
+    """HunYuan3D-2 provider backed by the ``hy3dgen`` package.
+
+    Internally the model runs two stages (shape generation via
+    ``Hunyuan3DDiTFlowMatchingPipeline`` and texture painting via
+    ``Hunyuan3DPaintPipeline``), but progress is emitted as the three
+    canonical stages (ss → shape → material) expected by the pipeline.
+    """
+
+    def __init__(
+        self,
+        *,
+        shape_pipeline: Any,
+        texture_pipeline: Any,
+        model_path: str,
+    ) -> None:
+        self._shape_pipeline = shape_pipeline
+        self._texture_pipeline = texture_pipeline
+        self._model_path = model_path
+
     @classmethod
     def from_pretrained(cls, model_path: str) -> "Hunyuan3DProvider":
-        raise NotImplementedError(
-            f"Hunyuan3DProvider is not implemented yet: {model_path}"
+        report, shape_pipeline, texture_pipeline = cls._inspect_runtime(
+            model_path, load_pipeline=True,
         )
+        if shape_pipeline is None or texture_pipeline is None:
+            raise ModelProviderConfigurationError(
+                f"failed to load HunYuan3D-2 pipelines from {model_path}: unknown error"
+            )
+        return cls(
+            shape_pipeline=shape_pipeline,
+            texture_pipeline=texture_pipeline,
+            model_path=str(report["model_path"]),
+        )
+
+    @classmethod
+    def inspect_runtime(
+        cls,
+        model_path: str,
+        *,
+        load_pipeline: bool = True,
+    ) -> dict[str, Any]:
+        report, _, _ = cls._inspect_runtime(model_path, load_pipeline=load_pipeline)
+        return report
+
+    def estimate_vram_mb(self, batch_size: int, options: dict[str, Any]) -> int:
+        _ = options
+        # HunYuan3D-2 typically requires ~24 GB VRAM for shape + texture.
+        return int(24_000 * 1.2 * max(batch_size, 1))
+
+    @property
+    def stages(self) -> list[dict[str, float | str]]:
+        return [
+            {"name": "ss", "weight": 0.20},
+            {"name": "shape", "weight": 0.45},
+            {"name": "material", "weight": 0.35},
+        ]
+
+    async def run_batch(self, images, options, progress_cb=None, cancel_flags=None):
+        _ = cancel_flags
+        results: list[GenerationResult] = []
+        for prepared_input in images:
+            image = _extract_pil_image(prepared_input)
+            try:
+                mesh = await asyncio.to_thread(self._run_single, image, options)
+            except ModelProviderExecutionError:
+                raise
+            except Exception as exc:
+                raise ModelProviderExecutionError(
+                    stage_name="gpu_run",
+                    message=f"HunYuan3D-2 inference failed: {exc}",
+                ) from exc
+
+            for stage_name in ("ss", "shape", "material"):
+                await _emit_progress(progress_cb, stage_name)
+
+            results.append(
+                GenerationResult(
+                    mesh=mesh,
+                    metadata={
+                        "mock": False,
+                        "provider": "hunyuan3d",
+                        "model_path": self._model_path,
+                        "resolution": options.get("resolution", 512),
+                    },
+                )
+            )
+        return results
+
+    def export_glb(
+        self,
+        result: GenerationResult,
+        output_path: str | Path,
+        options: dict[str, Any],
+    ) -> None:
+        mesh = result.mesh
+        try:
+            if hasattr(mesh, "export"):
+                mesh.export(str(output_path))
+            else:
+                trimesh = importlib.import_module("trimesh")
+                if isinstance(mesh, trimesh.Scene):
+                    mesh.export(str(output_path))
+                elif isinstance(mesh, trimesh.Trimesh):
+                    mesh.export(str(output_path), file_type="glb")
+                else:
+                    raise ModelProviderExecutionError(
+                        stage_name="exporting",
+                        message=(
+                            "HunYuan3D-2 result mesh does not support GLB export. "
+                            f"Type: {type(mesh).__name__}"
+                        ),
+                    )
+        except ModelProviderExecutionError:
+            raise
+        except Exception as exc:
+            raise ModelProviderExecutionError(
+                stage_name="exporting",
+                message=f"HunYuan3D-2 GLB export failed: {exc}",
+            ) from exc
+
+    def _run_single(self, image: Any, options: dict[str, Any]) -> Any:
+        num_steps = options.get("num_steps", 50)
+        guidance_scale = options.get("guidance_scale", 5.5)
+        octree_resolution = options.get("octree_resolution", 256)
+
+        mesh = self._shape_pipeline(
+            image=image,
+            num_inference_steps=num_steps,
+            guidance_scale=guidance_scale,
+            octree_resolution=octree_resolution,
+        )
+
+        if self._texture_pipeline is not None:
+            texture_steps = options.get("texture_steps", 20)
+            mesh = self._texture_pipeline(mesh, image=image, num_inference_steps=texture_steps)
+
+        return mesh
+
+    @classmethod
+    def _inspect_runtime(
+        cls,
+        model_path: str,
+        *,
+        load_pipeline: bool,
+    ) -> tuple[dict[str, Any], Any | None, Any | None]:
+        if not model_path:
+            raise ModelProviderConfigurationError(
+                "MODEL_PATH is required for real provider mode"
+            )
+
+        model_source, model_reference = cls._resolve_model_reference(model_path)
+
+        report: dict[str, Any] = {
+            "provider": "hunyuan3d",
+            "model_path": model_reference,
+            "model_source": model_source,
+            "model_path_exists": model_source == "local",
+            "load_pipeline": load_pipeline,
+        }
+
+        try:
+            torch = importlib.import_module("torch")
+        except ModuleNotFoundError as exc:
+            raise ModelProviderConfigurationError(
+                "real provider mode requires the 'torch' package"
+            ) from exc
+
+        report["torch_version"] = getattr(torch, "__version__", None)
+        report["cuda_available"] = bool(torch.cuda.is_available())
+        report["cuda_device_count"] = (
+            int(torch.cuda.device_count()) if report["cuda_available"] else 0
+        )
+        if not report["cuda_available"]:
+            raise ModelProviderConfigurationError(
+                "real provider mode requires a CUDA-enabled torch runtime and visible GPU"
+            )
+
+        try:
+            shapegen = importlib.import_module("hy3dgen.shapegen")
+        except ModuleNotFoundError as exc:
+            raise ModelProviderConfigurationError(
+                "real provider mode requires the 'hy3dgen' package "
+                "(install from https://github.com/Tencent/Hunyuan3D-2)"
+            ) from exc
+
+        shape_pipeline_cls = getattr(shapegen, "Hunyuan3DDiTFlowMatchingPipeline", None)
+        if shape_pipeline_cls is None:
+            raise ModelProviderConfigurationError(
+                "hy3dgen.shapegen.Hunyuan3DDiTFlowMatchingPipeline is not available"
+            )
+        report["shape_pipeline_class"] = f"{shapegen.__name__}.{shape_pipeline_cls.__name__}"
+
+        texture_pipeline_cls = None
+        try:
+            texgen = importlib.import_module("hy3dgen.texgen")
+            texture_pipeline_cls = getattr(texgen, "Hunyuan3DPaintPipeline", None)
+        except ModuleNotFoundError:
+            pass
+        report["texture_pipeline_class"] = (
+            f"{texgen.__name__}.{texture_pipeline_cls.__name__}"
+            if texture_pipeline_cls is not None
+            else None
+        )
+
+        shape_pipeline = None
+        texture_pipeline = None
+        if load_pipeline:
+            try:
+                shape_pipeline = shape_pipeline_cls.from_pretrained(model_reference)
+                if hasattr(shape_pipeline, "cuda"):
+                    shape_pipeline.cuda()
+            except Exception as exc:
+                raise ModelProviderConfigurationError(
+                    f"failed to load HunYuan3D-2 shape pipeline from {model_reference}: {exc}"
+                ) from exc
+
+            if texture_pipeline_cls is not None:
+                try:
+                    texture_pipeline = texture_pipeline_cls.from_pretrained(model_reference)
+                    if hasattr(texture_pipeline, "cuda"):
+                        texture_pipeline.cuda()
+                except Exception as exc:
+                    raise ModelProviderConfigurationError(
+                        f"failed to load HunYuan3D-2 texture pipeline from {model_reference}: {exc}"
+                    ) from exc
+
+            report["shape_pipeline_loaded"] = shape_pipeline is not None
+            report["texture_pipeline_loaded"] = texture_pipeline is not None
+        else:
+            report["shape_pipeline_loaded"] = False
+            report["texture_pipeline_loaded"] = False
+
+        return report, shape_pipeline, texture_pipeline
+
+    @staticmethod
+    def _resolve_model_reference(model_path: str) -> tuple[str, str]:
+        raw_value = model_path.strip()
+        expanded_path = Path(raw_value).expanduser()
+        has_local_path_hint = (
+            raw_value.startswith(("/", ".", "~"))
+            or raw_value.startswith("..")
+        )
+
+        if expanded_path.exists():
+            return "local", str(expanded_path.resolve())
+
+        if has_local_path_hint:
+            raise ModelProviderConfigurationError(
+                f"HunYuan3D-2 model path does not exist: {model_path}"
+            )
+
+        return "huggingface", raw_value
+
+
+# ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
+
+
+def _build_mock_glb_bytes() -> bytes:
+    """Emit a tiny but valid triangle mesh so the browser UI can preview mock outputs."""
+    positions = (
+        -0.6, -0.45, 0.0,
+        0.6, -0.45, 0.0,
+        0.0, 0.75, 0.0,
+    )
+    normals = (
+        0.0, 0.0, 1.0,
+        0.0, 0.0, 1.0,
+        0.0, 0.0, 1.0,
+    )
+    binary_chunk = struct.pack("<18f", *(positions + normals))
+    json_chunk = json.dumps(
+        {
+            "asset": {"version": "2.0"},
+            "scene": 0,
+            "scenes": [{"nodes": [0]}],
+            "nodes": [{"mesh": 0}],
+            "meshes": [
+                {
+                    "primitives": [
+                        {
+                            "attributes": {
+                                "POSITION": 0,
+                                "NORMAL": 1,
+                            }
+                        }
+                    ]
+                }
+            ],
+            "buffers": [{"byteLength": len(binary_chunk)}],
+            "bufferViews": [
+                {"buffer": 0, "byteOffset": 0, "byteLength": 36},
+                {"buffer": 0, "byteOffset": 36, "byteLength": 36},
+            ],
+            "accessors": [
+                {
+                    "bufferView": 0,
+                    "componentType": 5126,
+                    "count": 3,
+                    "type": "VEC3",
+                    "min": [-0.6, -0.45, 0.0],
+                    "max": [0.6, 0.75, 0.0],
+                },
+                {
+                    "bufferView": 1,
+                    "componentType": 5126,
+                    "count": 3,
+                    "type": "VEC3",
+                },
+            ],
+        },
+        separators=(",", ":"),
+    ).encode("utf-8")
+    json_padding = (4 - (len(json_chunk) % 4)) % 4
+    json_chunk += b" " * json_padding
+
+    total_length = 12 + 8 + len(json_chunk) + 8 + len(binary_chunk)
+    return b"".join(
+        [
+            struct.pack("<III", 0x46546C67, 2, total_length),
+            struct.pack("<I4s", len(json_chunk), b"JSON"),
+            json_chunk,
+            struct.pack("<I4s", len(binary_chunk), b"BIN\x00"),
+            binary_chunk,
+        ]
+    )
+
+
+async def _emit_progress(progress_cb, stage_name: str) -> None:
+    if progress_cb is None:
+        return
+    callback_result = progress_cb(
+        StageProgress(
+            stage_name=stage_name,
+            step=1,
+            total_steps=1,
+        )
+    )
+    if inspect.isawaitable(callback_result):
+        await callback_result
+
+
+def _extract_pil_image(prepared_input: Any) -> Any:
+    if isinstance(prepared_input, dict) and "image" in prepared_input:
+        return prepared_input["image"]
+    return prepared_input

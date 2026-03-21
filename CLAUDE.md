@@ -20,7 +20,7 @@
 
 ## 当前状态（2026-03-21）
 
-后端测试基线：`python -m pytest tests -q` → **85 passed**
+后端测试基线：`python -m pytest tests -q` → **96 passed**
 
 ### v0.1 模块进度
 
@@ -29,7 +29,7 @@
 | M1 · 品牌 & 开源化基础 | ✅ 完成 |
 | M2 · Admin Panel（5页 双主题 i18n） | ✅ 完成 |
 | M2.5 · 用户侧页面 | ✅ 功能完成，UI 商业级打磨中 |
-| M3 · HunYuan3D Provider | 🔲 待开始 |
+| M3 · HunYuan3D Provider | ✅ 完成（mock + real，11 新测试） |
 | M4 · 安装体验（Pinokio + 脚本）| 🔲 待开始 |
 | M5 · 文档完善 | 🔲 待开始 |
 | M6 · 发布前 QA & 清理 | 🔲 待开始 |
@@ -46,14 +46,7 @@
 - 背景色选择器：紧凑圆点预设 + 自定义取色 + 跟随主题
 - 亮色/暗色主题适配：viewer 背景、网格线、线框色
 
-**第 6 轮待验收**（AI Coder 执行中）：
-- 导出格式文案修正
-- 灯光图标 SunMedium → Lightbulb
-- 工具栏模式按钮去掉内嵌背景框
-- 背景选择器布局：跟随主题 + 自定义同行
-- 阴影开关
-- Setup 页面精简
-- i18n 文案修正（最近任务、空状态描述）
+第 6 轮已完成（3/21）：工具栏去嵌套框、Lightbulb 灯光图标、阴影开关、背景选择器紧凑布局、Setup 精简、i18n 文案修正
 
 ---
 
@@ -97,7 +90,7 @@ pointer-events-none（外层禁止事件）
 |----------|------|
 | `AGENTS.md` | AI Coder 执行指南 |
 | `docs/PLAN.md` | 架构基线 |
-| `plan/` | 规划日志（77 个文件，最新 3/21） |
+| `plan/` | 规划日志（78 个文件，最新 3/21） |
 | `config.py` / `serve.py` | 后端入口 |
 | `api/` / `engine/` / `model/` / `stages/` | 后端核心 |
 | `web/src/pages/` | 前端页面（generate/gallery/viewer/setup） |
@@ -114,7 +107,7 @@ pointer-events-none（外层禁止事件）
 |---------|------|
 | `mock`（MockTrellis2Provider）| ✅ 可用 |
 | `real`（Trellis2Provider）| ✅ 可用 |
-| `hunyuan3d`（HunYuan3D-2）| 🔲 M3 待实现 |
+| `hunyuan3d`（HunYuan3D-2）| ✅ mock + real 可用 |
 
 ---
 
