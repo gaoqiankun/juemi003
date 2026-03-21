@@ -40,6 +40,7 @@ export const ThreeViewer = forwardRef<ThreeViewerHandle, {
   className?: string;
   autoRotate?: boolean;
   showGrid?: boolean;
+  showShadow?: boolean;
   displayMode?: ViewerDisplayMode;
   lightIntensity?: number;
   lightAngle?: number;
@@ -56,6 +57,7 @@ export const ThreeViewer = forwardRef<ThreeViewerHandle, {
   className = "",
   autoRotate = false,
   showGrid = false,
+  showShadow = true,
   displayMode = "texture",
   lightIntensity = VIEWER_LIGHT_INTENSITY_DEFAULT,
   lightAngle = VIEWER_LIGHT_ANGLE_DEFAULT,
@@ -78,7 +80,7 @@ export const ThreeViewer = forwardRef<ThreeViewerHandle, {
     const viewer = new Viewer3D(container, {
       backgroundCenter,
       backgroundEdge,
-      shadowFloor: true,
+      shadowFloor: showShadow,
       autoRotate,
       showGrid,
       displayMode,
@@ -105,6 +107,10 @@ export const ThreeViewer = forwardRef<ThreeViewerHandle, {
   useEffect(() => {
     viewerRef.current?.setGridVisible(showGrid);
   }, [showGrid]);
+
+  useEffect(() => {
+    viewerRef.current?.setShadowVisible(showShadow);
+  }, [showShadow]);
 
   useEffect(() => {
     viewerRef.current?.setDisplayMode(displayMode);

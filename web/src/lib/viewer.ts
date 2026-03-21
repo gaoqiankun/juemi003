@@ -900,6 +900,7 @@ export class Viewer3D {
   disposeEnvironment: (() => void) | null;
   displayMode: ViewerDisplayMode;
   gridVisible: boolean;
+  shadowVisible: boolean;
   lightingEnabled: boolean;
   lightIntensity: number;
   lightAngle: number;
@@ -976,7 +977,7 @@ export class Viewer3D {
     this.controls.autoRotate = this.options.autoRotate;
     this.controls.autoRotateSpeed = 1.25;
     this.modelRoot = null;
-    this.shadowFloor = this.options.shadowFloor ? createShadowFloor() : null;
+    this.shadowFloor = createShadowFloor();
     this.gridHelper = createGridHelper(this.options.gridPrimaryColor, this.options.gridSecondaryColor);
     this.studioLights = {
       rig: new THREE.Group(),
@@ -989,6 +990,7 @@ export class Viewer3D {
     this.disposeEnvironment = null;
     this.displayMode = this.options.displayMode;
     this.gridVisible = this.options.showGrid;
+    this.shadowVisible = this.options.shadowFloor;
     this.lightingEnabled = this.options.lightingEnabled;
     this.lightIntensity = this.options.lightIntensity;
     this.lightAngle = this.options.lightAngle;
@@ -1008,15 +1010,14 @@ export class Viewer3D {
     const environment = createEnvironmentMap(this.scene, this.renderer);
     this.environmentTexture = environment.texture;
     this.disposeEnvironment = environment.dispose;
-    if (this.shadowFloor) {
-      this.scene.add(this.shadowFloor);
-    }
+    this.scene.add(this.shadowFloor);
     this.scene.add(this.contactShadow);
     this.scene.add(this.gridHelper);
     this.setLightingEnabled(this.lightingEnabled);
     this.setLightIntensity(this.lightIntensity);
     this.setLightAngle(this.lightAngle);
     this.setGridVisible(this.gridVisible);
+    this.setShadowVisible(this.shadowVisible);
     this.camera.position.set(2.5, 1.8, 2.5);
     this.controls.update();
     this.defaultCameraPosition = this.camera.position.clone();
@@ -1142,6 +1143,25 @@ export class Viewer3D {
     placeGridHelper(this.gridHelper, this.modelRoot);
   }
 
+  setShadowVisible(visible: boolean) {
+    this.shadowVisible = visible;
+    this.options.shadowFloor = visible;
+    const canShowShadow = visible && this.lightingEnabled && Boolean(this.modelRoot);
+    if (!canShowShadow || !this.modelRoot) {
+      if (this.shadowFloor) {
+        this.shadowFloor.visible = false;
+      }
+      this.contactShadow.visible = false;
+      return;
+    }
+    if (this.shadowFloor) {
+      this.shadowFloor.visible = true;
+      placeShadowFloor(this.shadowFloor, this.modelRoot);
+    }
+    this.contactShadow.visible = true;
+    placeContactShadow(this.contactShadow, this.modelRoot);
+  }
+
   private addWireframeOverlay(mesh: THREE.Mesh) {
     const current = mesh.userData[WIREFRAME_OVERLAY_KEY] as THREE.Object3D | undefined;
     if (current) {
@@ -1265,16 +1285,7 @@ export class Viewer3D {
       this.setLightIntensity(this.lightIntensity);
       this.setLightAngle(this.lightAngle);
     }
-    if (this.shadowFloor) {
-      this.shadowFloor.visible = enabled && Boolean(this.modelRoot);
-      if (enabled && this.modelRoot) {
-        placeShadowFloor(this.shadowFloor, this.modelRoot);
-      }
-    }
-    this.contactShadow.visible = enabled && Boolean(this.modelRoot);
-    if (enabled && this.modelRoot) {
-      placeContactShadow(this.contactShadow, this.modelRoot);
-    }
+    this.setShadowVisible(this.shadowVisible);
   }
 
   resetCamera(durationMs = 520) {
@@ -1381,12 +1392,7 @@ export class Viewer3D {
       });
 
       this.scene.add(root);
-      if (this.shadowFloor && this.lightingEnabled) {
-        placeShadowFloor(this.shadowFloor, root);
-      }
-      if (this.lightingEnabled) {
-        placeContactShadow(this.contactShadow, root);
-      }
+      this.setShadowVisible(this.shadowVisible);
       if (this.gridVisible) {
         placeGridHelper(this.gridHelper, root);
       }
@@ -1434,6 +1440,12 @@ export class Viewer3D {
     this.environmentTexture = null;
     this.scene.remove(this.gridHelper);
     disposeGridHelper(this.gridHelper);
+    if (this.shadowFloor) {
+      this.scene.remove(this.shadowFloor);
+      (this.shadowFloor.material as THREE.ShadowMaterial).dispose();
+      this.shadowFloor.geometry.dispose();
+      this.shadowFloor = null;
+    }
     this.scene.remove(this.contactShadow);
     (this.contactShadow.material as THREE.MeshBasicMaterial).map?.dispose();
     this.contactShadow.geometry.dispose();

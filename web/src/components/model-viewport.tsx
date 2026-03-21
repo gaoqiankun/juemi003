@@ -1,4 +1,4 @@
-import { Check, Grid3X3, Orbit, Palette, RotateCcw, SunMedium } from "lucide-react";
+import { Check, CircleDot, Grid3X3, Lightbulb, Orbit, Palette, Pipette, RotateCcw } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -101,6 +101,7 @@ export function ModelViewport({
 
   const [autoRotate, setAutoRotate] = useState(false);
   const [showGrid, setShowGrid] = useState(false);
+  const [showShadow, setShowShadow] = useState(true);
   const [displayMode, setDisplayMode] = useState<ViewerDisplayMode>("texture");
   const [lightIntensity, setLightIntensity] = useState(VIEWER_LIGHT_INTENSITY_DEFAULT);
   const [lightAngle, setLightAngle] = useState(VIEWER_LIGHT_ANGLE_DEFAULT);
@@ -163,6 +164,7 @@ export function ModelViewport({
           backgroundEdge={effectiveBackground.edge}
           autoRotate={autoRotate}
           showGrid={showGrid}
+          showShadow={showShadow}
           displayMode={displayMode}
           lightIntensity={lightIntensity}
           lightAngle={lightAngle}
@@ -184,16 +186,16 @@ export function ModelViewport({
           ref={toolbarRef}
           className="pointer-events-auto flex items-center gap-2 rounded-full border border-outline bg-surface-glass px-2 py-1 shadow-float backdrop-blur-xl"
         >
-          <div className="flex items-center rounded-full border border-outline bg-[color:color-mix(in_srgb,var(--surface-container-high)_65%,transparent)] p-0.5">
+          <div className="flex items-center gap-0.5">
             {segmentedModes.map((item) => (
               <button
                 key={item.mode}
                 type="button"
                 className={cn(
-                  "inline-flex h-8 items-center justify-center rounded-full px-3 text-xs font-medium transition-colors",
+                  "inline-flex h-8 items-center justify-center rounded-full border px-3 text-xs font-medium transition-colors",
                   displayMode === item.mode
-                    ? "bg-accent text-accent-ink"
-                    : "text-text-secondary hover:bg-surface-container-highest hover:text-text-primary",
+                    ? "border-transparent bg-accent text-accent-ink"
+                    : "border-transparent text-text-secondary hover:border-outline hover:bg-surface-container-highest hover:text-text-primary",
                 )}
                 onClick={() => setDisplayMode(item.mode)}
               >
@@ -211,6 +213,9 @@ export function ModelViewport({
             <button type="button" className={toolbarBtnClass(showGrid)} aria-label={t("user.viewer.toolbar.grid")} title={t("user.viewer.toolbar.grid")} onClick={() => setShowGrid((c) => !c)}>
               <Grid3X3 className="h-4 w-4" />
             </button>
+            <button type="button" className={toolbarBtnClass(showShadow)} aria-label={t("user.viewer.toolbar.shadow")} title={t("user.viewer.toolbar.shadow")} onClick={() => setShowShadow((c) => !c)}>
+              <CircleDot className="h-4 w-4" />
+            </button>
             <button type="button" className={toolbarBtnClass(false)} aria-label={t("user.viewer.toolbar.reset")} title={t("user.viewer.toolbar.reset")} onClick={() => viewerRef.current?.resetCamera()}>
               <RotateCcw className="h-4 w-4" />
             </button>
@@ -227,7 +232,7 @@ export function ModelViewport({
                 title={t("user.viewer.toolbar.light.button")}
                 onClick={() => setOpenPopover((current) => (current === "light" ? null : "light"))}
               >
-                <SunMedium className="h-4 w-4" />
+                <Lightbulb className="h-4 w-4" />
               </button>
               {openPopover === "light" ? (
                 <div className="absolute bottom-full right-0 mb-3 w-72 rounded-2xl border border-outline bg-surface-glass p-4 shadow-float backdrop-blur-xl">
@@ -295,19 +300,48 @@ export function ModelViewport({
                   <div className="text-xs font-semibold uppercase tracking-[0.14em] text-text-muted">
                     {t("user.viewer.toolbar.background.title")}
                   </div>
-                  <button
-                    type="button"
-                    className={cn(
-                      "mt-2 inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs transition",
-                      manualBackground
-                        ? "border-outline text-text-secondary hover:bg-surface-container-high hover:text-text-primary"
-                        : "border-[color:color-mix(in_srgb,var(--accent)_28%,transparent)] bg-[color:color-mix(in_srgb,var(--accent)_12%,transparent)] text-accent-strong",
-                    )}
-                    onClick={() => setManualBackground(null)}
-                  >
-                    {!manualBackground ? <Check className="h-3.5 w-3.5" /> : null}
-                    {t("user.viewer.toolbar.background.followTheme")}
-                  </button>
+                  <div className="mt-2 flex items-center gap-2">
+                    <button
+                      type="button"
+                      className={cn(
+                        "inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs transition",
+                        manualBackground
+                          ? "border-outline text-text-secondary hover:bg-surface-container-high hover:text-text-primary"
+                          : "border-[color:color-mix(in_srgb,var(--accent)_28%,transparent)] bg-[color:color-mix(in_srgb,var(--accent)_12%,transparent)] text-accent-strong",
+                      )}
+                      onClick={() => setManualBackground(null)}
+                    >
+                      {!manualBackground ? <Check className="h-3.5 w-3.5" /> : null}
+                      {t("user.viewer.toolbar.background.followTheme")}
+                    </button>
+
+                    <label
+                      className={cn(
+                        "relative inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-full border px-3 text-xs transition",
+                        manualBackground?.id === "custom"
+                          ? "border-[color:color-mix(in_srgb,var(--accent)_28%,transparent)] bg-[color:color-mix(in_srgb,var(--accent)_12%,transparent)] text-accent-strong"
+                          : "border-outline text-text-secondary hover:bg-surface-container-high hover:text-text-primary",
+                      )}
+                      title={t("user.viewer.toolbar.background.custom")}
+                      aria-label={t("user.viewer.toolbar.background.custom")}
+                    >
+                      <input
+                        type="color"
+                        value={manualBackground?.id === "custom" ? manualBackground.center : CUSTOM_BACKGROUND_DEFAULT}
+                        onChange={(event) => {
+                          const center = event.target.value;
+                          setManualBackground({
+                            id: "custom",
+                            center,
+                            edge: darkenHexColor(center, 0.14),
+                          });
+                        }}
+                        className="absolute inset-0 cursor-pointer opacity-0"
+                      />
+                      <Pipette className="h-3.5 w-3.5" />
+                      <span>{t("user.viewer.toolbar.background.custom")}</span>
+                    </label>
+                  </div>
                   <div className="mt-3 flex flex-wrap items-center gap-2">
                     {BACKGROUND_PRESETS.map((preset) => {
                       const isActive = manualBackground?.id === preset.id;
@@ -336,39 +370,6 @@ export function ModelViewport({
                         </button>
                       );
                     })}
-                  </div>
-                  <div className="mt-3 flex items-center gap-2">
-                    <label
-                      className={cn(
-                        "relative h-8 w-8 overflow-hidden rounded-full border transition",
-                        manualBackground?.id === "custom"
-                          ? "border-accent shadow-[0_0_0_2px_color-mix(in_srgb,var(--accent)_24%,transparent)]"
-                          : "border-outline hover:border-text-muted",
-                      )}
-                      title={t("user.viewer.toolbar.background.custom")}
-                      aria-label={t("user.viewer.toolbar.background.custom")}
-                    >
-                      <input
-                        type="color"
-                        value={manualBackground?.id === "custom" ? manualBackground.center : CUSTOM_BACKGROUND_DEFAULT}
-                        onChange={(event) => {
-                          const center = event.target.value;
-                          setManualBackground({
-                            id: "custom",
-                            center,
-                            edge: darkenHexColor(center, 0.14),
-                          });
-                        }}
-                        className="absolute inset-0 cursor-pointer opacity-0"
-                      />
-                      <span
-                        className="block h-full w-full"
-                        style={{ backgroundColor: manualBackground?.id === "custom" ? manualBackground.center : CUSTOM_BACKGROUND_DEFAULT }}
-                      />
-                    </label>
-                    <span className="text-[11px] text-text-secondary">
-                      {t("user.viewer.toolbar.background.custom")}
-                    </span>
                   </div>
                 </div>
               ) : null}

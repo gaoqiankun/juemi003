@@ -383,12 +383,12 @@
         "closeRecent": "Close recent list"
       },
       "recent": {
-        "title": "Recent generations",
+        "title": "Recent tasks",
         "empty": "No history yet"
       },
       "empty": {
         "title": "Upload an image to start creating",
-        "description": "Generate a downloadable 3D model in minutes"
+        "description": "Generate a 3D model in minutes"
       },
       "processing": {
         "title": "Generating"
@@ -456,7 +456,7 @@
       "deleteButton": "Delete",
       "cancelButton": "Cancel",
       "defaultFileBase": "MODEL",
-      "exportsLabel": "Export options",
+      "exportsLabel": "Export format",
       "exportFormats": {
         "glb": {
           "label": "Binary glTF (.glb)",
@@ -478,6 +478,7 @@
       "toolbar": {
         "orbit": "Toggle auto orbit",
         "grid": "Toggle grid",
+        "shadow": "Shadow",
         "reset": "Reset view",
         "displayMode": {
           "texture": "Texture",
@@ -538,7 +539,6 @@
     },
     "setup": {
       "title": "Connect your instance",
-      "description": "Enter your API Key and service URL to connect your Cubie instance. You can create an API Key in the API Keys page of the admin panel.",
       "apiKeyLabel": "API Key",
       "apiKeyPlaceholder": "Enter your API Key",
       "serverUrlLabel": "Server URL",
