@@ -1,5 +1,6 @@
 import { ArrowRight, Download, Eye, RotateCcw, Sparkles, UploadCloud, X } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Link, useNavigate } from "react-router-dom";
 
 import { useGen3d } from "@/app/gen3d-provider";
@@ -32,8 +33,11 @@ function getRecentStatus(task: TaskRecord): {
 }
 
 export function GeneratePage() {
+  const { t } = useTranslation();
   const inputRef = useRef<HTMLInputElement | null>(null);
   const navigate = useNavigate();
+  const [selectedModel, setSelectedModel] = useState("trellis-v2");
+
   const {
     config,
     tasks,
@@ -73,64 +77,8 @@ export function GeneratePage() {
   };
 
   return (
-    <section className="grid min-h-[calc(100vh-6rem)] gap-3 xl:grid-cols-[280px_minmax(0,1fr)_280px]">
-      {/* ── Left: Upload + Generate ── */}
-      <aside className="flex flex-col gap-3 xl:sticky xl:top-20 xl:max-h-[calc(100vh-6.5rem)]">
-        <Card tone="low" className="flex flex-1 flex-col p-4">
-          <label
-            className="group relative flex flex-1 cursor-pointer items-center justify-center overflow-hidden rounded-2xl border border-dashed border-outline bg-surface-container-lowest transition-all duration-200 hover:border-accent hover:bg-surface-container-low"
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={(e) => { e.preventDefault(); selectFile(e.dataTransfer.files?.[0] || null).catch(() => undefined); }}
-          >
-            <input
-              ref={inputRef}
-              type="file"
-              accept="image/png,image/jpeg,image/webp"
-              className="hidden"
-              onChange={(e) => selectFile(e.target.files?.[0] || null).catch(() => undefined)}
-            />
-            {previewUrl ? (
-              <>
-                <img src={previewUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
-                <button
-                  type="button"
-                  className="absolute right-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-full bg-surface/80 text-text-primary backdrop-blur transition hover:bg-surface"
-                  aria-label="清除"
-                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); clearSelectedFile(false); if (inputRef.current) inputRef.current.value = ""; }}
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </>
-            ) : (
-              <div className="grid justify-items-center gap-3 p-6 text-center">
-                <UploadCloud className="h-8 w-8 text-text-muted" />
-                <div>
-                  <div className="text-sm font-medium text-text-primary">点击或拖拽上传</div>
-                  <div className="mt-1 text-xs leading-5 text-text-muted">JPG / PNG / WEBP</div>
-                </div>
-              </div>
-            )}
-          </label>
-
-          <div className="mt-3">
-            <Button
-              variant={isProcessing ? "secondary" : "primary"}
-              className="w-full justify-center"
-              disabled={isProcessing ? !canCancel : !canStart}
-              onClick={handlePrimaryAction}
-            >
-              {isProcessing ? (
-                <><X className="h-4 w-4" />取消</>
-              ) : (
-                <><Sparkles className="h-4 w-4" />生成</>
-              )}
-            </Button>
-          </div>
-        </Card>
-      </aside>
-
-      {/* ── Center: Viewport ── */}
-      <div className="relative min-h-[32rem] overflow-hidden rounded-2xl border border-outline bg-surface-container-lowest">
+    <section className="relative min-h-[calc(100vh-6rem)] overflow-hidden">
+      <div className="absolute inset-0 overflow-hidden bg-surface-container-lowest">
         {generateView === "idle" ? (
           <div className="flex h-full flex-col items-center justify-center px-8 text-center">
             <svg width="48" height="48" viewBox="0 0 60 60" fill="none" aria-hidden="true" className="text-text-muted">
@@ -166,7 +114,6 @@ export function GeneratePage() {
               token={config.token}
               className="absolute inset-0"
             />
-            {/* Floating action bar */}
             <div className="absolute bottom-5 left-1/2 z-10 -translate-x-1/2">
               <div className="flex items-center gap-1.5 rounded-full border border-outline bg-surface-glass p-1.5 shadow-float backdrop-blur-xl">
                 {downloadUrl ? (
@@ -220,60 +167,148 @@ export function GeneratePage() {
         ) : null}
       </div>
 
-      {/* ── Right: Recent ── */}
-      <aside className="flex flex-col gap-3 xl:sticky xl:top-20 xl:max-h-[calc(100vh-6.5rem)]">
-        <Card tone="low" className="flex flex-1 flex-col overflow-hidden p-4">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold uppercase tracking-wider text-text-muted">最近生成</span>
-            <Link
-              to="/gallery"
-              className="inline-flex items-center gap-0.5 text-xs text-text-muted transition hover:text-text-primary"
-            >
-              全部<ArrowRight className="h-3 w-3" />
-            </Link>
-          </div>
+      <div className="pointer-events-none relative z-10 grid min-h-[calc(100vh-6rem)] gap-4 xl:grid-cols-[300px_minmax(0,1fr)_300px]">
+        <aside className="pointer-events-auto flex flex-col py-2 xl:sticky xl:top-20 xl:max-h-[calc(100vh-6.5rem)]">
+          <Card tone="low" className="flex flex-1 flex-col border border-outline bg-surface-glass p-4 shadow-soft backdrop-blur-xl">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-text-muted">
+              {t("user.generate.panel.title")}
+            </div>
 
-          <div className="mt-3 flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto scrollbar-thin">
-            {recentTasks.length ? (
-              recentTasks.map((task) => {
-                const status = getRecentStatus(task);
-                const isActive = currentTask?.taskId === task.taskId;
-                return (
-                  <button
-                    key={task.taskId}
-                    type="button"
-                    className={cn(
-                      "flex items-center gap-2.5 rounded-xl px-2 py-2 text-left transition-all",
-                      isActive
-                        ? "bg-surface-container-highest"
-                        : "hover:bg-surface-container",
-                    )}
-                    onClick={() => setCurrentTaskId(task.taskId)}
-                  >
-                    <TaskThumbnail task={task} variant="recent" className="h-11 w-11 shrink-0 rounded-xl" />
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-xs font-medium text-text-primary">
-                        {formatRelativeTime(task.createdAt)}
-                      </div>
-                      <div className={cn(
-                        "mt-0.5 flex items-center gap-1 text-[11px]",
-                        status.tone === "success" && "text-success",
-                        status.tone === "danger" && "text-danger",
-                        status.tone === "warning" && "text-warning",
-                      )}>
-                        <span className="h-1 w-1 rounded-full bg-current" />
-                        {status.label}
+            <div className="mt-3 space-y-4">
+              <div>
+                <div className="mb-2 text-xs font-medium text-text-secondary">{t("user.generate.panel.uploadLabel")}</div>
+                <label
+                  className="group relative flex h-44 cursor-pointer items-center justify-center overflow-hidden rounded-xl border border-dashed border-outline bg-surface-container-lowest transition-all duration-200 hover:border-accent hover:bg-surface-container-low"
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => { e.preventDefault(); selectFile(e.dataTransfer.files?.[0] || null).catch(() => undefined); }}
+                >
+                  <input
+                    ref={inputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    className="hidden"
+                    onChange={(e) => selectFile(e.target.files?.[0] || null).catch(() => undefined)}
+                  />
+                  {previewUrl ? (
+                    <>
+                      <img src={previewUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
+                      <button
+                        type="button"
+                        className="absolute right-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-full bg-surface/80 text-text-primary backdrop-blur transition hover:bg-surface"
+                        aria-label={t("user.generate.panel.clearImage")}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          clearSelectedFile(false);
+                          if (inputRef.current) {
+                            inputRef.current.value = "";
+                          }
+                        }}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </>
+                  ) : (
+                    <div className="grid justify-items-center gap-2.5 px-4 text-center">
+                      <UploadCloud className="h-7 w-7 text-text-muted" />
+                      <div>
+                        <div className="text-sm font-medium text-text-primary">{t("user.generate.panel.uploadHint")}</div>
+                        <div className="mt-1 text-xs text-text-muted">JPG / PNG / WEBP</div>
                       </div>
                     </div>
-                  </button>
-                );
-              })
-            ) : (
-              <div className="py-6 text-center text-xs text-text-muted">暂无记录</div>
-            )}
-          </div>
-        </Card>
-      </aside>
+                  )}
+                </label>
+              </div>
+
+              <div>
+                <div className="mb-2 text-xs font-medium text-text-secondary">{t("user.generate.panel.modelLabel")}</div>
+                <select
+                  value={selectedModel}
+                  onChange={(event) => setSelectedModel(event.target.value)}
+                  className="h-10 w-full rounded-xl border border-outline bg-surface-container-low px-3 text-sm text-text-primary outline-none transition focus:border-accent"
+                >
+                  <option value="trellis-v2">Trellis v2</option>
+                </select>
+              </div>
+
+              <div className="rounded-xl border border-dashed border-outline px-3 py-2.5 text-xs text-text-muted">
+                {t("user.generate.panel.comingSoon")}
+              </div>
+            </div>
+
+            <div className="mt-auto pt-4">
+              <Button
+                variant={isProcessing ? "secondary" : "primary"}
+                className="w-full justify-center"
+                disabled={isProcessing ? !canCancel : !canStart}
+                onClick={handlePrimaryAction}
+              >
+                {isProcessing ? (
+                  <><X className="h-4 w-4" />{t("user.generate.panel.cancelButton")}</>
+                ) : (
+                  <><Sparkles className="h-4 w-4" />{t("user.generate.panel.generateButton")}</>
+                )}
+              </Button>
+            </div>
+          </Card>
+        </aside>
+
+        <div />
+
+        <aside className="pointer-events-auto flex flex-col py-2 xl:sticky xl:top-20 xl:max-h-[calc(100vh-6.5rem)]">
+          <Card tone="low" className="flex flex-1 flex-col overflow-hidden border border-outline bg-surface-glass p-4 shadow-soft backdrop-blur-xl">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold uppercase tracking-wider text-text-muted">最近生成</span>
+              <Link
+                to="/gallery"
+                className="inline-flex items-center gap-0.5 text-xs text-text-muted transition hover:text-text-primary"
+              >
+                全部<ArrowRight className="h-3 w-3" />
+              </Link>
+            </div>
+
+            <div className="mt-3 flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto scrollbar-thin">
+              {recentTasks.length ? (
+                recentTasks.map((task) => {
+                  const status = getRecentStatus(task);
+                  const isActive = currentTask?.taskId === task.taskId;
+                  return (
+                    <button
+                      key={task.taskId}
+                      type="button"
+                      className={cn(
+                        "flex items-center gap-2.5 rounded-xl px-2 py-2 text-left transition-all",
+                        isActive
+                          ? "bg-surface-container-highest"
+                          : "hover:bg-surface-container",
+                      )}
+                      onClick={() => setCurrentTaskId(task.taskId)}
+                    >
+                      <TaskThumbnail task={task} variant="recent" className="h-11 w-11 shrink-0 rounded-xl" />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-xs font-medium text-text-primary">
+                          {formatRelativeTime(task.createdAt)}
+                        </div>
+                        <div className={cn(
+                          "mt-0.5 flex items-center gap-1 text-[11px]",
+                          status.tone === "success" && "text-success",
+                          status.tone === "danger" && "text-danger",
+                          status.tone === "warning" && "text-warning",
+                        )}>
+                          <span className="h-1 w-1 rounded-full bg-current" />
+                          {status.label}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })
+              ) : (
+                <div className="py-6 text-center text-xs text-text-muted">暂无记录</div>
+              )}
+            </div>
+          </Card>
+        </aside>
+      </div>
     </section>
   );
 }

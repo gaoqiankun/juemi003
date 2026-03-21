@@ -19,6 +19,14 @@ const MODEL_CACHE_NAME = "app-model-artifacts-v1";
 const MODEL_ETAG_STORAGE_KEY_PREFIX = "app:model-etag:";
 const loader = new GLTFLoader();
 
+export type ViewerDisplayMode = "texture" | "clay" | "wireframe";
+export const VIEWER_LIGHT_INTENSITY_DEFAULT = 1;
+export const VIEWER_LIGHT_ANGLE_DEFAULT = 28;
+export const VIEWER_LIGHT_INTENSITY_MIN = 0;
+export const VIEWER_LIGHT_INTENSITY_MAX = 1.5;
+export const VIEWER_LIGHT_ANGLE_MIN = 0;
+export const VIEWER_LIGHT_ANGLE_MAX = 360;
+
 export interface ViewerModelStats {
   triangleCount: number;
   meshCount: number;
@@ -109,10 +117,86 @@ function disposeObject(root: THREE.Object3D | null) {
   });
 }
 
+function disposeMaterialSet(material: THREE.Material | THREE.Material[] | undefined | null) {
+  if (!material) {
+    return;
+  }
+  const materials = Array.isArray(material) ? material : [material];
+  materials.forEach((entry) => {
+    entry.dispose();
+  });
+}
+
+const ORIGINAL_MATERIAL_KEY = "__viewerOriginalMaterial";
+const OVERRIDE_MATERIAL_KEY = "__viewerOverrideMaterial";
+const WIREFRAME_OVERLAY_KEY = "__viewerWireframeOverlay";
+
+function createDisplayModeMaterial(baseMaterial: THREE.Material, mode: ViewerDisplayMode) {
+  const template = baseMaterial as THREE.MeshStandardMaterial;
+  const side = typeof (template as any).side === "number" ? template.side : THREE.FrontSide;
+  const isWireframeMode = mode === "wireframe";
+  return new THREE.MeshStandardMaterial({
+    color: "#c2c3c7",
+    roughness: 0.8,
+    metalness: 0,
+    envMapIntensity: Math.min(Math.max((template.envMapIntensity ?? 1) * 0.45, 0), 1),
+    opacity: 1,
+    transparent: false,
+    side,
+    depthWrite: true,
+    flatShading: false,
+    polygonOffset: isWireframeMode,
+    polygonOffsetFactor: isWireframeMode ? 1 : 0,
+    polygonOffsetUnits: isWireframeMode ? 1 : 0,
+  });
+}
+
+function buildDisplayModeMaterial(
+  original: THREE.Material | THREE.Material[],
+  mode: ViewerDisplayMode,
+): THREE.Material | THREE.Material[] {
+  const originals = Array.isArray(original) ? original : [original];
+  const next = originals.map((material) => createDisplayModeMaterial(material, mode));
+  return Array.isArray(original) ? next : next[0];
+}
+
+function disposeWireframeOverlay(overlay: THREE.Object3D | null | undefined) {
+  if (!overlay) {
+    return;
+  }
+  overlay.traverse((child: any) => {
+    child.geometry?.dispose?.();
+    if (Array.isArray(child.material)) {
+      child.material.forEach((entry: THREE.Material) => entry.dispose());
+    } else if (child.material) {
+      child.material.dispose();
+    }
+  });
+}
+
 interface StudioLights {
+  rig: THREE.Group;
   key: THREE.DirectionalLight;
   rim: THREE.DirectionalLight;
   fill: THREE.DirectionalLight;
+}
+
+const STUDIO_LIGHT_BASE = {
+  key: { intensity: 1.15, position: new THREE.Vector3(4.5, 8, 6) },
+  rim: { intensity: 0.7, position: new THREE.Vector3(-3, 6, -5) },
+  fill: { intensity: 0.35, position: new THREE.Vector3(2, 1, 4) },
+} as const;
+
+function applyStudioLightIntensity(lights: StudioLights, gain: number) {
+  const normalizedGain = THREE.MathUtils.clamp(gain, VIEWER_LIGHT_INTENSITY_MIN, VIEWER_LIGHT_INTENSITY_MAX);
+  lights.key.intensity = STUDIO_LIGHT_BASE.key.intensity * normalizedGain;
+  lights.rim.intensity = STUDIO_LIGHT_BASE.rim.intensity * normalizedGain;
+  lights.fill.intensity = STUDIO_LIGHT_BASE.fill.intensity * normalizedGain;
+}
+
+function applyStudioLightAngle(lights: StudioLights, angleDeg: number) {
+  const normalizedAngle = ((angleDeg % 360) + 360) % 360;
+  lights.rig.rotation.y = THREE.MathUtils.degToRad(normalizedAngle);
 }
 
 function createStudioLights(
@@ -125,28 +209,35 @@ function createStudioLights(
     castShadow?: boolean;
   } = {},
 ): StudioLights {
+  const rig = new THREE.Group();
+  scene.add(rig);
+
   // Key light — main directional, casts shadow
   const key = new THREE.DirectionalLight(0xfff8f0, keyIntensity);
-  key.position.set(4.5, 8, 6);
+  key.position.copy(STUDIO_LIGHT_BASE.key.position);
   key.castShadow = castShadow;
   key.shadow.mapSize.set(2048, 2048);
   key.shadow.camera.near = 0.5;
   key.shadow.camera.far = 60;
   key.shadow.radius = 3.5;
   key.shadow.bias = -0.00015;
-  scene.add(key);
+  rig.add(key);
 
   // Rim light — behind and above, silhouette highlight
   const rim = new THREE.DirectionalLight(0xc8deff, 0.7);
-  rim.position.set(-3, 6, -5);
-  scene.add(rim);
+  rim.position.copy(STUDIO_LIGHT_BASE.rim.position);
+  rig.add(rim);
 
   // Fill light — front-low, softens shadows
   const fill = new THREE.DirectionalLight(0xe8f0ff, 0.35);
-  fill.position.set(2, 1, 4);
-  scene.add(fill);
+  fill.position.copy(STUDIO_LIGHT_BASE.fill.position);
+  rig.add(fill);
 
-  return { key, rim, fill };
+  const lights = { rig, key, rim, fill };
+  applyStudioLightAngle(lights, VIEWER_LIGHT_ANGLE_DEFAULT);
+  const initialGain = keyIntensity / STUDIO_LIGHT_BASE.key.intensity;
+  applyStudioLightIntensity(lights, VIEWER_LIGHT_INTENSITY_DEFAULT * initialGain);
+  return lights;
 }
 
 function createEnvironmentMap(scene: THREE.Scene, renderer: THREE.WebGLRenderer) {
@@ -492,8 +583,9 @@ function createRenderer({
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.setSize(width, height, false);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
+  // ACES filmic tone mapping keeps highlights and PBR materials stable across display modes.
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.04;
+  renderer.toneMappingExposure = 1.0;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   return renderer;
@@ -776,10 +868,13 @@ export class Viewer3D {
   options: {
     backgroundCenter: string;
     backgroundEdge: string;
+    displayMode: ViewerDisplayMode;
     autoRotate: boolean;
     shadowFloor: boolean;
     showGrid: boolean;
     lightingEnabled: boolean;
+    lightIntensity: number;
+    lightAngle: number;
     gridPrimaryColor: string;
     gridSecondaryColor: string;
   };
@@ -797,8 +892,11 @@ export class Viewer3D {
   studioLights: StudioLights;
   environmentTexture: THREE.Texture | null;
   disposeEnvironment: (() => void) | null;
+  displayMode: ViewerDisplayMode;
   gridVisible: boolean;
   lightingEnabled: boolean;
+  lightIntensity: number;
+  lightAngle: number;
   frameHandle = 0;
   loadToken = 0;
   flyInProgress = 0;
@@ -824,10 +922,13 @@ export class Viewer3D {
     options: {
       backgroundCenter?: string;
       backgroundEdge?: string;
+      displayMode?: ViewerDisplayMode;
       autoRotate?: boolean;
       shadowFloor?: boolean;
       showGrid?: boolean;
       lightingEnabled?: boolean;
+      lightIntensity?: number;
+      lightAngle?: number;
       gridPrimaryColor?: string;
       gridSecondaryColor?: string;
     } = {},
@@ -836,10 +937,21 @@ export class Viewer3D {
     this.options = {
       backgroundCenter: options.backgroundCenter || DEFAULT_BACKGROUND,
       backgroundEdge: options.backgroundEdge || DEFAULT_BACKGROUND,
+      displayMode: options.displayMode || "texture",
       autoRotate: Boolean(options.autoRotate),
       shadowFloor: options.shadowFloor !== false,
       showGrid: Boolean(options.showGrid),
       lightingEnabled: options.lightingEnabled !== false,
+      lightIntensity: THREE.MathUtils.clamp(
+        options.lightIntensity ?? VIEWER_LIGHT_INTENSITY_DEFAULT,
+        VIEWER_LIGHT_INTENSITY_MIN,
+        VIEWER_LIGHT_INTENSITY_MAX,
+      ),
+      lightAngle: THREE.MathUtils.clamp(
+        options.lightAngle ?? VIEWER_LIGHT_ANGLE_DEFAULT,
+        VIEWER_LIGHT_ANGLE_MIN,
+        VIEWER_LIGHT_ANGLE_MAX,
+      ),
       gridPrimaryColor: options.gridPrimaryColor || "rgba(189, 200, 206, 0.3)",
       gridSecondaryColor: options.gridSecondaryColor || "rgba(8, 145, 178, 0.2)",
     };
@@ -860,12 +972,20 @@ export class Viewer3D {
     this.modelRoot = null;
     this.shadowFloor = this.options.shadowFloor ? createShadowFloor() : null;
     this.gridHelper = createGridHelper(this.options.gridPrimaryColor, this.options.gridSecondaryColor);
-    this.studioLights = { key: new THREE.DirectionalLight(), rim: new THREE.DirectionalLight(), fill: new THREE.DirectionalLight() };
+    this.studioLights = {
+      rig: new THREE.Group(),
+      key: new THREE.DirectionalLight(),
+      rim: new THREE.DirectionalLight(),
+      fill: new THREE.DirectionalLight(),
+    };
     this.contactShadow = createContactShadow();
     this.environmentTexture = null;
     this.disposeEnvironment = null;
+    this.displayMode = this.options.displayMode;
     this.gridVisible = this.options.showGrid;
     this.lightingEnabled = this.options.lightingEnabled;
+    this.lightIntensity = this.options.lightIntensity;
+    this.lightAngle = this.options.lightAngle;
 
     this.container.innerHTML = "";
     this.renderer.domElement.className = "size-full";
@@ -888,6 +1008,8 @@ export class Viewer3D {
     this.scene.add(this.contactShadow);
     this.scene.add(this.gridHelper);
     this.setLightingEnabled(this.lightingEnabled);
+    this.setLightIntensity(this.lightIntensity);
+    this.setLightAngle(this.lightAngle);
     this.setGridVisible(this.gridVisible);
     this.camera.position.set(2.5, 1.8, 2.5);
     this.controls.update();
@@ -1029,13 +1151,129 @@ export class Viewer3D {
     placeGridHelper(this.gridHelper, this.modelRoot);
   }
 
+  private addWireframeOverlay(mesh: THREE.Mesh) {
+    const current = mesh.userData[WIREFRAME_OVERLAY_KEY] as THREE.Object3D | undefined;
+    if (current) {
+      return;
+    }
+    const geometry = mesh.geometry as THREE.BufferGeometry | undefined;
+    if (!geometry) {
+      return;
+    }
+    const wireframeGeometry = new THREE.WireframeGeometry(geometry);
+    const wireframeMaterial = new THREE.LineBasicMaterial({
+      color: "#9199a8",
+      transparent: true,
+      opacity: 0.95,
+      depthWrite: false,
+      toneMapped: false,
+    });
+    const lines = new THREE.LineSegments(wireframeGeometry, wireframeMaterial);
+    lines.renderOrder = 8;
+    mesh.add(lines);
+    mesh.userData[WIREFRAME_OVERLAY_KEY] = lines;
+  }
+
+  private removeWireframeOverlay(mesh: THREE.Mesh) {
+    const overlay = mesh.userData[WIREFRAME_OVERLAY_KEY] as THREE.Object3D | undefined;
+    if (!overlay) {
+      return;
+    }
+    mesh.remove(overlay);
+    disposeWireframeOverlay(overlay);
+    delete mesh.userData[WIREFRAME_OVERLAY_KEY];
+  }
+
+  private restoreOriginalMaterials(root: THREE.Object3D, disposeOverrides = true) {
+    root.traverse((child: any) => {
+      if (!child.isMesh) {
+        return;
+      }
+      const mesh = child as THREE.Mesh;
+      this.removeWireframeOverlay(mesh);
+      const original = mesh.userData[ORIGINAL_MATERIAL_KEY] as THREE.Material | THREE.Material[] | undefined;
+      const override = mesh.userData[OVERRIDE_MATERIAL_KEY] as THREE.Material | THREE.Material[] | undefined;
+
+      if (original) {
+        mesh.material = original;
+      }
+      if (override && disposeOverrides) {
+        disposeMaterialSet(override);
+      }
+
+      delete mesh.userData[ORIGINAL_MATERIAL_KEY];
+      delete mesh.userData[OVERRIDE_MATERIAL_KEY];
+    });
+  }
+
+  private applyDisplayModeToModel() {
+    if (!this.modelRoot) {
+      return;
+    }
+    this.modelRoot.traverse((child: any) => {
+      if (!child.isMesh || !child.material) {
+        return;
+      }
+      const mesh = child as THREE.Mesh;
+      const original = (mesh.userData[ORIGINAL_MATERIAL_KEY] as THREE.Material | THREE.Material[] | undefined)
+        || (mesh.material as THREE.Material | THREE.Material[]);
+      mesh.userData[ORIGINAL_MATERIAL_KEY] = original;
+      this.removeWireframeOverlay(mesh);
+
+      const previousOverride = mesh.userData[OVERRIDE_MATERIAL_KEY] as THREE.Material | THREE.Material[] | undefined;
+      if (this.displayMode === "texture") {
+        mesh.material = original;
+        if (previousOverride) {
+          disposeMaterialSet(previousOverride);
+        }
+        delete mesh.userData[OVERRIDE_MATERIAL_KEY];
+        return;
+      }
+
+      const nextOverride = buildDisplayModeMaterial(original, this.displayMode);
+      mesh.material = nextOverride;
+      if (previousOverride) {
+        disposeMaterialSet(previousOverride);
+      }
+      mesh.userData[OVERRIDE_MATERIAL_KEY] = nextOverride;
+      if (this.displayMode === "wireframe") {
+        this.addWireframeOverlay(mesh);
+      }
+    });
+  }
+
+  setDisplayMode(mode: ViewerDisplayMode) {
+    const normalizedMode = (mode || "texture") as ViewerDisplayMode;
+    this.displayMode = normalizedMode;
+    this.options.displayMode = normalizedMode;
+    this.applyDisplayModeToModel();
+    this.setLightIntensity(this.lightIntensity);
+  }
+
+  setLightIntensity(factor: number) {
+    const normalizedFactor = THREE.MathUtils.clamp(factor, VIEWER_LIGHT_INTENSITY_MIN, VIEWER_LIGHT_INTENSITY_MAX);
+    this.lightIntensity = normalizedFactor;
+    this.options.lightIntensity = normalizedFactor;
+    const effectiveFactor = this.displayMode === "clay" ? normalizedFactor * 0.5 : normalizedFactor;
+    applyStudioLightIntensity(this.studioLights, effectiveFactor);
+  }
+
+  setLightAngle(degrees: number) {
+    const normalizedAngle = ((degrees % 360) + 360) % 360;
+    this.lightAngle = normalizedAngle;
+    this.options.lightAngle = normalizedAngle;
+    applyStudioLightAngle(this.studioLights, normalizedAngle);
+  }
+
   setLightingEnabled(enabled: boolean) {
     this.lightingEnabled = enabled;
-    this.studioLights.key.visible = enabled;
-    this.studioLights.rim.visible = enabled;
-    this.studioLights.fill.visible = enabled;
+    this.studioLights.rig.visible = enabled;
     this.scene.environment = enabled ? this.environmentTexture : null;
     this.renderer.toneMappingExposure = enabled ? 1.0 : 0.86;
+    if (enabled) {
+      this.setLightIntensity(this.lightIntensity);
+      this.setLightAngle(this.lightAngle);
+    }
     if (this.shadowFloor) {
       this.shadowFloor.visible = enabled && Boolean(this.modelRoot);
       if (enabled && this.modelRoot) {
@@ -1095,6 +1333,7 @@ export class Viewer3D {
       this.contactShadow.visible = false;
       return;
     }
+    this.restoreOriginalMaterials(this.modelRoot, true);
     this.scene.remove(this.modelRoot);
     disposeObject(this.modelRoot);
     this.modelRoot = null;
@@ -1132,6 +1371,7 @@ export class Viewer3D {
       }
       this.clearModel();
       this.modelRoot = root;
+      this.applyDisplayModeToModel();
 
       // Prepare fade-in: set all materials transparent at opacity 0
       this.fadeInMaterials = [];

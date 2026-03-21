@@ -362,7 +362,17 @@
         "materials": "Material projection",
         "packaging": "Export packaging"
       },
-      "uploadReady": "Reference image updated. This task will use your latest upload."
+      "uploadReady": "Reference image updated. This task will use your latest upload.",
+      "panel": {
+        "title": "Generation Setup",
+        "uploadLabel": "Reference Image",
+        "uploadHint": "Click or drop an image",
+        "clearImage": "Clear image",
+        "modelLabel": "Model",
+        "comingSoon": "More controls are coming soon: mode, text guidance, and advanced options.",
+        "generateButton": "Generate",
+        "cancelButton": "Cancel"
+      }
     },
     "gallery": {
       "title": "Generation History",
@@ -417,7 +427,32 @@
       "toolbar": {
         "orbit": "Toggle auto orbit",
         "grid": "Toggle grid",
-        "reset": "Reset view"
+        "reset": "Reset view",
+        "displayMode": {
+          "texture": "Texture",
+          "clay": "Clay",
+          "wireframe": "Wireframe"
+        },
+        "light": {
+          "button": "Light controls",
+          "title": "Lighting",
+          "intensity": "Intensity",
+          "angle": "Angle",
+          "reset": "Reset lights"
+        },
+        "background": {
+          "button": "Background presets",
+          "title": "Background",
+          "followTheme": "Follow theme",
+          "presets": {
+            "deepBlue": "Deep Blue",
+            "slate": "Slate",
+            "lightGray": "Light Gray",
+            "skyDawn": "Sky Dawn",
+            "sunsetGlow": "Sunset Glow",
+            "mistCloud": "Mist Cloud"
+          }
+        }
       },
       "actions": {
         "download": "Download Model",

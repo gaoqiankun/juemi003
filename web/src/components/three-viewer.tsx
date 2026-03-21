@@ -1,6 +1,12 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 
-import { Viewer3D, type ViewerModelStats } from "@/lib/viewer";
+import {
+  Viewer3D,
+  type ViewerDisplayMode,
+  type ViewerModelStats,
+  VIEWER_LIGHT_ANGLE_DEFAULT,
+  VIEWER_LIGHT_INTENSITY_DEFAULT,
+} from "@/lib/viewer";
 
 function getArtifactRequestHeaders(url?: string | null, baseUrl?: string, token?: string): Record<string, string> {
   if (!url || !baseUrl || !token) {
@@ -34,6 +40,9 @@ export const ThreeViewer = forwardRef<ThreeViewerHandle, {
   className?: string;
   autoRotate?: boolean;
   showGrid?: boolean;
+  displayMode?: ViewerDisplayMode;
+  lightIntensity?: number;
+  lightAngle?: number;
   gridPrimaryColor?: string;
   gridSecondaryColor?: string;
   onModelStatsChange?: (stats: ViewerModelStats | null) => void;
@@ -47,6 +56,9 @@ export const ThreeViewer = forwardRef<ThreeViewerHandle, {
   className = "",
   autoRotate = false,
   showGrid = false,
+  displayMode = "texture",
+  lightIntensity = VIEWER_LIGHT_INTENSITY_DEFAULT,
+  lightAngle = VIEWER_LIGHT_ANGLE_DEFAULT,
   gridPrimaryColor,
   gridSecondaryColor,
   onModelStatsChange,
@@ -69,6 +81,9 @@ export const ThreeViewer = forwardRef<ThreeViewerHandle, {
       shadowFloor: true,
       autoRotate,
       showGrid,
+      displayMode,
+      lightIntensity,
+      lightAngle,
       gridPrimaryColor,
       gridSecondaryColor,
     });
@@ -90,6 +105,18 @@ export const ThreeViewer = forwardRef<ThreeViewerHandle, {
   useEffect(() => {
     viewerRef.current?.setGridVisible(showGrid);
   }, [showGrid]);
+
+  useEffect(() => {
+    viewerRef.current?.setDisplayMode(displayMode);
+  }, [displayMode]);
+
+  useEffect(() => {
+    viewerRef.current?.setLightIntensity(lightIntensity);
+  }, [lightIntensity]);
+
+  useEffect(() => {
+    viewerRef.current?.setLightAngle(lightAngle);
+  }, [lightAngle]);
 
   useEffect(() => {
     viewerRef.current?.setGridColors(gridPrimaryColor, gridSecondaryColor);
