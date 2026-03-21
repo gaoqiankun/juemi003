@@ -20,14 +20,14 @@
 
 ## 当前状态（2026-03-21）
 
-后端测试基线：`python -m pytest tests -q` → **96 passed**
+后端测试基线：`python -m pytest tests -q` → **116 passed**
 
 ### v0.1 模块进度
 
 | 模块 | 状态 |
 |------|------|
 | M1 · 品牌 & 开源化基础 | ✅ 完成 |
-| M2 · Admin Panel（5页 双主题 i18n） | ✅ 完成 |
+| M2 · Admin Panel（5页 双主题 i18n） | ✅ 完成（真实化：全量 API + 前端接入） |
 | M2.5 · 用户侧页面 | ✅ 功能完成，UI 商业级打磨中 |
 | M3 · HunYuan3D Provider | ✅ 完成（mock + real，11 新测试） |
 | M4 · 安装体验（Pinokio + 脚本）| 🔲 待开始 |
@@ -90,10 +90,15 @@ pointer-events-none（外层禁止事件）
 |----------|------|
 | `AGENTS.md` | AI Coder 执行指南 |
 | `docs/PLAN.md` | 架构基线 |
-| `plan/` | 规划日志（78 个文件，最新 3/21） |
+| `plan/` | 规划日志（79 个文件，最新 3/21） |
 | `config.py` / `serve.py` | 后端入口 |
 | `api/` / `engine/` / `model/` / `stages/` | 后端核心 |
-| `web/src/pages/` | 前端页面（generate/gallery/viewer/setup） |
+| `storage/model_store.py` | 模型定义 CRUD（model_definitions 表） |
+| `storage/settings_store.py` | 系统设置持久化（system_settings 表） |
+| `storage/task_store.py` | 任务存储 + 聚合统计 |
+| `storage/api_key_store.py` | API Key CRUD + 使用量追踪 |
+| `web/src/lib/admin-api.ts` | Admin API client |
+| `web/src/pages/` | 前端页面（generate/gallery/viewer/setup + 5 个 admin 页） |
 | `web/src/components/model-viewport.tsx` | 模型查看器+工具栏 |
 | `web/src/lib/viewer.ts` | Three.js 渲染器 |
 | `web/src/styles/tokens.css` | 设计 token（CSS 变量） |

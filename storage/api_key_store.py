@@ -35,6 +35,8 @@ class ApiKeyStore:
         self._database_path.parent.mkdir(parents=True, exist_ok=True)
         self._db = await aiosqlite.connect(self._database_path)
         self._db.row_factory = aiosqlite.Row
+        await self._db.execute("PRAGMA journal_mode=WAL")
+        await self._db.execute("PRAGMA busy_timeout=5000")
         await self._db.execute(
             """
             CREATE TABLE IF NOT EXISTS api_keys (
@@ -53,6 +55,14 @@ class ApiKeyStore:
             f"TEXT NOT NULL DEFAULT '{USER_KEY_SCOPE}'",
         )
         await self._ensure_column("allowed_ips", "TEXT")
+        for col_sql in [
+            "ALTER TABLE api_keys ADD COLUMN last_used_at TEXT",
+            "ALTER TABLE api_keys ADD COLUMN request_count INTEGER NOT NULL DEFAULT 0",
+        ]:
+            try:
+                await self._db.execute(col_sql)
+            except Exception:
+                pass  # column already exists
         await self._db.execute(
             "UPDATE api_keys SET scope = ? WHERE scope IS NULL OR TRIM(scope) = ''",
             (USER_KEY_SCOPE,),
@@ -158,7 +168,7 @@ class ApiKeyStore:
         db = self._require_db()
         cursor = await db.execute(
             """
-            SELECT key_id, label, scope, allowed_ips, created_at, is_active
+            SELECT key_id, label, scope, allowed_ips, created_at, is_active, last_used_at, request_count
             FROM api_keys
             WHERE scope = ?
             ORDER BY created_at DESC, key_id DESC
@@ -174,7 +184,7 @@ class ApiKeyStore:
         db = self._require_db()
         cursor = await db.execute(
             """
-            SELECT key_id, label, scope, allowed_ips, created_at, is_active
+            SELECT key_id, label, scope, allowed_ips, created_at, is_active, last_used_at, request_count
             FROM api_keys
             WHERE scope != ?
             ORDER BY created_at DESC, key_id DESC
@@ -221,7 +231,7 @@ class ApiKeyStore:
         db = self._require_db()
         cursor = await db.execute(
             """
-            SELECT key_id, label, scope, allowed_ips, created_at, is_active
+            SELECT key_id, label, scope, allowed_ips, created_at, is_active, last_used_at, request_count
             FROM api_keys
             WHERE key_id = ? AND scope = ?
             """,
@@ -246,7 +256,7 @@ class ApiKeyStore:
 
         db = self._require_db()
         query = (
-            "SELECT key_id, token, label, scope, allowed_ips, created_at, is_active "
+            "SELECT key_id, token, label, scope, allowed_ips, created_at, is_active, last_used_at, request_count "
             "FROM api_keys WHERE is_active = 1"
         )
         parameters: tuple[str, ...] = ()
@@ -259,6 +269,33 @@ class ApiKeyStore:
             if secrets.compare_digest(normalized_token, str(row["token"])):
                 return self._serialize_row(row)
         return None
+
+    async def record_usage(self, key_id: str) -> None:
+        db = self._require_db()
+        async with self._lock:
+            await db.execute(
+                "UPDATE api_keys SET request_count = request_count + 1, last_used_at = ? WHERE key_id = ?",
+                (_utcnow_iso(), key_id),
+            )
+            await db.commit()
+
+    async def get_usage_stats(self) -> dict:
+        db = self._require_db()
+        cursor = await db.execute(
+            """
+            SELECT
+                COUNT(*) AS total_keys,
+                COUNT(CASE WHEN is_active = 1 THEN 1 END) AS active_keys,
+                COALESCE(SUM(request_count), 0) AS total_requests
+            FROM api_keys
+            """
+        )
+        row = await cursor.fetchone()
+        return {
+            "total_keys": row["total_keys"],
+            "active_keys": row["active_keys"],
+            "total_requests": row["total_requests"],
+        }
 
     async def _ensure_column(self, column_name: str, ddl: str) -> None:
         db = self._require_db()
@@ -276,9 +313,9 @@ class ApiKeyStore:
     @staticmethod
     def _serialize_row(
         row: aiosqlite.Row,
-    ) -> dict[str, str | bool | list[str] | None]:
+    ) -> dict[str, str | bool | int | list[str] | None]:
         allowed_ips = _deserialize_allowed_ips(row["allowed_ips"])
-        return {
+        result: dict[str, str | bool | int | list[str] | None] = {
             "key_id": str(row["key_id"]),
             "label": str(row["label"]),
             "scope": str(row["scope"]),
@@ -286,6 +323,13 @@ class ApiKeyStore:
             "created_at": str(row["created_at"]),
             "is_active": bool(row["is_active"]),
         }
+        # Include usage fields when present in the row
+        try:
+            result["last_used_at"] = row["last_used_at"]
+            result["request_count"] = int(row["request_count"])
+        except (IndexError, KeyError):
+            pass
+        return result
 
 
 def _normalize_scope(raw: str) -> str:

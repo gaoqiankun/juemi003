@@ -8,7 +8,13 @@ from typing import Any
 
 import aiosqlite
 
-from gen3d.engine.sequence import RequestSequence, TaskStatus, TaskType, utcnow
+from gen3d.engine.sequence import (
+    TERMINAL_STATUSES,
+    RequestSequence,
+    TaskStatus,
+    TaskType,
+    utcnow,
+)
 from gen3d.pagination import CursorPageResult, normalize_cursor_page_limit
 
 
@@ -48,6 +54,7 @@ class TaskStore:
         await self._db.execute("PRAGMA journal_mode=WAL")
         await self._db.execute("PRAGMA synchronous=NORMAL")
         await self._db.execute("PRAGMA temp_store=MEMORY")
+        await self._db.execute("PRAGMA busy_timeout=5000")
         await self._db.execute(
             """
             CREATE TABLE IF NOT EXISTS tasks (
@@ -702,6 +709,112 @@ class TaskStore:
             )
             await db.commit()
             return cursor.rowcount > 0
+
+    async def count_tasks_by_status(self) -> dict[str, int]:
+        db = self._require_db()
+        result: dict[str, int] = {s.value: 0 for s in TaskStatus}
+        cursor = await db.execute(
+            """
+            SELECT status, COUNT(*) AS cnt
+            FROM tasks
+            WHERE deleted_at IS NULL
+            GROUP BY status
+            """
+        )
+        rows = await cursor.fetchall()
+        for row in rows:
+            result[str(row["status"])] = int(row["cnt"])
+        return result
+
+    async def get_recent_tasks(self, limit: int = 10) -> list[dict]:
+        db = self._require_db()
+        clamped = max(1, min(limit, 50))
+        cursor = await db.execute(
+            """
+            SELECT id, status, model, input_url, progress, current_stage,
+                   created_at, started_at, completed_at, key_id, error_message
+            FROM tasks
+            WHERE deleted_at IS NULL
+            ORDER BY created_at DESC
+            LIMIT ?
+            """,
+            (clamped,),
+        )
+        rows = await cursor.fetchall()
+        return [
+            {
+                "id": row["id"],
+                "status": row["status"],
+                "model": row["model"],
+                "input_url": row["input_url"],
+                "progress": int(row["progress"]),
+                "current_stage": row["current_stage"],
+                "created_at": row["created_at"],
+                "started_at": row["started_at"],
+                "completed_at": row["completed_at"],
+                "key_id": row["key_id"],
+                "error_message": row["error_message"],
+            }
+            for row in rows
+        ]
+
+    async def get_throughput_stats(self, hours: int = 1) -> dict:
+        db = self._require_db()
+        safe_hours = max(1, int(hours))
+        from datetime import timedelta
+
+        cutoff = _serialize_datetime(utcnow() - timedelta(hours=safe_hours))
+        cursor = await db.execute(
+            """
+            SELECT
+                SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) AS completed_count,
+                SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) AS failed_count,
+                AVG(
+                    CASE WHEN status = ? AND started_at IS NOT NULL
+                    THEN (julianday(completed_at) - julianday(started_at)) * 86400
+                    ELSE NULL END
+                ) AS avg_duration_seconds
+            FROM tasks
+            WHERE deleted_at IS NULL
+              AND completed_at IS NOT NULL
+              AND status IN (?, ?)
+              AND completed_at >= ?
+            """,
+            (
+                TaskStatus.SUCCEEDED.value,
+                TaskStatus.FAILED.value,
+                TaskStatus.SUCCEEDED.value,
+                TaskStatus.SUCCEEDED.value,
+                TaskStatus.FAILED.value,
+                cutoff,
+            ),
+        )
+        row = await cursor.fetchone()
+        return {
+            "completed_count": int(row["completed_count"] or 0) if row else 0,
+            "failed_count": int(row["failed_count"] or 0) if row else 0,
+            "avg_duration_seconds": (
+                float(row["avg_duration_seconds"])
+                if row and row["avg_duration_seconds"] is not None
+                else None
+            ),
+        }
+
+    async def get_active_task_count(self) -> int:
+        db = self._require_db()
+        terminal_values = tuple(s.value for s in TERMINAL_STATUSES)
+        placeholders = ", ".join("?" for _ in terminal_values)
+        cursor = await db.execute(
+            f"""
+            SELECT COUNT(*) AS c
+            FROM tasks
+            WHERE deleted_at IS NULL
+              AND status NOT IN ({placeholders})
+            """,
+            terminal_values,
+        )
+        row = await cursor.fetchone()
+        return int(row["c"] if row else 0)
 
     def _require_db(self) -> aiosqlite.Connection:
         if self._db is None:

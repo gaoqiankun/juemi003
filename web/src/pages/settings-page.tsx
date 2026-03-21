@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { SettingsData } from "@/data/admin-mocks";
@@ -7,11 +7,22 @@ import { useSettingsData } from "@/hooks/use-settings-data";
 
 export function SettingsPage() {
   const { t } = useTranslation();
-  const source = useSettingsData();
-  const [settings, setSettings] = useState<SettingsData>(source);
+  const { data: source, loading, error } = useSettingsData();
+  const [settings, setSettings] = useState<SettingsData | null>(null);
+
+  useEffect(() => {
+    if (source) {
+      setSettings(source);
+    }
+  }, [source]);
+
+  if (loading) return <div className="flex items-center justify-center h-full"><span className="text-text-secondary">Loading...</span></div>;
+  if (error || !settings) return <div className="flex items-center justify-center h-full text-red-500">{error || "Failed to load"}</div>;
 
   const updateField = (sectionKey: string, fieldKey: string, value: boolean | number | string) => {
-    setSettings((current) => ({
+    setSettings((current) => {
+      if (!current) return current;
+      return {
       sections: current.sections.map((section) => (
         section.key !== sectionKey
           ? section
@@ -22,7 +33,8 @@ export function SettingsPage() {
             )),
           }
       )),
-    }));
+    };
+    });
   };
 
   return (

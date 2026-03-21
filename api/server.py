@@ -78,7 +78,35 @@ from gen3d.storage.api_key_store import (
     TASK_VIEWER_SCOPE,
     USER_KEY_SCOPE,
 )
+from gen3d.storage.model_store import ModelStore
+from gen3d.storage.settings_store import SettingsStore
 from gen3d.storage.task_store import TaskStore
+
+_TASK_STATUS_MAP: dict[str, str] = {
+    "queued": "queued",
+    "preprocessing": "queued",
+    "gpu_queued": "queued",
+    "gpu_ss": "live",
+    "gpu_shape": "live",
+    "gpu_material": "live",
+    "exporting": "live",
+    "uploading": "live",
+    "succeeded": "completed",
+    "failed": "failed",
+    "cancelled": "failed",
+}
+
+
+def _map_task_status(backend_status: str) -> str:
+    return _TASK_STATUS_MAP.get(backend_status, "queued")
+
+
+async def _safe_record_usage(api_key_store: ApiKeyStore, key_id: str) -> None:
+    try:
+        await api_key_store.record_usage(key_id)
+    except Exception:
+        pass
+
 
 WEB_DIST_DIR = Path(__file__).resolve().parents[1] / "web" / "dist"
 SPA_INDEX_PATH = WEB_DIST_DIR / "index.html"
@@ -115,6 +143,8 @@ class AppContainer:
     model_registry: ModelRegistry
     pipeline: PipelineCoordinator
     engine: AsyncGen3DEngine
+    model_store: ModelStore
+    settings_store: SettingsStore
 
 
 class SPAStaticFiles(StaticFiles):
@@ -447,6 +477,8 @@ def create_app(
     validate_runtime_security_config(config)
     task_store = TaskStore(config.database_path)
     api_key_store = ApiKeyStore(config.database_path)
+    model_store = ModelStore(config.database_path)
+    settings_store = SettingsStore(config.database_path)
     artifact_store = build_artifact_store(config)
     preview_renderer_service = preview_renderer_service or PreviewRendererService()
     model_registry = ModelRegistry(lambda model_name: build_model_runtime(config, model_name))
@@ -509,6 +541,8 @@ def create_app(
         model_registry=model_registry,
         pipeline=pipeline,
         engine=engine,
+        model_store=model_store,
+        settings_store=settings_store,
     )
     proxy_client: httpx.AsyncClient | None = None
 
@@ -519,6 +553,8 @@ def create_app(
         config.uploads_dir.mkdir(parents=True, exist_ok=True)
         await container.task_store.initialize()
         await container.api_key_store.initialize()
+        await container.model_store.initialize()
+        await container.settings_store.initialize()
         await artifact_store.initialize()
         await preview_renderer_service.start()
         if config.dev_proxy_target is not None:
@@ -532,6 +568,8 @@ def create_app(
         await preview_renderer_service.stop()
         if proxy_client is not None:
             await proxy_client.aclose()
+        await container.settings_store.close()
+        await container.model_store.close()
         await container.api_key_store.close()
         await container.task_store.close()
 
@@ -834,6 +872,7 @@ def create_app(
         response.status_code = (
             status.HTTP_201_CREATED if created else status.HTTP_200_OK
         )
+        asyncio.create_task(_safe_record_usage(app_container.api_key_store, key_id))
         return TaskCreateResponse.from_sequence(sequence)
 
     @app.get(
@@ -1095,6 +1134,326 @@ def create_app(
             media_type=content_type,
             background=background,
         )
+
+    # ------------------------------------------------------------------
+    # Admin panel endpoints
+    # ------------------------------------------------------------------
+
+    @app.get(
+        "/api/admin/dashboard",
+        dependencies=[Depends(require_admin_token)],
+    )
+    async def get_dashboard(
+        app_container: AppContainer = Depends(get_container),
+    ) -> dict:
+        task_counts = await app_container.task_store.count_tasks_by_status()
+        recent = await app_container.task_store.get_recent_tasks(limit=10)
+        throughput = await app_container.task_store.get_throughput_stats(hours=1)
+        active = await app_container.task_store.get_active_task_count()
+
+        stats = [
+            {"key": "activeTasks", "value": active, "change": ""},
+            {
+                "key": "queued",
+                "value": task_counts.get("queued", 0) + task_counts.get("gpu_queued", 0),
+                "change": "",
+            },
+            {"key": "completed", "value": task_counts.get("succeeded", 0), "change": ""},
+            {"key": "failed", "value": task_counts.get("failed", 0), "change": ""},
+        ]
+
+        gpu = {
+            "model": "N/A",
+            "utilization": 0,
+            "vramUsedGb": 0,
+            "vramTotalGb": 0,
+            "temperatureC": 0,
+            "powerW": 0,
+            "fanPercent": 0,
+            "cudaVersion": "",
+            "driverVersion": "",
+            "activeJobs": active,
+            "avgLatencySeconds": throughput.get("avg_duration_seconds") or 0,
+        }
+
+        recent_tasks = [
+            {
+                "id": t["id"],
+                "subjectKey": "",
+                "model": t.get("model", ""),
+                "status": _map_task_status(t["status"]),
+                "durationSeconds": 0,
+                "createdAt": t.get("created_at", ""),
+                "owner": t.get("key_id", ""),
+            }
+            for t in recent
+        ]
+
+        return {
+            "stats": stats,
+            "gpu": gpu,
+            "recentTasks": recent_tasks,
+            "nodes": [],
+            "workers": [],
+        }
+
+    @app.get(
+        "/api/admin/tasks/stats",
+        dependencies=[Depends(require_admin_token)],
+    )
+    async def get_tasks_stats(
+        app_container: AppContainer = Depends(get_container),
+    ) -> dict:
+        counts = await app_container.task_store.count_tasks_by_status()
+        throughput = await app_container.task_store.get_throughput_stats(hours=1)
+        active = await app_container.task_store.get_active_task_count()
+
+        overview = [
+            {
+                "key": "throughput",
+                "value": throughput.get("completed_count", 0),
+                "unit": "/h",
+                "change": "",
+            },
+            {
+                "key": "latency",
+                "value": throughput.get("avg_duration_seconds") or 0,
+                "unit": "s",
+                "change": "",
+            },
+            {"key": "active", "value": active, "change": ""},
+        ]
+        return {"overview": overview, "countByStatus": counts}
+
+    @app.get(
+        "/api/admin/models",
+        dependencies=[Depends(require_admin_token)],
+    )
+    async def list_models(
+        app_container: AppContainer = Depends(get_container),
+    ) -> dict:
+        models = await app_container.model_store.list_models()
+        for m in models:
+            try:
+                state = (
+                    app_container.model_registry.get_state(m["id"])
+                    if hasattr(app_container.model_registry, "get_state")
+                    else "unknown"
+                )
+            except Exception:
+                state = "unknown"
+            m["runtimeState"] = state
+
+        enabled = sum(1 for m in models if m.get("is_enabled"))
+        return {
+            "models": models,
+            "summary": {
+                "total": len(models),
+                "enabled": enabled,
+                "disabled": len(models) - enabled,
+            },
+        }
+
+    @app.post(
+        "/api/admin/models",
+        status_code=status.HTTP_201_CREATED,
+        dependencies=[Depends(require_admin_token)],
+    )
+    async def create_model(
+        payload: dict,
+        app_container: AppContainer = Depends(get_container),
+    ) -> dict:
+        try:
+            model = await app_container.model_store.create_model(
+                id=payload["id"],
+                provider_type=payload["providerType"],
+                display_name=payload["displayName"],
+                model_path=payload["modelPath"],
+                min_vram_mb=payload.get("minVramMb", 24000),
+                config=payload.get("config"),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return model
+
+    @app.get(
+        "/api/admin/models/{model_id}",
+        dependencies=[Depends(require_admin_token)],
+    )
+    async def get_model(
+        model_id: str,
+        app_container: AppContainer = Depends(get_container),
+    ) -> dict:
+        model = await app_container.model_store.get_model(model_id)
+        if model is None:
+            raise HTTPException(status_code=404, detail="model not found")
+        return model
+
+    @app.patch(
+        "/api/admin/models/{model_id}",
+        dependencies=[Depends(require_admin_token)],
+    )
+    async def update_model(
+        model_id: str,
+        payload: dict,
+        app_container: AppContainer = Depends(get_container),
+    ) -> dict:
+        field_map = {
+            "isEnabled": "is_enabled",
+            "isDefault": "is_default",
+            "displayName": "display_name",
+            "modelPath": "model_path",
+            "minVramMb": "min_vram_mb",
+            "config": "config",
+        }
+        updates = {}
+        for camel, snake in field_map.items():
+            if camel in payload:
+                updates[snake] = payload[camel]
+        try:
+            model = await app_container.model_store.update_model(model_id, **updates)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        if model is None:
+            raise HTTPException(status_code=404, detail="model not found")
+        return model
+
+    @app.delete(
+        "/api/admin/models/{model_id}",
+        dependencies=[Depends(require_admin_token)],
+    )
+    async def delete_model(
+        model_id: str,
+        app_container: AppContainer = Depends(get_container),
+    ) -> dict:
+        deleted = await app_container.model_store.delete_model(model_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="model not found")
+        return {"ok": True}
+
+    @app.get(
+        "/api/admin/keys/stats",
+        dependencies=[Depends(require_admin_token)],
+    )
+    async def get_keys_stats(
+        app_container: AppContainer = Depends(get_container),
+    ) -> dict:
+        stats = await app_container.api_key_store.get_usage_stats()
+        return stats
+
+    @app.get(
+        "/api/admin/settings",
+        dependencies=[Depends(require_admin_token)],
+    )
+    async def get_settings(
+        app_container: AppContainer = Depends(get_container),
+    ) -> dict:
+        db_settings = await app_container.settings_store.get_all()
+        cfg = app_container.config
+
+        sections = [
+            {
+                "key": "generation",
+                "titleKey": "settings.sections.generation.title",
+                "descriptionKey": "settings.sections.generation.description",
+                "fields": [
+                    {
+                        "key": "defaultProvider",
+                        "labelKey": "settings.fields.defaultProvider.label",
+                        "descriptionKey": "settings.fields.defaultProvider.description",
+                        "type": "select",
+                        "value": db_settings.get("defaultProvider", cfg.model_provider),
+                        "options": [
+                            {"value": "trellis2", "labelKey": "settings.options.trellisLarge"},
+                            {"value": "hunyuan3d", "labelKey": "settings.options.hunyuan"},
+                        ],
+                    },
+                    {
+                        "key": "maxParallelJobs",
+                        "labelKey": "settings.fields.maxParallelJobs.label",
+                        "descriptionKey": "settings.fields.maxParallelJobs.description",
+                        "type": "number",
+                        "value": db_settings.get(
+                            "maxParallelJobs", len(cfg.gpu_device_ids)
+                        ),
+                        "suffix": "GPU",
+                    },
+                    {
+                        "key": "queueMaxSize",
+                        "labelKey": "settings.fields.queueMaxSize.label",
+                        "descriptionKey": "settings.fields.queueMaxSize.description",
+                        "type": "number",
+                        "value": db_settings.get("queueMaxSize", cfg.queue_max_size),
+                    },
+                    {
+                        "key": "rateLimitPerHour",
+                        "labelKey": "settings.fields.rateLimitPerHour.label",
+                        "descriptionKey": "settings.fields.rateLimitPerHour.description",
+                        "type": "number",
+                        "value": db_settings.get(
+                            "rateLimitPerHour", cfg.rate_limit_per_hour
+                        ),
+                        "suffix": "req/h",
+                    },
+                    {
+                        "key": "rateLimitConcurrent",
+                        "labelKey": "settings.fields.rateLimitConcurrent.label",
+                        "descriptionKey": "settings.fields.rateLimitConcurrent.description",
+                        "type": "number",
+                        "value": db_settings.get(
+                            "rateLimitConcurrent", cfg.rate_limit_concurrent
+                        ),
+                        "suffix": "jobs",
+                    },
+                ],
+            },
+            {
+                "key": "storage",
+                "titleKey": "settings.sections.storage.title",
+                "descriptionKey": "settings.sections.storage.description",
+                "fields": [
+                    {
+                        "key": "artifactStoreMode",
+                        "labelKey": "settings.fields.artifactBackend.label",
+                        "descriptionKey": "settings.fields.artifactBackend.description",
+                        "type": "text",
+                        "value": cfg.artifact_store_mode,
+                        "readonly": True,
+                    },
+                    {
+                        "key": "artifactsDir",
+                        "labelKey": "settings.fields.artifactPrefix.label",
+                        "descriptionKey": "settings.fields.artifactPrefix.description",
+                        "type": "text",
+                        "value": str(cfg.artifacts_dir),
+                        "readonly": True,
+                    },
+                ],
+            },
+        ]
+        return {"sections": sections}
+
+    @app.patch(
+        "/api/admin/settings",
+        dependencies=[Depends(require_admin_token)],
+    )
+    async def update_settings(
+        payload: dict,
+        app_container: AppContainer = Depends(get_container),
+    ) -> dict:
+        allowed_keys = {
+            "rateLimitPerHour",
+            "rateLimitConcurrent",
+            "queueMaxSize",
+            "defaultProvider",
+        }
+        updates = {k: v for k, v in payload.items() if k in allowed_keys}
+        if not updates:
+            raise HTTPException(
+                status_code=422, detail="no updatable settings provided"
+            )
+        await app_container.settings_store.set_many(updates)
+        return {"ok": True, "updated": list(updates.keys())}
 
     @app.get("/", include_in_schema=False)
     async def spa_root() -> Response:

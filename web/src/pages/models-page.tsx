@@ -18,7 +18,12 @@ const eyebrowClassName = "font-display text-[0.6875rem] font-semibold uppercase 
 export function ModelsPage() {
   const { t, i18n } = useTranslation();
   const locale = (i18n.resolvedLanguage === "zh-CN" ? "zh-CN" : "en") as AdminLocale;
-  const { models, summary } = useModelsData();
+  const { data, loading, error } = useModelsData();
+
+  if (loading) return <div className="flex items-center justify-center h-full"><span className="text-text-secondary">Loading...</span></div>;
+  if (error || !data) return <div className="flex items-center justify-center h-full text-red-500">{error || "Failed to load"}</div>;
+
+  const { models, summary } = data;
 
   return (
     <div className="grid gap-6">

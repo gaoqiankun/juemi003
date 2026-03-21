@@ -25,9 +25,14 @@ const tableCellClassName = "bg-surface-container-lowest px-4 py-3 align-top text
 export function TasksPage() {
   const { t, i18n } = useTranslation();
   const locale = (i18n.resolvedLanguage === "zh-CN" ? "zh-CN" : "en") as AdminLocale;
-  const { overview, tasks, logs } = useTasksData();
+  const { data, loading, error } = useTasksData();
   const [filter, setFilter] = useState<TaskStatus | "all">("all");
   const [search, setSearch] = useState("");
+
+  if (loading) return <div className="flex items-center justify-center h-full"><span className="text-text-secondary">Loading...</span></div>;
+  if (error || !data) return <div className="flex items-center justify-center h-full text-red-500">{error || "Failed to load"}</div>;
+
+  const { overview, tasks, logs } = data;
   const deferredSearch = useDeferredValue(search.trim().toLowerCase());
 
   const filteredTasks = tasks.filter((task) => {
