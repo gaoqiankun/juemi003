@@ -2,8 +2,16 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
+import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 
 import { sleep } from "@/lib/utils";
+
+function easeOutCubic(t: number) {
+  return 1 - (1 - t) ** 3;
+}
 
 const DEFAULT_BACKGROUND = "#2a2a2a";
 const THUMBNAIL_BACKGROUND = "#2a2a2a";
@@ -101,25 +109,44 @@ function disposeObject(root: THREE.Object3D | null) {
   });
 }
 
-function createShadowKeyLight(
+interface StudioLights {
+  key: THREE.DirectionalLight;
+  rim: THREE.DirectionalLight;
+  fill: THREE.DirectionalLight;
+}
+
+function createStudioLights(
   scene: THREE.Scene,
   {
-    keyIntensity = 1.25,
+    keyIntensity = 1.15,
     castShadow = true,
   }: {
     keyIntensity?: number;
     castShadow?: boolean;
   } = {},
-) {
-  const key = new THREE.DirectionalLight(0xffffff, keyIntensity);
-  key.position.set(4.5, 9.5, 7.5);
+): StudioLights {
+  // Key light — main directional, casts shadow
+  const key = new THREE.DirectionalLight(0xfff8f0, keyIntensity);
+  key.position.set(4.5, 8, 6);
   key.castShadow = castShadow;
   key.shadow.mapSize.set(2048, 2048);
   key.shadow.camera.near = 0.5;
   key.shadow.camera.far = 60;
-  key.shadow.bias = -0.00012;
+  key.shadow.radius = 3.5;
+  key.shadow.bias = -0.00015;
   scene.add(key);
-  return key;
+
+  // Rim light — behind and above, silhouette highlight
+  const rim = new THREE.DirectionalLight(0xc8deff, 0.7);
+  rim.position.set(-3, 6, -5);
+  scene.add(rim);
+
+  // Fill light — front-low, softens shadows
+  const fill = new THREE.DirectionalLight(0xe8f0ff, 0.35);
+  fill.position.set(2, 1, 4);
+  scene.add(fill);
+
+  return { key, rim, fill };
 }
 
 function createEnvironmentMap(scene: THREE.Scene, renderer: THREE.WebGLRenderer) {
@@ -127,15 +154,17 @@ function createEnvironmentMap(scene: THREE.Scene, renderer: THREE.WebGLRenderer)
   pmremGenerator.compileCubemapShader();
 
   const roomEnvironment = new RoomEnvironment();
-  const accentLights = [
-    { color: "#7ad4ff", intensity: 50 },
-    { color: "#8ce8ff", intensity: 50 },
-    { color: "#f8c96a", intensity: 18 },
-    { color: "#7f8eff", intensity: 43 },
-    { color: "#ff9b72", intensity: 22 },
-    { color: "#ffffff", intensity: 100 },
+  // Studio-tuned panel colors: neutral whites with subtle warm/cool accents
+  // for clean reflections on metallic and glossy materials
+  const panelColors = [
+    { color: "#e0eaff", intensity: 55 },  // cool top
+    { color: "#d8e8ff", intensity: 50 },  // cool side
+    { color: "#fff4e6", intensity: 28 },  // warm accent
+    { color: "#c8d8f0", intensity: 40 },  // neutral
+    { color: "#ffe8d8", intensity: 20 },  // warm accent
+    { color: "#f0f0f0", intensity: 90 },  // ground bounce
   ];
-  let accentIndex = 0;
+  let panelIndex = 0;
 
   roomEnvironment.traverse((object: THREE.Object3D) => {
     if (!(object as THREE.Mesh).isMesh) {
@@ -145,12 +174,12 @@ function createEnvironmentMap(scene: THREE.Scene, renderer: THREE.WebGLRenderer)
     if (!(material instanceof THREE.MeshBasicMaterial)) {
       return;
     }
-    const preset = accentLights[Math.min(accentIndex, accentLights.length - 1)];
+    const preset = panelColors[Math.min(panelIndex, panelColors.length - 1)];
     material.color.set(preset.color).multiplyScalar(preset.intensity);
-    accentIndex += 1;
+    panelIndex += 1;
   });
 
-  const envMap = pmremGenerator.fromScene(roomEnvironment, 0.05).texture;
+  const envMap = pmremGenerator.fromScene(roomEnvironment, 0.04).texture;
   scene.environment = envMap;
 
   return {
@@ -169,13 +198,50 @@ function createShadowFloor() {
     new THREE.PlaneGeometry(1, 1),
     new THREE.ShadowMaterial({
       color: 0x000000,
-      opacity: 0.26,
+      opacity: 0.18,
     }),
   );
   floor.rotation.x = -Math.PI / 2;
   floor.receiveShadow = true;
   floor.visible = false;
   return floor;
+}
+
+function createContactShadow() {
+  const size = 128;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d")!;
+  const gradient = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  gradient.addColorStop(0, "rgba(0,0,0,0.22)");
+  gradient.addColorStop(0.4, "rgba(0,0,0,0.12)");
+  gradient.addColorStop(0.7, "rgba(0,0,0,0.04)");
+  gradient.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, size, size);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  const mesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(1, 1),
+    new THREE.MeshBasicMaterial({
+      map: texture,
+      transparent: true,
+      depthWrite: false,
+    }),
+  );
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.visible = false;
+  return mesh;
+}
+
+function placeContactShadow(shadow: THREE.Mesh, object: THREE.Object3D) {
+  const { center, maxDim } = getObjectBounds(object);
+  const box = new THREE.Box3().setFromObject(object);
+  const spread = maxDim * 1.6;
+  shadow.scale.set(spread, spread, 1);
+  shadow.position.set(center.x, box.min.y - 0.002, center.z);
+  shadow.visible = true;
 }
 
 function placeShadowFloor(floor: THREE.Mesh, object: THREE.Object3D) {
@@ -473,14 +539,14 @@ async function loadScene(
           materials.forEach((material: any) => {
             material.side = THREE.FrontSide;
             if (typeof material.envMapIntensity === "number") {
-              material.envMapIntensity = Math.max(material.envMapIntensity, 1.75);
+              material.envMapIntensity = Math.max(material.envMapIntensity, 1.4);
             }
             if (material.isMeshStandardMaterial || material.isMeshPhysicalMaterial) {
               if (typeof material.roughness === "number") {
-                material.roughness = Math.min(material.roughness, 0.58);
+                material.roughness = Math.min(material.roughness, 0.65);
               }
               if (typeof material.metalness === "number") {
-                material.metalness = Math.max(material.metalness, 0.12);
+                material.metalness = Math.max(material.metalness, 0.08);
               }
             }
             material.needsUpdate = true;
@@ -576,17 +642,25 @@ export class Viewer3D {
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
   renderer: THREE.WebGLRenderer;
+  composer: EffectComposer;
+  bloomPass: UnrealBloomPass;
   controls: OrbitControls;
   modelRoot: THREE.Object3D | null;
   shadowFloor: THREE.Mesh | null;
+  contactShadow: THREE.Mesh;
   gridHelper: THREE.GridHelper;
-  keyLight: THREE.DirectionalLight;
+  studioLights: StudioLights;
   environmentTexture: THREE.Texture | null;
   disposeEnvironment: (() => void) | null;
   gridVisible: boolean;
   lightingEnabled: boolean;
   frameHandle = 0;
   loadToken = 0;
+  flyInProgress = 0;
+  flyInFrom: THREE.Vector3 | null = null;
+  flyInTo: THREE.Vector3 | null = null;
+  fadeInProgress = 0;
+  fadeInMaterials: THREE.Material[] = [];
   overlay: HTMLDivElement;
   resizeObserver: ResizeObserver;
 
@@ -631,7 +705,8 @@ export class Viewer3D {
     this.modelRoot = null;
     this.shadowFloor = this.options.shadowFloor ? createShadowFloor() : null;
     this.gridHelper = createGridHelper(this.options.gridPrimaryColor, this.options.gridSecondaryColor);
-    this.keyLight = new THREE.DirectionalLight(0xffffff, 1.25);
+    this.studioLights = { key: new THREE.DirectionalLight(), rim: new THREE.DirectionalLight(), fill: new THREE.DirectionalLight() };
+    this.contactShadow = createContactShadow();
     this.environmentTexture = null;
     this.disposeEnvironment = null;
     this.gridVisible = this.options.showGrid;
@@ -648,18 +723,33 @@ export class Viewer3D {
 
     this.backgroundTexture = createRadialGradientTexture(this.options.backgroundCenter, this.options.backgroundEdge);
     this.scene.background = this.backgroundTexture;
-    this.keyLight = createShadowKeyLight(this.scene);
+    this.studioLights = createStudioLights(this.scene);
     const environment = createEnvironmentMap(this.scene, this.renderer);
     this.environmentTexture = environment.texture;
     this.disposeEnvironment = environment.dispose;
     if (this.shadowFloor) {
       this.scene.add(this.shadowFloor);
     }
+    this.scene.add(this.contactShadow);
     this.scene.add(this.gridHelper);
     this.setLightingEnabled(this.lightingEnabled);
     this.setGridVisible(this.gridVisible);
     this.camera.position.set(2.5, 1.8, 2.5);
     this.controls.update();
+
+    // Post-processing: subtle bloom
+    const renderWidth = Math.max(this.container.clientWidth, 1);
+    const renderHeight = Math.max(this.container.clientHeight, 1);
+    this.composer = new EffectComposer(this.renderer);
+    this.composer.addPass(new RenderPass(this.scene, this.camera));
+    this.bloomPass = new UnrealBloomPass(
+      new THREE.Vector2(renderWidth, renderHeight),
+      0.15,  // strength — very subtle
+      0.6,   // radius
+      0.85,  // threshold — only bright spots bloom
+    );
+    this.composer.addPass(this.bloomPass);
+    this.composer.addPass(new OutputPass());
 
     this.handleResize = this.handleResize.bind(this);
     this.animate = this.animate.bind(this);
@@ -675,12 +765,36 @@ export class Viewer3D {
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(width, height, false);
+    this.composer.setSize(width, height);
   }
 
   private animate() {
     this.frameHandle = window.requestAnimationFrame(this.animate);
+
+    // Camera fly-in animation
+    if (this.flyInFrom && this.flyInTo && this.flyInProgress < 1) {
+      this.flyInProgress = Math.min(this.flyInProgress + 0.018, 1);
+      const t = easeOutCubic(this.flyInProgress);
+      this.camera.position.lerpVectors(this.flyInFrom, this.flyInTo, t);
+    }
+
+    // Model fade-in animation
+    if (this.fadeInProgress < 1 && this.fadeInMaterials.length > 0) {
+      this.fadeInProgress = Math.min(this.fadeInProgress + 0.025, 1);
+      const opacity = easeOutCubic(this.fadeInProgress);
+      for (const material of this.fadeInMaterials) {
+        (material as any).opacity = opacity;
+        if (this.fadeInProgress >= 1) {
+          // Restore original transparency state for non-transparent materials
+          if (!(material as any)._wasTransparent) {
+            material.transparent = false;
+          }
+        }
+      }
+    }
+
     this.controls.update();
-    this.renderer.render(this.scene, this.camera);
+    this.composer.render();
   }
 
   setMessage(message: string, tone: "info" | "loading" | "error" = "info") {
@@ -705,7 +819,6 @@ export class Viewer3D {
     }
     this.backgroundTexture = createRadialGradientTexture(centerColor, edgeColor);
     this.scene.background = this.backgroundTexture;
-    this.renderer.render(this.scene, this.camera);
   }
 
   setGridColors(primaryColor?: string, secondaryColor?: string) {
@@ -732,7 +845,6 @@ export class Viewer3D {
     this.gridHelper = createGridHelper(nextPrimaryColor, nextSecondaryColor);
     this.scene.add(this.gridHelper);
     this.setGridVisible(this.gridVisible);
-    this.renderer.render(this.scene, this.camera);
   }
 
   setAutoRotate(enabled: boolean) {
@@ -751,14 +863,20 @@ export class Viewer3D {
 
   setLightingEnabled(enabled: boolean) {
     this.lightingEnabled = enabled;
-    this.keyLight.visible = enabled;
+    this.studioLights.key.visible = enabled;
+    this.studioLights.rim.visible = enabled;
+    this.studioLights.fill.visible = enabled;
     this.scene.environment = enabled ? this.environmentTexture : null;
-    this.renderer.toneMappingExposure = enabled ? 1.04 : 0.86;
+    this.renderer.toneMappingExposure = enabled ? 1.0 : 0.86;
     if (this.shadowFloor) {
       this.shadowFloor.visible = enabled && Boolean(this.modelRoot);
       if (enabled && this.modelRoot) {
         placeShadowFloor(this.shadowFloor, this.modelRoot);
       }
+    }
+    this.contactShadow.visible = enabled && Boolean(this.modelRoot);
+    if (enabled && this.modelRoot) {
+      placeContactShadow(this.contactShadow, this.modelRoot);
     }
   }
 
@@ -772,15 +890,16 @@ export class Viewer3D {
     direction.setLength(nextDistance);
     this.camera.position.copy(this.controls.target).add(direction);
     this.controls.update();
-    this.renderer.render(this.scene, this.camera);
   }
 
   clearModel() {
+    this.fadeInMaterials = [];
     if (!this.modelRoot) {
       this.gridHelper.visible = false;
       if (this.shadowFloor) {
         this.shadowFloor.visible = false;
       }
+      this.contactShadow.visible = false;
       return;
     }
     this.scene.remove(this.modelRoot);
@@ -790,6 +909,7 @@ export class Viewer3D {
     if (this.shadowFloor) {
       this.shadowFloor.visible = false;
     }
+    this.contactShadow.visible = false;
   }
 
   async load(url?: string | null, requestHeaders: Record<string, string> = {}) {
@@ -819,22 +939,47 @@ export class Viewer3D {
       }
       this.clearModel();
       this.modelRoot = root;
+
+      // Prepare fade-in: set all materials transparent at opacity 0
+      this.fadeInMaterials = [];
+      this.fadeInProgress = 0;
+      root.traverse((child: any) => {
+        if (!child.isMesh || !child.material) {
+          return;
+        }
+        const materials = Array.isArray(child.material) ? child.material : [child.material];
+        for (const mat of materials) {
+          (mat as any)._wasTransparent = mat.transparent;
+          mat.transparent = true;
+          mat.opacity = 0;
+          this.fadeInMaterials.push(mat);
+        }
+      });
+
       this.scene.add(root);
       if (this.shadowFloor && this.lightingEnabled) {
         placeShadowFloor(this.shadowFloor, root);
       }
+      if (this.lightingEnabled) {
+        placeContactShadow(this.contactShadow, root);
+      }
       if (this.gridVisible) {
         placeGridHelper(this.gridHelper, root);
       }
-      fitCameraToObject(
-        this.camera,
-        root,
-        this.controls,
-        Math.max(this.container.clientWidth, 1) / Math.max(this.container.clientHeight, 1),
-      );
+
+      // Compute final camera position, then set up fly-in from further back
+      const aspect = Math.max(this.container.clientWidth, 1) / Math.max(this.container.clientHeight, 1);
+      fitCameraToObject(this.camera, root, this.controls, aspect);
+      const targetPos = this.camera.position.clone();
+      const direction = targetPos.clone().sub(this.controls.target).normalize();
+      const startPos = targetPos.clone().add(direction.multiplyScalar(1.8));
+      this.camera.position.copy(startPos);
+      this.flyInFrom = startPos;
+      this.flyInTo = targetPos;
+      this.flyInProgress = 0;
+
       this.overlay.hidden = true;
       this.overlay.style.display = "none";
-      this.renderer.render(this.scene, this.camera);
       return getModelStats(root);
     } catch (error) {
       if (root) {
@@ -865,8 +1010,13 @@ export class Viewer3D {
     this.gridHelper.geometry.dispose();
     const gridMaterials = Array.isArray(this.gridHelper.material) ? this.gridHelper.material : [this.gridHelper.material];
     gridMaterials.forEach((material) => material.dispose());
+    this.scene.remove(this.contactShadow);
+    (this.contactShadow.material as THREE.MeshBasicMaterial).map?.dispose();
+    this.contactShadow.geometry.dispose();
+    (this.contactShadow.material as THREE.MeshBasicMaterial).dispose();
     this.backgroundTexture?.dispose();
     this.backgroundTexture = null;
+    this.composer.dispose();
     this.renderer.dispose();
     this.container.innerHTML = "";
   }
@@ -895,7 +1045,7 @@ export async function renderModelThumbnail(
     preserveDrawingBuffer: true,
   });
   const environment = createEnvironmentMap(scene, renderer);
-  createShadowKeyLight(scene, {
+  createStudioLights(scene, {
     keyIntensity: 1.1,
   });
   const shadowFloor = createShadowFloor();
