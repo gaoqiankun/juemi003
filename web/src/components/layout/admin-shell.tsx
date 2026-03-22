@@ -9,13 +9,22 @@ import {
   SunMedium,
   Workflow,
 } from "lucide-react";
+import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 
 import { useGen3d } from "@/app/gen3d-provider";
-import { Card } from "@/components/ui/primitives";
+import { Button, Card, TextField } from "@/components/ui/primitives";
 import { useLocale } from "@/hooks/use-locale";
 import { useTheme } from "@/hooks/use-theme";
+import {
+  ADMIN_AUTH_INVALID_EVENT,
+  clearAdminToken,
+  getAdminToken,
+  setAdminToken,
+  verifyAdminToken,
+  type AdminApiError,
+} from "@/lib/admin-api";
 
 const navigation = [
   { key: "dashboard", path: "/admin/dashboard", icon: LayoutDashboard },
@@ -33,6 +42,10 @@ export function AdminShell() {
   const { theme, toggleTheme } = useTheme();
   const { language, toggleLanguage } = useLocale();
   const { connection } = useGen3d();
+  const [authState, setAuthState] = useState<"checking" | "ready" | "needs_token">("checking");
+  const [authTokenInput, setAuthTokenInput] = useState(() => getAdminToken());
+  const [authError, setAuthError] = useState("");
+  const [isSubmittingAuth, setIsSubmittingAuth] = useState(false);
   const currentThemeLabel = theme === "dark" ? t("shell.themeDark") : t("shell.themeLight");
   const currentLanguageLabel = language === "en" ? "English" : "中文";
   const toneClass = connection.tone === "ready"
@@ -43,6 +56,123 @@ export function AdminShell() {
 
   const activeItem = navigation.find((item) => location.pathname.startsWith(item.path))
     ?? navigation[0];
+
+  const setNeedsTokenState = useCallback((message = "") => {
+    setAuthState("needs_token");
+    setAuthError(message);
+  }, []);
+
+  const validateStoredAdminToken = useCallback(async (token: string) => {
+    const normalizedToken = String(token || "").trim();
+    if (!normalizedToken) {
+      setNeedsTokenState("");
+      return;
+    }
+
+    setAuthState("checking");
+    setAuthError("");
+    try {
+      await verifyAdminToken(normalizedToken);
+      setAuthState("ready");
+    } catch (error) {
+      const adminError = error as AdminApiError;
+      clearAdminToken();
+      if (adminError.status === 401) {
+        setNeedsTokenState(t("shell.adminAuth.invalidToken"));
+      } else {
+        setNeedsTokenState(adminError.message || t("shell.adminAuth.unreachable"));
+      }
+    }
+  }, [setNeedsTokenState, t]);
+
+  useEffect(() => {
+    const storedToken = getAdminToken();
+    setAuthTokenInput(storedToken);
+    validateStoredAdminToken(storedToken).catch(() => undefined);
+  }, [validateStoredAdminToken]);
+
+  useEffect(() => {
+    const handleAuthInvalid = () => {
+      clearAdminToken();
+      setAuthTokenInput("");
+      setNeedsTokenState(t("shell.adminAuth.invalidToken"));
+    };
+    window.addEventListener(ADMIN_AUTH_INVALID_EVENT, handleAuthInvalid);
+    return () => {
+      window.removeEventListener(ADMIN_AUTH_INVALID_EVENT, handleAuthInvalid);
+    };
+  }, [setNeedsTokenState, t]);
+
+  const handleAdminTokenSubmit = useCallback(async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (isSubmittingAuth) {
+      return;
+    }
+    const nextToken = String(authTokenInput || "").trim();
+    if (!nextToken) {
+      setNeedsTokenState(t("shell.adminAuth.missingToken"));
+      return;
+    }
+    setIsSubmittingAuth(true);
+    setAuthState("checking");
+    setAuthError("");
+    try {
+      await verifyAdminToken(nextToken);
+      setAdminToken(nextToken);
+      setAuthState("ready");
+    } catch (error) {
+      const adminError = error as AdminApiError;
+      clearAdminToken();
+      if (adminError.status === 401) {
+        setNeedsTokenState(t("shell.adminAuth.invalidToken"));
+      } else {
+        setNeedsTokenState(adminError.message || t("shell.adminAuth.unreachable"));
+      }
+    } finally {
+      setIsSubmittingAuth(false);
+    }
+  }, [authTokenInput, isSubmittingAuth, setNeedsTokenState, t]);
+
+  if (authState !== "ready") {
+    return (
+      <div className="min-h-screen bg-[image:var(--page-gradient)] bg-background px-6 py-10 text-text-primary">
+        <div className="mx-auto flex min-h-[70vh] w-full max-w-[420px] items-center justify-center">
+          <Card className="w-full space-y-5 p-6">
+            <div className="space-y-2">
+              <div className={metaClassName}>{t("shell.adminAuth.title")}</div>
+              <h1 className="text-2xl font-semibold tracking-[-0.03em] text-text-primary">
+                {t("shell.adminAuth.heading")}
+              </h1>
+              <p className="text-sm text-text-secondary">{t("shell.adminAuth.copy")}</p>
+            </div>
+
+            <form className="grid gap-3" onSubmit={handleAdminTokenSubmit}>
+              <label className="grid gap-1.5 text-sm text-text-secondary" htmlFor="admin-token-input">
+                <span>{t("shell.adminAuth.tokenLabel")}</span>
+                <TextField
+                  id="admin-token-input"
+                  type="password"
+                  value={authTokenInput}
+                  autoComplete="off"
+                  placeholder={t("shell.adminAuth.tokenPlaceholder")}
+                  onChange={(event) => setAuthTokenInput(event.target.value)}
+                />
+              </label>
+              <Button type="submit" variant="primary" disabled={isSubmittingAuth || authState === "checking"}>
+                {authState === "checking" ? t("shell.adminAuth.verifying") : t("shell.adminAuth.submit")}
+              </Button>
+            </form>
+
+            {authError ? (
+              <p className="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger-text">
+                {authError}
+              </p>
+            ) : null}
+          </Card>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[image:var(--page-gradient)] bg-background text-text-primary lg:grid lg:grid-cols-[280px_minmax(0,1fr)]">
@@ -56,8 +186,7 @@ export function AdminShell() {
                 className="h-11 w-11 rounded-xl border border-outline bg-surface-container-low p-1.5"
               />
               <div className="min-w-0">
-                <div className={metaClassName}>{t("shell.brandEyebrow")}</div>
-                <div className="mt-1 text-xl font-semibold tracking-[-0.03em] text-text-primary">
+                <div className="text-xl font-semibold tracking-[-0.03em] text-text-primary">
                   Cubie
                 </div>
               </div>
@@ -99,8 +228,7 @@ export function AdminShell() {
         <header className="sticky top-0 z-20 border-b border-outline bg-surface backdrop-blur-xl">
           <div className="mx-auto flex w-full max-w-[1440px] flex-col gap-4 px-6 py-5 xl:flex-row xl:items-center xl:justify-between">
             <div>
-              <div className={metaClassName}>{t("shell.navigation")}</div>
-              <h1 className="mt-1 text-2xl font-semibold tracking-[-0.03em] text-text-primary">
+              <h1 className="text-2xl font-semibold tracking-[-0.03em] text-text-primary">
                 {t(`shell.nav.${activeItem.key}`)}
               </h1>
             </div>

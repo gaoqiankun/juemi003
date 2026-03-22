@@ -16,6 +16,18 @@
     "themeDark": "深色",
     "themeLight": "浅色",
     "environment": "主集群",
+    "adminAuth": {
+      "title": "管理面板",
+      "heading": "需要管理员 Token",
+      "copy": "请输入管理员 Token 后再加载管理数据。",
+      "tokenLabel": "管理员 Token",
+      "tokenPlaceholder": "粘贴 Bearer Token",
+      "submit": "进入管理面板",
+      "verifying": "验证中...",
+      "missingToken": "请先输入管理员 Token。",
+      "invalidToken": "管理员 Token 无效，请重试。",
+      "unreachable": "暂时无法校验 Token，请检查网络或服务状态。"
+    },
     "nav": {
       "dashboard": "总览",
       "tasks": "任务",
@@ -256,6 +268,18 @@
       "maxParallelJobs": {
         "label": "最大并行任务数",
         "description": "主集群可同时调度的渲染任务上限。"
+      },
+      "queueMaxSize": {
+        "label": "队列容量",
+        "description": "排队任务数量上限，超过后将拒绝新的提交请求。"
+      },
+      "rateLimitPerHour": {
+        "label": "每小时限流",
+        "description": "单个 API Key 在滚动一小时窗口内可用的请求配额。"
+      },
+      "rateLimitConcurrent": {
+        "label": "单 Key 并发上限",
+        "description": "每个 API Key 同时允许持有的进行中任务数量。"
       },
       "previewRenderer": {
         "label": "预览渲染",

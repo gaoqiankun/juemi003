@@ -29,13 +29,20 @@ export function formatPercent(locale: AdminLocale, value: number, maximumFractio
   return `${formatNumber(locale, value, maximumFractionDigits)}%`;
 }
 
-export function formatTimestamp(locale: AdminLocale, value: string) {
+export function formatTimestamp(locale: AdminLocale, value: string | null | undefined) {
+  if (!value) {
+    return "—";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "—";
+  }
   return new Intl.DateTimeFormat(resolveLocale(locale), {
     month: "short",
     day: "numeric",
     hour: "2-digit",
     minute: "2-digit",
-  }).format(new Date(value));
+  }).format(date);
 }
 
 export function maskKey(prefix: string) {

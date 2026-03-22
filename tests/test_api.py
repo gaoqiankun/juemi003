@@ -223,32 +223,6 @@ def _cached_privileged_headers(
     return auth_headers(token)
 
 
-def key_manager_headers(
-    client: TestClient,
-    *,
-    admin_token: str = "admin-token",
-) -> dict[str, str]:
-    return _cached_privileged_headers(
-        client,
-        scope="key_manager",
-        label="Default Key Manager",
-        admin_token=admin_token,
-    )
-
-
-def task_viewer_headers(
-    client: TestClient,
-    *,
-    admin_token: str = "admin-token",
-) -> dict[str, str]:
-    return _cached_privileged_headers(
-        client,
-        scope="task_viewer",
-        label="Default Task Viewer",
-        admin_token=admin_token,
-    )
-
-
 def metrics_headers(
     client: TestClient,
     *,
@@ -286,7 +260,7 @@ def create_managed_api_key(
 ) -> dict:
     response = client.post(
         "/api/admin/keys",
-        headers=key_manager_headers(client, admin_token=admin_token),
+        headers=admin_headers(admin_token),
         json={"label": label},
     )
     assert response.status_code == 201
@@ -1030,7 +1004,7 @@ def test_privileged_key_crud_flow_returns_token_once_and_list_hides_token(tmp_pa
     assert missing_response.json()["detail"] == "privileged token not found"
 
 
-def test_admin_key_routes_require_key_manager_token(tmp_path: Path) -> None:
+def test_admin_key_routes_require_admin_token(tmp_path: Path) -> None:
     with make_client(tmp_path, admin_token="admin-token") as client:
         missing_token_response = client.get("/api/admin/keys")
         admin_token_response = client.get("/api/admin/keys", headers=admin_headers())
@@ -1038,35 +1012,45 @@ def test_admin_key_routes_require_key_manager_token(tmp_path: Path) -> None:
             "/api/admin/keys",
             headers=auth_headers("wrong-token"),
         )
+        key_manager_token = create_privileged_api_key(
+            client,
+            scope="key_manager",
+            label="Key Manager",
+        )["token"]
+        key_manager_response = client.get(
+            "/api/admin/keys",
+            headers=auth_headers(key_manager_token),
+        )
 
     assert missing_token_response.status_code == 401
-    assert missing_token_response.json()["detail"] == "invalid bearer token"
-    assert admin_token_response.status_code == 401
-    assert admin_token_response.json()["detail"] == "invalid bearer token"
+    assert missing_token_response.json()["detail"] == "invalid admin token"
+    assert admin_token_response.status_code == 200
     assert invalid_token_response.status_code == 401
-    assert invalid_token_response.json()["detail"] == "invalid bearer token"
+    assert invalid_token_response.json()["detail"] == "invalid admin token"
+    assert key_manager_response.status_code == 401
+    assert key_manager_response.json()["detail"] == "invalid admin token"
 
 
 def test_admin_key_crud_flow_returns_token_once_and_list_hides_token(tmp_path: Path) -> None:
     with make_client(tmp_path, admin_token="admin-token") as client:
         create_response = client.post(
             "/api/admin/keys",
-            headers=key_manager_headers(client),
+            headers=admin_headers(),
             json={"label": "QA Team"},
         )
         assert create_response.status_code == 201
         created_payload = create_response.json()
         key_id = created_payload["keyId"]
 
-        list_response = client.get("/api/admin/keys", headers=key_manager_headers(client))
+        list_response = client.get("/api/admin/keys", headers=admin_headers())
         patch_response = client.patch(
             f"/api/admin/keys/{key_id}",
-            headers=key_manager_headers(client),
+            headers=admin_headers(),
             json={"is_active": False},
         )
         missing_response = client.patch(
             "/api/admin/keys/missing-key",
-            headers=key_manager_headers(client),
+            headers=admin_headers(),
             json={"is_active": False},
         )
 
@@ -1173,7 +1157,7 @@ def test_inactive_managed_api_key_is_rejected(tmp_path: Path) -> None:
         managed_key = create_managed_api_key(client, label="Tester B")
         deactivate_response = client.patch(
             f"/api/admin/keys/{managed_key['keyId']}",
-            headers=key_manager_headers(client),
+            headers=admin_headers(),
             json={"is_active": False},
         )
         create_response = client.post(
@@ -1271,11 +1255,11 @@ def test_admin_tasks_returns_all_tasks_and_supports_key_filter(tmp_path: Path) -
 
         all_response = client.get(
             "/api/admin/tasks",
-            headers=task_viewer_headers(client),
+            headers=admin_headers(),
         )
         key_a_response = client.get(
             f"/api/admin/tasks?key_id={managed_key_a['keyId']}",
-            headers=task_viewer_headers(client),
+            headers=admin_headers(),
         )
 
     assert key_a_create_response.status_code == 201
@@ -1293,7 +1277,7 @@ def test_admin_tasks_returns_all_tasks_and_supports_key_filter(tmp_path: Path) -
     ]
 
 
-def test_admin_tasks_requires_valid_task_viewer_token(tmp_path: Path) -> None:
+def test_admin_tasks_requires_valid_admin_token(tmp_path: Path) -> None:
     with make_client(tmp_path, admin_token="admin-token") as client:
         missing_token_response = client.get("/api/admin/tasks")
         invalid_token_response = client.get(
@@ -1304,13 +1288,23 @@ def test_admin_tasks_requires_valid_task_viewer_token(tmp_path: Path) -> None:
             "/api/admin/tasks",
             headers=admin_headers(),
         )
+        task_viewer_token = create_privileged_api_key(
+            client,
+            scope="task_viewer",
+            label="Task Viewer",
+        )["token"]
+        task_viewer_response = client.get(
+            "/api/admin/tasks",
+            headers=auth_headers(task_viewer_token),
+        )
 
     assert missing_token_response.status_code == 401
-    assert missing_token_response.json()["detail"] == "invalid bearer token"
+    assert missing_token_response.json()["detail"] == "invalid admin token"
     assert invalid_token_response.status_code == 401
-    assert invalid_token_response.json()["detail"] == "invalid bearer token"
-    assert admin_token_response.status_code == 401
-    assert admin_token_response.json()["detail"] == "invalid bearer token"
+    assert invalid_token_response.json()["detail"] == "invalid admin token"
+    assert admin_token_response.status_code == 200
+    assert task_viewer_response.status_code == 401
+    assert task_viewer_response.json()["detail"] == "invalid admin token"
 
 
 def test_metrics_requires_metrics_token(tmp_path: Path) -> None:
@@ -1390,7 +1384,7 @@ def test_task_list_returns_requested_page_and_cursor_metadata(
     with make_client(tmp_path, database_path=database_path) as client:
         response = client.get(
             "/api/admin/tasks?limit=50",
-            headers=task_viewer_headers(client),
+            headers=admin_headers(),
         )
 
     assert response.status_code == 200
@@ -1489,7 +1483,7 @@ def test_service_startup_migrates_existing_tasks_table_and_preserves_rows(
         connection.close()
 
     with make_client(tmp_path, database_path=database_path) as client:
-        response = client.get("/api/admin/tasks", headers=task_viewer_headers(client))
+        response = client.get("/api/admin/tasks", headers=admin_headers())
 
     migrated_connection = sqlite3.connect(database_path)
     try:
@@ -1546,7 +1540,7 @@ def test_service_startup_migrates_existing_api_keys_table_and_preserves_legacy_r
         assert bootstrap_response.status_code == 201
         list_response = client.get(
             "/api/admin/keys",
-            headers=auth_headers(bootstrap_response.json()["token"]),
+            headers=admin_headers(),
         )
         create_response = client.post(
             "/v1/tasks",
@@ -1915,7 +1909,7 @@ def test_task_list_cursor_pagination_is_stable_when_newer_task_arrives(
     with make_client(tmp_path, database_path=database_path) as client:
         first_page_response = client.get(
             "/api/admin/tasks?limit=2",
-            headers=task_viewer_headers(client),
+            headers=admin_headers(),
         )
         assert first_page_response.status_code == 200
         first_page_items = task_page_items(first_page_response)
@@ -1937,7 +1931,7 @@ def test_task_list_cursor_pagination_is_stable_when_newer_task_arrives(
                 "limit": 2,
                 "before": first_page_response.json()["nextCursor"],
             },
-            headers=task_viewer_headers(client),
+            headers=admin_headers(),
         )
 
     assert [task["taskId"] for task in first_page_items] == ["seed-4", "seed-3"]

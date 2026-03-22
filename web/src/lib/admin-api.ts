@@ -9,13 +9,28 @@ import type {
 import { buildApiUrl, extractErrorMessage, getDefaultBaseUrl } from "@/lib/api";
 
 const ADMIN_TOKEN_KEY = "cubie_admin_token";
+export const ADMIN_AUTH_INVALID_EVENT = "cubie-admin-auth-invalid";
+
+export interface AdminApiError extends Error {
+  status?: number;
+}
 
 export function getAdminToken(): string {
   return localStorage.getItem(ADMIN_TOKEN_KEY) || "";
 }
 
 export function setAdminToken(token: string) {
-  localStorage.setItem(ADMIN_TOKEN_KEY, token);
+  localStorage.setItem(ADMIN_TOKEN_KEY, String(token || "").trim());
+}
+
+export function clearAdminToken() {
+  localStorage.removeItem(ADMIN_TOKEN_KEY);
+}
+
+function buildAdminError(response: Response, message: string): AdminApiError {
+  const error = new Error(message) as AdminApiError;
+  error.status = response.status;
+  return error;
 }
 
 async function adminFetch<T>(path: string, options?: RequestInit): Promise<T> {
@@ -34,10 +49,33 @@ async function adminFetch<T>(path: string, options?: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
-    throw new Error(await extractErrorMessage(response));
+    const message = await extractErrorMessage(response);
+    if (response.status === 401) {
+      clearAdminToken();
+      window.dispatchEvent(new CustomEvent(ADMIN_AUTH_INVALID_EVENT));
+    }
+    throw buildAdminError(response, message);
   }
 
   return response.json() as Promise<T>;
+}
+
+export async function verifyAdminToken(token: string) {
+  const normalizedToken = String(token || "").trim();
+  if (!normalizedToken) {
+    const missingTokenError = new Error("missing admin token") as AdminApiError;
+    missingTokenError.status = 401;
+    throw missingTokenError;
+  }
+  const response = await fetch(buildApiUrl(getDefaultBaseUrl(), "/api/admin/dashboard"), {
+    headers: {
+      Authorization: `Bearer ${normalizedToken}`,
+    },
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw buildAdminError(response, await extractErrorMessage(response));
+  }
 }
 
 // Dashboard

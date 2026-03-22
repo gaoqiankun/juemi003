@@ -41,10 +41,7 @@ export function SettingsPage() {
     <div className="grid gap-6">
       <section className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
         <div>
-          <div className="font-display text-[0.6875rem] font-semibold uppercase tracking-[0.05em] text-text-muted">
-            {t("shell.nav.settings")}
-          </div>
-          <h2 className="mt-1 text-2xl font-semibold tracking-[-0.03em] text-text-primary">{t("settings.title")}</h2>
+          <h2 className="text-2xl font-semibold tracking-[-0.03em] text-text-primary">{t("settings.title")}</h2>
         </div>
       </section>
 

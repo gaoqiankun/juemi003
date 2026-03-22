@@ -52,8 +52,7 @@ export function SetupPage() {
         <div className="grid gap-6">
           <div className="grid gap-3">
             <div>
-              <div className={eyebrowClassName}>{t("user.shell.nav.setup")}</div>
-              <h2 className="mt-1 text-3xl font-semibold tracking-[-0.04em] text-text-primary">{t("user.setup.title")}</h2>
+              <h2 className="text-3xl font-semibold tracking-[-0.04em] text-text-primary">{t("user.setup.title")}</h2>
             </div>
           </div>
 

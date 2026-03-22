@@ -741,7 +741,7 @@ def create_app(
         "/api/admin/keys",
         response_model=AdminApiKeyCreateResponse,
         status_code=status.HTTP_201_CREATED,
-        dependencies=[Depends(require_key_manager_token)],
+        dependencies=[Depends(require_admin_token)],
     )
     async def create_admin_key(
         payload: AdminApiKeyCreateRequest,
@@ -756,7 +756,7 @@ def create_app(
     @app.get(
         "/api/admin/keys",
         response_model=list[AdminApiKeyListItem],
-        dependencies=[Depends(require_key_manager_token)],
+        dependencies=[Depends(require_admin_token)],
     )
     async def list_admin_keys(
         app_container: AppContainer = Depends(get_container),
@@ -767,7 +767,7 @@ def create_app(
     @app.patch(
         "/api/admin/keys/{key_id}",
         response_model=AdminApiKeyListItem,
-        dependencies=[Depends(require_key_manager_token)],
+        dependencies=[Depends(require_admin_token)],
     )
     async def set_admin_key_active(
         key_id: str,
@@ -925,7 +925,7 @@ def create_app(
     @app.get(
         "/api/admin/tasks",
         response_model=TaskListResponse,
-        dependencies=[Depends(require_task_viewer_token)],
+        dependencies=[Depends(require_admin_token)],
     )
     async def list_admin_tasks(
         key_id: str | None = Query(default=None),

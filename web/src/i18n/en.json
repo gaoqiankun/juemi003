@@ -16,6 +16,18 @@
     "themeDark": "Dark",
     "themeLight": "Light",
     "environment": "Primary cluster",
+    "adminAuth": {
+      "title": "Admin",
+      "heading": "Admin token required",
+      "copy": "Enter the admin token to load dashboard data.",
+      "tokenLabel": "Admin token",
+      "tokenPlaceholder": "Paste your admin bearer token",
+      "submit": "Continue",
+      "verifying": "Verifying...",
+      "missingToken": "Please enter an admin token.",
+      "invalidToken": "Invalid admin token. Please try again.",
+      "unreachable": "Unable to verify token. Check network or service status."
+    },
     "nav": {
       "dashboard": "Dashboard",
       "tasks": "Tasks",
@@ -256,6 +268,18 @@
       "maxParallelJobs": {
         "label": "Max parallel jobs",
         "description": "Upper bound of concurrent renders scheduled across the primary cluster."
+      },
+      "queueMaxSize": {
+        "label": "Queue capacity",
+        "description": "Maximum number of pending tasks allowed before new submissions are rejected."
+      },
+      "rateLimitPerHour": {
+        "label": "Rate limit per hour",
+        "description": "Per-key request budget within a rolling one-hour window."
+      },
+      "rateLimitConcurrent": {
+        "label": "Concurrent jobs per key",
+        "description": "Maximum number of in-flight tasks each API key can own at the same time."
       },
       "previewRenderer": {
         "label": "Preview renderer",

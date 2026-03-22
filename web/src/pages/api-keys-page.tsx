@@ -37,8 +37,7 @@ export function ApiKeysPage() {
     <div className="grid gap-6">
       <section className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
         <div>
-          <div className={eyebrowClassName}>{t("shell.nav.apiKeys")}</div>
-          <h2 className="mt-1 text-2xl font-semibold tracking-[-0.03em] text-text-primary">{t("apiKeys.title")}</h2>
+          <h2 className="text-2xl font-semibold tracking-[-0.03em] text-text-primary">{t("apiKeys.title")}</h2>
         </div>
       </section>
 
