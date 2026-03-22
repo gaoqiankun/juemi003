@@ -172,8 +172,8 @@ export interface Gen3dContextValue {
   refreshTask: (taskId: string, options?: { silent?: boolean }) => Promise<void>;
   selectFile: (file: File | null) => Promise<void>;
   clearSelectedFile: (keepStatus?: boolean) => void;
-  submitCurrentFile: () => Promise<string | undefined>;
-  retryCurrentTask: () => Promise<string | undefined>;
+  submitCurrentFile: (modelId?: string) => Promise<string | undefined>;
+  retryCurrentTask: (modelId?: string) => Promise<string | undefined>;
   cancelTask: (taskId: string) => Promise<void>;
   deleteTask: (taskId: string) => Promise<void>;
   subscribeToTask: (taskId: string, force?: boolean) => Promise<void>;
@@ -979,11 +979,12 @@ export function Gen3dProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const submitNewTask = useCallback(async (inputUrl: string, previewDataUrl?: string) => {
+  const submitNewTask = useCallback(async (inputUrl: string, modelId: string, previewDataUrl?: string) => {
     const callbackUrl = String(generateRef.current.callbackUrl || "").trim();
     const payload: TaskCreatePayload = {
       type: "image_to_3d",
       image_url: inputUrl,
+      model: modelId,
     };
     if (callbackUrl) {
       payload.callback_url = callbackUrl;
@@ -1041,23 +1042,35 @@ export function Gen3dProvider({ children }: { children: ReactNode }) {
     }
   }, [refreshTaskListAction, setCurrentTaskId, subscribeToTask, upsertTask]);
 
-  const submitCurrentFile = useCallback(async () => {
+  const submitCurrentFile = useCallback(async (modelId?: string) => {
     if (generateRef.current.isUploading || generateRef.current.isSubmitting) {
       return undefined;
     }
+    const normalizedModelId = String(modelId || "").trim();
+    if (!normalizedModelId) {
+      throw new Error("请先选择一个生成模型。");
+    }
     const inputUrl = await ensureUploadedInput();
-    return submitNewTask(inputUrl, generateRef.current.previewDataUrl);
+    return submitNewTask(inputUrl, normalizedModelId, generateRef.current.previewDataUrl);
   }, [ensureUploadedInput, submitNewTask]);
 
-  const retryCurrentTask = useCallback(async () => {
+  const retryCurrentTask = useCallback(async (modelId?: string) => {
     const currentTask = tasksRef.current[generateRef.current.currentTaskId];
     if (!currentTask?.inputUrl) {
       throw new Error("当前记录缺少原图，请重新上传图片。");
     }
+    const normalizedModelId = String(modelId || currentTask.model || "").trim();
+    if (!normalizedModelId) {
+      throw new Error("请先选择一个生成模型。");
+    }
     if (TERMINAL_STATUSES.has(currentTask.status)) {
       clearCurrentTaskSelection({ lockAutoSync: true });
     }
-    return submitNewTask(currentTask.inputUrl, currentTask.previewDataUrl || generateRef.current.previewDataUrl);
+    return submitNewTask(
+      currentTask.inputUrl,
+      normalizedModelId,
+      currentTask.previewDataUrl || generateRef.current.previewDataUrl,
+    );
   }, [clearCurrentTaskSelection, submitNewTask]);
 
   const cancelTask = useCallback(async (taskId: string) => {

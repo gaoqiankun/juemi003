@@ -5,6 +5,7 @@ import type {
   TaskListPayload,
   TaskSnapshotPayload,
   UploadResponse,
+  UserModelListPayload,
 } from "@/lib/types";
 
 export function getDefaultBaseUrl() {
@@ -69,6 +70,17 @@ export async function fetchHealth(config: ApiConfig) {
     throw new Error(await extractErrorMessage(response));
   }
   return (await response.json()) as HealthPayload;
+}
+
+export async function fetchModels(config: ApiConfig) {
+  const response = await fetch(buildApiUrl(config.baseUrl, "/v1/models"), {
+    headers: authHeaders(config.token, false),
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new Error(await extractErrorMessage(response));
+  }
+  return (await response.json()) as UserModelListPayload;
 }
 
 export async function fetchTaskList(config: ApiConfig, before = "", limit = 20) {

@@ -934,6 +934,41 @@ def test_bearer_auth_is_required_for_task_routes(tmp_path: Path) -> None:
     assert metrics_authorized_response.status_code == 200
 
 
+def test_list_models_requires_auth(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        response = client.get("/v1/models")
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "invalid bearer token"
+
+
+def test_list_models_returns_enabled(tmp_path: Path) -> None:
+    with make_client(tmp_path, admin_token="admin-token") as client:
+        enable_hunyuan_response = client.patch(
+            "/api/admin/models/hunyuan3d",
+            headers=admin_headers(),
+            json={"isEnabled": True},
+        )
+        response = client.get("/v1/models", headers=task_auth_headers(client))
+
+    assert enable_hunyuan_response.status_code == 200
+    assert response.status_code == 200
+    assert response.json() == {
+        "models": [
+            {
+                "id": "trellis2",
+                "display_name": "TRELLIS2",
+                "is_default": True,
+            },
+            {
+                "id": "hunyuan3d",
+                "display_name": "HunYuan3D-2",
+                "is_default": False,
+            },
+        ]
+    }
+
+
 def test_privileged_key_routes_return_401_when_admin_token_is_unset(tmp_path: Path) -> None:
     with make_client(tmp_path, admin_token=None) as client:
         response = client.get("/api/admin/privileged-keys", headers=admin_headers())
@@ -2036,6 +2071,29 @@ def test_create_task_defaults_type_and_model_when_omitted(tmp_path: Path) -> Non
     assert response.status_code == 201
     assert response.json()["status"] == "queued"
     assert response.json()["model"] == "trellis"
+
+
+def test_create_task_persists_selected_model_id(tmp_path: Path) -> None:
+    with make_client(tmp_path, queue_delay_ms=0) as client:
+        response = client.post(
+            "/v1/tasks",
+            headers=task_auth_headers(client),
+            json={
+                "input_url": upload_input_url(client),
+                "model": "trellis2",
+                "options": {"resolution": 1024},
+            },
+        )
+        assert response.status_code == 201
+        task_id = response.json()["taskId"]
+        wait_for_status(client, task_id, "succeeded", timeout_seconds=5.0)
+        detail_response = client.get(
+            f"/v1/tasks/{task_id}",
+            headers=task_auth_headers(client),
+        )
+
+    assert detail_response.status_code == 200
+    assert detail_response.json()["model"] == "trellis2"
 
 
 def test_task_detail_includes_input_url_and_dynamic_eta_after_stage_history(

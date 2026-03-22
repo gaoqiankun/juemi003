@@ -11,12 +11,39 @@ import { Button, Card } from "@/components/ui/primitives";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useViewerColors } from "@/hooks/use-viewer-colors";
 import { formatRelativeTime, getVisualStatus } from "@/lib/format";
+import { fetchModels } from "@/lib/api";
 import { getTaskArtifactProxyUrl } from "@/lib/task-artifacts";
-import type { TaskRecord } from "@/lib/types";
+import type { TaskRecord, UserModelPayload } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 function isTerminal(status?: string) {
   return status === "succeeded" || status === "failed" || status === "cancelled";
+}
+
+interface GenerateModelOption {
+  id: string;
+  displayName: string;
+  isDefault: boolean;
+}
+
+function normalizeModelOptions(payload: UserModelPayload[] | undefined): GenerateModelOption[] {
+  if (!Array.isArray(payload)) {
+    return [];
+  }
+  return payload
+    .map((item) => {
+      const id = String(item.id || "").trim();
+      const displayName = String(item.display_name || "").trim();
+      if (!id || !displayName) {
+        return null;
+      }
+      return {
+        id,
+        displayName,
+        isDefault: Boolean(item.is_default),
+      };
+    })
+    .filter((item): item is GenerateModelOption => item !== null);
 }
 
 export function GeneratePage() {
@@ -40,7 +67,9 @@ export function GeneratePage() {
   const tabletInputRef = useRef<HTMLInputElement | null>(null);
   const mobileInputRef = useRef<HTMLInputElement | null>(null);
 
-  const [selectedModel, setSelectedModel] = useState("trellis-v2");
+  const [availableModels, setAvailableModels] = useState<GenerateModelOption[]>([]);
+  const [selectedModel, setSelectedModel] = useState("");
+  const [modelLoadState, setModelLoadState] = useState<"idle" | "loading" | "ready" | "empty" | "error">("idle");
   const [isTabletRecentOpen, setIsTabletRecentOpen] = useState(false);
 
   const {
@@ -65,13 +94,73 @@ export function GeneratePage() {
     : Math.max(0, Math.min(100, currentTask?.progress || 0));
   const isProcessing = generateView === "processing" || generateView === "uploading";
   const canCancel = Boolean(currentTask && !isTerminal(currentTask.status) && !currentTask.pendingCancel);
-  const canStart = Boolean(generate.previewDataUrl) && !generate.isSubmitting && !generate.isUploading;
+  const canStart = Boolean(generate.previewDataUrl) && Boolean(selectedModel) && !generate.isSubmitting && !generate.isUploading;
   const downloadUrl = getTaskArtifactProxyUrl(currentTask, config.baseUrl);
   const viewerColors = useViewerColors();
+  const modelSelectDisabled = modelLoadState !== "ready";
+  const modelPlaceholder = modelLoadState === "loading"
+    ? t("user.generate.panel.modelLoading")
+    : modelLoadState === "error"
+      ? t("user.generate.panel.modelLoadFailed")
+      : modelLoadState === "empty"
+        ? t("user.generate.panel.modelEmpty")
+        : modelLoadState === "idle"
+          ? t("user.generate.panel.modelNeedsAuth")
+          : t("user.generate.panel.modelPlaceholder");
 
   useEffect(() => {
     clearCurrentTaskSelection({ lockAutoSync: true });
   }, [clearCurrentTaskSelection]);
+
+  useEffect(() => {
+    let isCancelled = false;
+    if (!config.token) {
+      setAvailableModels([]);
+      setSelectedModel("");
+      setModelLoadState("idle");
+      return () => {
+        isCancelled = true;
+      };
+    }
+
+    setModelLoadState("loading");
+    fetchModels({
+      baseUrl: config.baseUrl,
+      token: config.token,
+    })
+      .then((payload) => {
+        if (isCancelled) {
+          return;
+        }
+        const models = normalizeModelOptions(payload.models);
+        setAvailableModels(models);
+        if (!models.length) {
+          setSelectedModel("");
+          setModelLoadState("empty");
+          return;
+        }
+        setModelLoadState("ready");
+        setSelectedModel((previous) => {
+          if (previous && models.some((model) => model.id === previous)) {
+            return previous;
+          }
+          const defaultModel = models.find((model) => model.isDefault) || models[0];
+          return defaultModel.id;
+        });
+      })
+      .catch(() => {
+        if (isCancelled) {
+          return;
+        }
+        setAvailableModels([]);
+        setSelectedModel("");
+        setModelLoadState("error");
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [config.baseUrl, config.token]);
 
   useEffect(() => {
     if (!isTabletRecentOpen) {
@@ -93,7 +182,7 @@ export function GeneratePage() {
       cancelTask(currentTask.taskId).catch(() => undefined);
       return;
     }
-    submitCurrentFile().catch(() => undefined);
+    submitCurrentFile(selectedModel).catch(() => undefined);
   };
 
   const renderGenerateConfigCard = (inputRef: React.RefObject<HTMLInputElement>) => (
@@ -153,12 +242,16 @@ export function GeneratePage() {
 
         <div>
           <div className="mb-2 text-xs font-medium text-text-secondary">{t("user.generate.panel.modelLabel")}</div>
-          <Select value={selectedModel} onValueChange={setSelectedModel}>
+          <Select value={selectedModel || undefined} onValueChange={setSelectedModel} disabled={modelSelectDisabled}>
             <SelectTrigger className="h-10 rounded-xl border-outline bg-surface-container-low px-3 text-sm">
-              <SelectValue />
+              <SelectValue placeholder={modelPlaceholder} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="trellis-v2">Trellis v2</SelectItem>
+              {modelLoadState === "ready"
+                ? availableModels.map((model) => (
+                    <SelectItem key={model.id} value={model.id}>{model.displayName}</SelectItem>
+                  ))
+                : <SelectItem value="__model_fallback__" disabled>{modelPlaceholder}</SelectItem>}
             </SelectContent>
           </Select>
         </div>
@@ -299,7 +392,7 @@ export function GeneratePage() {
             <button
               type="button"
               className="mt-5 inline-flex items-center gap-1.5 rounded-full border border-outline px-4 py-2 text-xs font-medium text-text-secondary transition hover:bg-surface-container-high hover:text-text-primary"
-              onClick={() => retryCurrentTask().catch(() => undefined)}
+              onClick={() => retryCurrentTask(selectedModel).catch(() => undefined)}
             >
               <RotateCcw className="h-3.5 w-3.5" />
               {t("user.generate.failed.retry")}

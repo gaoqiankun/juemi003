@@ -41,6 +41,8 @@ from gen3d.api.schemas import (
     TaskCreateResponse,
     TaskResponse,
     UploadImageResponse,
+    UserModelListResponse,
+    UserModelSummary,
     task_type_from_request,
 )
 from gen3d.config import ServingConfig
@@ -266,9 +268,7 @@ def build_artifact_store(config: ServingConfig) -> ArtifactStore:
 
 
 def build_model_runtime(config: ServingConfig, model_name: str) -> ModelRuntime:
-    normalized_model_name = model_name.strip().lower()
-    if normalized_model_name != "trellis":
-        raise ModelProviderConfigurationError(f"unsupported model: {model_name}")
+    normalized_model_name = str(model_name).strip().lower() or "trellis"
 
     provider = build_provider(config)
     workers = build_gpu_workers(
@@ -829,6 +829,27 @@ def create_app(
         return UploadImageResponse(
             upload_id=upload_id,
             url=f"upload://{upload_id}",
+        )
+
+    @app.get(
+        "/v1/models",
+        response_model=UserModelListResponse,
+    )
+    async def list_enabled_models(
+        key_id: str = Depends(require_bearer_token),
+        app_container: AppContainer = Depends(get_container),
+    ) -> UserModelListResponse:
+        del key_id
+        enabled_models = await app_container.model_store.get_enabled_models()
+        return UserModelListResponse(
+            models=[
+                UserModelSummary(
+                    id=str(model["id"]),
+                    display_name=str(model["display_name"]),
+                    is_default=bool(model["is_default"]),
+                )
+                for model in enabled_models
+            ]
         )
 
     @app.post(

@@ -236,6 +236,16 @@ class UploadImageResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class UserModelSummary(BaseModel):
+    id: str
+    display_name: str
+    is_default: bool
+
+
+class UserModelListResponse(BaseModel):
+    models: list[UserModelSummary] = Field(default_factory=list)
+
+
 class AdminApiKeyCreateRequest(BaseModel):
     label: str = Field(min_length=1)
 

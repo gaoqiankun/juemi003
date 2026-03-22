@@ -134,6 +134,7 @@ export interface TaskCreatePayload {
   type: "image_to_3d";
   input_url?: string;
   image_url?: string;
+  model?: string;
   callback_url?: string;
   options?: {
     resolution?: 512 | 1024 | 1536;
@@ -149,6 +150,16 @@ export interface UploadResponse {
 export interface HealthPayload {
   status: "ok" | "ready" | "not_ready";
   service: string;
+}
+
+export interface UserModelPayload {
+  id?: string;
+  display_name?: string;
+  is_default?: boolean;
+}
+
+export interface UserModelListPayload {
+  models?: UserModelPayload[];
 }
 
 export interface GenerateState {
