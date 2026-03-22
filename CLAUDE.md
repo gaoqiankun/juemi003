@@ -18,16 +18,16 @@
 
 ---
 
-## 当前状态（2026-03-21）
+## 当前状态（2026-03-22）
 
-后端测试基线：`python -m pytest tests -q` → **125 passed**
+后端测试基线：`python -m pytest tests -q` → **137 passed**
 
 ### v0.1 模块进度
 
 | 模块 | 状态 |
 |------|------|
 | M1 · 品牌 & 开源化基础 | ✅ 完成 |
-| M2 · Admin Panel（5页 双主题 i18n） | ✅ 完成（真实化：全量 API + 前端接入） |
+| M2 · Admin Panel（4页 双主题 i18n） | ✅ 完成（10 轮打磨，HF 连接面板，待修 3 项见 plan/pending） |
 | M2.5 · 用户侧页面 | ✅ 功能完成，UI 商业级打磨中 |
 | M3 · HunYuan3D Provider | ✅ 完成（mock + real，11 新测试） |
 | M4 · 安装体验（Pinokio + 脚本）| 🔲 待开始 |
