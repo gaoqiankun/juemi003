@@ -53,7 +53,16 @@ async function adminFetch<T>(path: string, options?: RequestInit): Promise<T> {
     throw buildAdminError(response, message);
   }
 
-  return response.json() as Promise<T>;
+  if (response.status === 204 || response.headers.get("content-length") === "0") {
+    return undefined as T;
+  }
+
+  const bodyText = await response.text();
+  if (!bodyText.trim()) {
+    return undefined as T;
+  }
+
+  return JSON.parse(bodyText) as T;
 }
 
 export async function verifyAdminToken(token: string) {
@@ -175,3 +184,20 @@ export const fetchKeysStats = () => adminFetch<KeysStatsResponse>("/api/admin/ke
 export const fetchSettings = () => adminFetch<SettingsData>("/api/admin/settings");
 export const updateSettings = (data: Record<string, unknown>) =>
   adminFetch<unknown>("/api/admin/settings", { method: "PATCH", body: JSON.stringify(data) });
+
+// HuggingFace
+export interface HfStatusResponse {
+  logged_in: boolean;
+  username: string | null;
+}
+
+export const fetchHfStatus = () => adminFetch<HfStatusResponse>("/api/admin/hf-status");
+export const connectHf = (token: string) =>
+  adminFetch<HfStatusResponse>("/api/admin/hf-login", {
+    method: "POST",
+    body: JSON.stringify({ token }),
+  });
+export const disconnectHf = () =>
+  adminFetch<HfStatusResponse>("/api/admin/hf-logout", {
+    method: "POST",
+  });

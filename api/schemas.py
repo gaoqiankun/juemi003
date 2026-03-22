@@ -250,6 +250,15 @@ class AdminApiKeyCreateRequest(BaseModel):
     label: str = Field(min_length=1)
 
 
+class AdminHfLoginRequest(BaseModel):
+    token: str = Field(min_length=1)
+
+
+class AdminHfStatusResponse(BaseModel):
+    logged_in: bool
+    username: str | None = None
+
+
 class AdminApiKeySetActiveRequest(BaseModel):
     is_active: bool = Field(
         validation_alias=AliasChoices("is_active", "isActive"),

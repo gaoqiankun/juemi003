@@ -131,7 +131,6 @@ export function ModelsPage() {
           </table>
         </div>
 
-        {busyModelId ? <p className="text-sm text-text-secondary">{t("models.list.saving")}</p> : null}
         {actionError ? <p className="text-sm text-danger-text">{actionError}</p> : null}
       </Card>
     </div>

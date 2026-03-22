@@ -133,7 +133,6 @@ export function ApiKeysPage() {
               </tbody>
             </table>
           </div>
-          {busyKeyId ? <p className="text-sm text-text-secondary">{t("apiKeys.actions.saving")}</p> : null}
           {actionError ? <p className="text-sm text-danger-text">{actionError}</p> : null}
         </Card>
 

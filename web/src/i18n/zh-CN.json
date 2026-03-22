@@ -357,6 +357,21 @@
       "perHour": "次/时",
       "count": "个"
     },
+    "hf": {
+      "title": "HuggingFace",
+      "loading": "正在检查连接状态...",
+      "notConnected": "未连接",
+      "connectedAs": "已连接账号：{{username}}",
+      "tokenLabel": "访问令牌",
+      "tokenPlaceholder": "粘贴 HuggingFace Token",
+      "connect": "连接",
+      "connecting": "连接中...",
+      "disconnect": "断开",
+      "disconnecting": "断开中...",
+      "tokenRequired": "请先输入 token。",
+      "connectSuccess": "HuggingFace 已连接。",
+      "disconnectSuccess": "HuggingFace 已断开。"
+    },
     "options": {
       "trellisLarge": "TRELLIS2 Large",
       "trellisLite": "TRELLIS2 Lite",

@@ -357,6 +357,21 @@
       "perHour": "req/h",
       "count": "jobs"
     },
+    "hf": {
+      "title": "HuggingFace",
+      "loading": "Checking connection status...",
+      "notConnected": "Not connected",
+      "connectedAs": "Connected as {{username}}",
+      "tokenLabel": "Access token",
+      "tokenPlaceholder": "Paste your HuggingFace token",
+      "connect": "Connect",
+      "connecting": "Connecting...",
+      "disconnect": "Disconnect",
+      "disconnecting": "Disconnecting...",
+      "tokenRequired": "Please enter a token.",
+      "connectSuccess": "HuggingFace connected.",
+      "disconnectSuccess": "HuggingFace disconnected."
+    },
     "options": {
       "trellisLarge": "TRELLIS2 Large",
       "trellisLite": "TRELLIS2 Lite",

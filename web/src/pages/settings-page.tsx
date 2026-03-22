@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import type { SettingField, SettingsData } from "@/data/admin-mocks";
 import { Button, Card, SelectField, TextField, ToggleSwitch } from "@/components/ui/primitives";
 import { useSettingsData } from "@/hooks/use-settings-data";
-import { updateSettings } from "@/lib/admin-api";
+import { connectHf, disconnectHf, fetchHfStatus, updateSettings, type HfStatusResponse } from "@/lib/admin-api";
 
 type SettingValue = boolean | number | string;
 
@@ -66,6 +66,12 @@ export function SettingsPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [saveSuccess, setSaveSuccess] = useState("");
+  const [hfStatus, setHfStatus] = useState<HfStatusResponse | null>(null);
+  const [hfLoading, setHfLoading] = useState(true);
+  const [hfBusy, setHfBusy] = useState(false);
+  const [hfToken, setHfToken] = useState("");
+  const [hfError, setHfError] = useState("");
+  const [hfSuccess, setHfSuccess] = useState("");
 
   useEffect(() => {
     if (source) {
@@ -76,6 +82,24 @@ export function SettingsPage() {
       setSaveSuccess("");
     }
   }, [source]);
+
+  const refreshHfStatus = useCallback(async () => {
+    setHfLoading(true);
+    try {
+      const status = await fetchHfStatus();
+      setHfStatus(status);
+      setHfError("");
+    } catch (hfStatusError) {
+      setHfError(hfStatusError instanceof Error ? hfStatusError.message : String(hfStatusError));
+      setHfStatus(null);
+    } finally {
+      setHfLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshHfStatus().catch(() => undefined);
+  }, [refreshHfStatus]);
 
   const currentPayload = useMemo(() => extractPayload(settings), [settings]);
   const currentFingerprint = useMemo(
@@ -120,6 +144,48 @@ export function SettingsPage() {
       setIsSaving(false);
     }
   }, [currentFingerprint, currentPayload, hasChanges, isSaving, settings, t]);
+
+  const handleHfConnect = useCallback(async () => {
+    if (hfBusy || hfLoading) {
+      return;
+    }
+    const token = hfToken.trim();
+    if (!token) {
+      setHfError(t("settings.hf.tokenRequired"));
+      return;
+    }
+    setHfBusy(true);
+    setHfError("");
+    setHfSuccess("");
+    try {
+      const status = await connectHf(token);
+      setHfStatus(status);
+      setHfToken("");
+      setHfSuccess(t("settings.hf.connectSuccess"));
+    } catch (hfConnectError) {
+      setHfError(hfConnectError instanceof Error ? hfConnectError.message : String(hfConnectError));
+    } finally {
+      setHfBusy(false);
+    }
+  }, [hfBusy, hfLoading, hfToken, t]);
+
+  const handleHfDisconnect = useCallback(async () => {
+    if (hfBusy || hfLoading) {
+      return;
+    }
+    setHfBusy(true);
+    setHfError("");
+    setHfSuccess("");
+    try {
+      const status = await disconnectHf();
+      setHfStatus(status);
+      setHfSuccess(t("settings.hf.disconnectSuccess"));
+    } catch (hfDisconnectError) {
+      setHfError(hfDisconnectError instanceof Error ? hfDisconnectError.message : String(hfDisconnectError));
+    } finally {
+      setHfBusy(false);
+    }
+  }, [hfBusy, hfLoading, t]);
 
   if (loading) return <div className="flex items-center justify-center h-full"><span className="text-text-secondary">Loading...</span></div>;
   if (error || !settings) return <div className="flex items-center justify-center h-full text-red-500">{error || "Failed to load"}</div>;
@@ -222,6 +288,63 @@ export function SettingsPage() {
             </div>
           </Card>
         ))}
+      </section>
+
+      <section>
+        <Card tone="low" className="grid gap-4 p-5">
+          <div className="grid gap-1">
+            <h2 className="text-lg font-semibold tracking-[-0.02em] text-text-primary">
+              {t("settings.hf.title")}
+            </h2>
+            {hfLoading ? (
+              <p className="text-sm text-text-secondary">{t("settings.hf.loading")}</p>
+            ) : hfStatus?.logged_in ? (
+              <p className="text-sm text-success-text">
+                {t("settings.hf.connectedAs", { username: hfStatus.username || "-" })}
+              </p>
+            ) : (
+              <p className="text-sm text-text-secondary">{t("settings.hf.notConnected")}</p>
+            )}
+          </div>
+
+          {!hfLoading && !hfStatus?.logged_in ? (
+            <label className="grid gap-1.5 text-sm text-text-secondary" htmlFor="settings-hf-token">
+              <span>{t("settings.hf.tokenLabel")}</span>
+              <TextField
+                id="settings-hf-token"
+                type="password"
+                value={hfToken}
+                autoComplete="off"
+                placeholder={t("settings.hf.tokenPlaceholder")}
+                onChange={(event) => setHfToken(event.target.value)}
+              />
+            </label>
+          ) : null}
+
+          <div className="flex flex-wrap items-center gap-2">
+            {hfStatus?.logged_in ? (
+              <Button
+                type="button"
+                disabled={hfBusy || hfLoading}
+                onClick={handleHfDisconnect}
+              >
+                {hfBusy ? t("settings.hf.disconnecting") : t("settings.hf.disconnect")}
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                variant="primary"
+                disabled={hfBusy || hfLoading}
+                onClick={handleHfConnect}
+              >
+                {hfBusy ? t("settings.hf.connecting") : t("settings.hf.connect")}
+              </Button>
+            )}
+          </div>
+
+          {hfSuccess ? <p className="text-sm text-success-text">{hfSuccess}</p> : null}
+          {hfError ? <p className="text-sm text-danger-text">{hfError}</p> : null}
+        </Card>
       </section>
 
       <section className="flex flex-wrap items-center gap-3">

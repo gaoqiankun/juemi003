@@ -24,11 +24,26 @@ from starlette.background import BackgroundTask
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import Scope
 
+try:
+    from huggingface_hub import (
+        get_token as _hf_get_token,
+        login as _hf_login,
+        logout as _hf_logout,
+        whoami as _hf_whoami,
+    )
+except Exception:
+    _hf_get_token = None
+    _hf_login = None
+    _hf_logout = None
+    _hf_whoami = None
+
 from gen3d.api.schemas import (
     AdminApiKeyCreateRequest,
     AdminApiKeyCreateResponse,
     AdminApiKeyListItem,
     AdminApiKeySetActiveRequest,
+    AdminHfLoginRequest,
+    AdminHfStatusResponse,
     CursorPaginationParams,
     HealthResponse,
     PrivilegedApiKeyCreateRequest,
@@ -98,6 +113,28 @@ _TASK_STATUS_MAP: dict[str, str] = {
     "failed": "failed",
     "cancelled": "failed",
 }
+
+
+def _ensure_hf_client_available() -> None:
+    if not all(callable(item) for item in (_hf_get_token, _hf_login, _hf_logout, _hf_whoami)):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="huggingface_hub is not available",
+        )
+
+
+def _resolve_hf_status() -> tuple[bool, str | None]:
+    _ensure_hf_client_available()
+    token = _hf_get_token()
+    if not token:
+        return False, None
+    try:
+        profile = _hf_whoami(token=token)
+    except Exception:
+        return False, None
+    profile_dict = profile if isinstance(profile, dict) else {}
+    username = str(profile_dict.get("name") or "").strip()
+    return True, username or None
 
 
 def _map_task_status(backend_status: str) -> str:
@@ -1476,6 +1513,54 @@ def create_app(
     ) -> dict:
         stats = await app_container.api_key_store.get_usage_stats()
         return stats
+
+    @app.get(
+        "/api/admin/hf-status",
+        response_model=AdminHfStatusResponse,
+        dependencies=[Depends(require_admin_token)],
+    )
+    async def get_hf_status() -> AdminHfStatusResponse:
+        logged_in, username = _resolve_hf_status()
+        return AdminHfStatusResponse(logged_in=logged_in, username=username)
+
+    @app.post(
+        "/api/admin/hf-login",
+        response_model=AdminHfStatusResponse,
+        dependencies=[Depends(require_admin_token)],
+    )
+    async def login_hf(payload: AdminHfLoginRequest) -> AdminHfStatusResponse:
+        _ensure_hf_client_available()
+        token = str(payload.token or "").strip()
+        if not token:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="token must be a non-empty string",
+            )
+        try:
+            _hf_login(token=token)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=str(exc),
+            ) from exc
+        logged_in, username = _resolve_hf_status()
+        return AdminHfStatusResponse(logged_in=logged_in, username=username)
+
+    @app.post(
+        "/api/admin/hf-logout",
+        response_model=AdminHfStatusResponse,
+        dependencies=[Depends(require_admin_token)],
+    )
+    async def logout_hf() -> AdminHfStatusResponse:
+        _ensure_hf_client_available()
+        try:
+            _hf_logout()
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=str(exc),
+            ) from exc
+        return AdminHfStatusResponse(logged_in=False, username=None)
 
     @app.get(
         "/api/admin/settings",

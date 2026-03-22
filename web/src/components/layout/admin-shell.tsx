@@ -342,20 +342,6 @@ export function AdminShell() {
                 >
                   {theme === "dark" ? <SunMedium className="h-4 w-4" /> : <MoonStar className="h-4 w-4" />}
                 </button>
-
-                <NavLink
-                  to="/admin/settings"
-                  className={({ isActive }) => clsx(
-                    "inline-flex h-10 w-10 items-center justify-center rounded-lg transition-colors",
-                    isActive
-                      ? "bg-surface-container-highest text-text-primary"
-                      : "text-text-secondary hover:bg-surface-container-highest hover:text-text-primary",
-                  )}
-                  aria-label={t("shell.nav.settings")}
-                  title={t("shell.nav.settings")}
-                >
-                  <Settings2 className="h-4 w-4" />
-                </NavLink>
               </div>
             </div>
           </div>

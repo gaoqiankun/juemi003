@@ -1212,6 +1212,97 @@ def test_admin_key_routes_require_admin_token(tmp_path: Path) -> None:
     assert key_manager_response.json()["detail"] == "invalid admin token"
 
 
+def test_admin_hf_routes_require_admin_token(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(server_module, "_hf_get_token", lambda: None)
+    monkeypatch.setattr(server_module, "_hf_login", lambda token: None)
+    monkeypatch.setattr(server_module, "_hf_logout", lambda: None)
+    monkeypatch.setattr(server_module, "_hf_whoami", lambda token=None: {"name": "cubie-user"})
+
+    with make_client(tmp_path, admin_token="admin-token") as client:
+        missing_token_response = client.get("/api/admin/hf-status")
+        invalid_token_response = client.get(
+            "/api/admin/hf-status",
+            headers=auth_headers("wrong-token"),
+        )
+        admin_token_response = client.get(
+            "/api/admin/hf-status",
+            headers=admin_headers(),
+        )
+
+    assert missing_token_response.status_code == 401
+    assert missing_token_response.json()["detail"] == "invalid admin token"
+    assert invalid_token_response.status_code == 401
+    assert invalid_token_response.json()["detail"] == "invalid admin token"
+    assert admin_token_response.status_code == 200
+    assert admin_token_response.json() == {"logged_in": False, "username": None}
+
+
+def test_admin_hf_login_status_logout_flow(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = {"token": ""}
+
+    def fake_get_token() -> str | None:
+        return state["token"] or None
+
+    def fake_whoami(token: str | None = None) -> dict[str, str]:
+        resolved_token = token or state["token"]
+        if resolved_token != "hf-valid-token":
+            raise RuntimeError("invalid token")
+        return {"name": "cubie-user"}
+
+    def fake_login(token: str) -> None:
+        if token != "hf-valid-token":
+            raise ValueError("invalid token")
+        state["token"] = token
+
+    def fake_logout() -> None:
+        state["token"] = ""
+
+    monkeypatch.setattr(server_module, "_hf_get_token", fake_get_token)
+    monkeypatch.setattr(server_module, "_hf_login", fake_login)
+    monkeypatch.setattr(server_module, "_hf_logout", fake_logout)
+    monkeypatch.setattr(server_module, "_hf_whoami", fake_whoami)
+
+    with make_client(tmp_path, admin_token="admin-token") as client:
+        before_response = client.get("/api/admin/hf-status", headers=admin_headers())
+        failed_login_response = client.post(
+            "/api/admin/hf-login",
+            headers=admin_headers(),
+            json={"token": "bad-token"},
+        )
+        login_response = client.post(
+            "/api/admin/hf-login",
+            headers=admin_headers(),
+            json={"token": "hf-valid-token"},
+        )
+        after_response = client.get("/api/admin/hf-status", headers=admin_headers())
+        logout_response = client.post("/api/admin/hf-logout", headers=admin_headers())
+        final_response = client.get("/api/admin/hf-status", headers=admin_headers())
+
+    assert before_response.status_code == 200
+    assert before_response.json() == {"logged_in": False, "username": None}
+
+    assert failed_login_response.status_code == 422
+    assert failed_login_response.json()["detail"] == "invalid token"
+
+    assert login_response.status_code == 200
+    assert login_response.json() == {"logged_in": True, "username": "cubie-user"}
+
+    assert after_response.status_code == 200
+    assert after_response.json() == {"logged_in": True, "username": "cubie-user"}
+
+    assert logout_response.status_code == 200
+    assert logout_response.json() == {"logged_in": False, "username": None}
+
+    assert final_response.status_code == 200
+    assert final_response.json() == {"logged_in": False, "username": None}
+
+
 def test_admin_key_crud_flow_returns_token_once_and_list_hides_token(tmp_path: Path) -> None:
     with make_client(tmp_path, admin_token="admin-token") as client:
         create_response = client.post(
