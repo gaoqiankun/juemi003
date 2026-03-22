@@ -12,7 +12,6 @@ import type { AdminLocale, DashboardStatKey, TaskStatus } from "@/data/admin-moc
 import { useDashboardData } from "@/hooks/use-dashboard-data";
 import {
   formatCompactNumber,
-  formatNumber,
   formatTimestamp,
 } from "@/lib/admin-format";
 
@@ -79,11 +78,6 @@ export function DashboardPage() {
                   <Icon className="h-5 w-5" />
                 </div>
               </div>
-
-              <div className="mt-5 flex flex-wrap items-center gap-2 text-sm">
-                <span className="font-semibold text-accent-strong">{item.change}</span>
-                <span className="text-text-secondary">{t(`dashboard.stats.${item.key}.helper`)}</span>
-              </div>
             </Card>
           );
         })}
@@ -91,12 +85,7 @@ export function DashboardPage() {
 
       <section className="grid gap-4">
         <Card className="grid gap-5 p-5">
-          <div>
-            <div className={eyebrowClassName}>{t("dashboard.recentTasks.title")}</div>
-            <h3 className="mt-1 text-lg font-semibold tracking-[-0.03em] text-text-primary">
-              {t("dashboard.recentTasks.subtitle")}
-            </h3>
-          </div>
+          <h2 className="text-lg font-semibold tracking-[-0.03em] text-text-primary">{t("dashboard.recentTasks.title")}</h2>
 
           <div className="overflow-x-auto">
             <table className="w-full min-w-[760px] border-separate border-spacing-y-2">
@@ -105,7 +94,6 @@ export function DashboardPage() {
                   <th className={tableHeadClassName}>{t("dashboard.recentTasks.columns.task")}</th>
                   <th className={tableHeadClassName}>{t("dashboard.recentTasks.columns.model")}</th>
                   <th className={tableHeadClassName}>{t("dashboard.recentTasks.columns.status")}</th>
-                  <th className={tableHeadClassName}>{t("dashboard.recentTasks.columns.duration")}</th>
                   <th className={tableHeadClassName}>{t("dashboard.recentTasks.columns.created")}</th>
                   <th className={tableHeadClassName}>{t("dashboard.recentTasks.columns.owner")}</th>
                 </tr>
@@ -115,13 +103,11 @@ export function DashboardPage() {
                   <tr key={task.id}>
                     <td className={tableCellClassName}>
                       <div className="font-mono text-sm font-semibold text-text-primary">{task.id}</div>
-                      <div className="mt-1 text-sm text-text-secondary">{t(`common.${task.subjectKey}`)}</div>
                     </td>
                     <td className={tableCellClassName}>{task.model}</td>
                     <td className={tableCellClassName}>
                       <StatusDot tone={statusToneMap[task.status]} label={t(`common.status.${task.status}`)} />
                     </td>
-                    <td className={`${tableCellClassName} font-mono`}>{formatNumber(locale, task.durationSeconds)}s</td>
                     <td className={tableCellClassName}>{formatTimestamp(locale, task.createdAt)}</td>
                     <td className={tableCellClassName}>{task.owner}</td>
                   </tr>

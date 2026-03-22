@@ -83,7 +83,7 @@
   },
   "dashboard": {
     "title": "Operational dashboard",
-    "description": "Monitor queue health, GPU pressure, and cluster stability without leaving the admin workspace.",
+    "description": "Track core task activity at a glance.",
     "stats": {
       "activeTasks": {
         "label": "Active Tasks",
@@ -118,7 +118,7 @@
     },
     "recentTasks": {
       "title": "Recent tasks",
-      "subtitle": "Fresh queue movements across priority and default lanes.",
+      "subtitle": "Latest task activity.",
       "columns": {
         "task": "Task",
         "model": "Model",
@@ -152,16 +152,17 @@
       "completed": "Completed",
       "failed": "Failed"
     },
-    "searchPlaceholder": "Search by task ID, owner, or subject",
+    "searchPlaceholder": "Search by task ID, owner, or model",
     "table": {
-      "title": "Queue backlog",
-      "subtitle": "Current tasks across priority and default queues.",
+      "title": "Tasks",
+      "subtitle": "Current tasks",
       "columns": {
         "task": "Task",
         "subject": "Subject",
         "queue": "Queue",
         "progress": "Progress",
         "model": "Model",
+        "status": "Status",
         "created": "Created",
         "latency": "Latency",
         "owner": "Owner"
@@ -201,6 +202,24 @@
     "importMeta": {
       "manifest": "manifest.json",
       "checksums": "SHA-256 checksums"
+    },
+    "list": {
+      "title": "Models",
+      "columns": {
+        "name": "Model",
+        "status": "Status",
+        "default": "Default",
+        "actions": "Actions"
+      },
+      "enabled": "Enabled",
+      "disabled": "Disabled",
+      "defaultTag": "Default",
+      "setDefault": "Set as default",
+      "delete": "Delete",
+      "saving": "Saving model changes...",
+      "empty": "No models found.",
+      "toggleLabel": "Toggle {{name}}",
+      "confirmDelete": "Delete model \"{{name}}\"?"
     }
   },
   "apiKeys": {
@@ -224,7 +243,11 @@
         "scopes": "Permissions",
         "status": "Status",
         "owner": "Owner"
-      }
+      },
+      "empty": "No API keys yet."
+    },
+    "summary": {
+      "activeKeys": "Active keys"
     },
     "actions": {
       "rotate": "Rotate key",
@@ -235,6 +258,12 @@
     "createPanel": {
       "title": "Create a scoped key",
       "copy": "Issue a scoped key for automation, integrations, or partner traffic without exposing full secrets in the interface.",
+      "shortCopy": "Create a new user API key for clients.",
+      "labelField": "Key name",
+      "labelPlaceholder": "e.g. production-client",
+      "creating": "Creating...",
+      "missingLabel": "Please enter a key name.",
+      "createdNotice": "Save this token now. It is only shown once.",
       "scopes": {
         "tasksRead": "tasks:read",
         "tasksWrite": "tasks:write",
@@ -263,23 +292,23 @@
     "fields": {
       "defaultProvider": {
         "label": "Default provider",
-        "description": "Choose which model receives new jobs when the client does not pin a provider."
+        "description": "Model used when a request does not specify one."
       },
       "maxParallelJobs": {
         "label": "Max parallel jobs",
-        "description": "Upper bound of concurrent renders scheduled across the primary cluster."
+        "description": "Maximum number of jobs running at the same time."
       },
       "queueMaxSize": {
         "label": "Queue capacity",
-        "description": "Maximum number of pending tasks allowed before new submissions are rejected."
+        "description": "Maximum pending tasks before new submissions are rejected."
       },
       "rateLimitPerHour": {
         "label": "Rate limit per hour",
-        "description": "Per-key request budget within a rolling one-hour window."
+        "description": "Maximum requests per API key in one hour."
       },
       "rateLimitConcurrent": {
         "label": "Concurrent jobs per key",
-        "description": "Maximum number of in-flight tasks each API key can own at the same time."
+        "description": "Maximum in-flight tasks per API key."
       },
       "previewRenderer": {
         "label": "Preview renderer",
@@ -291,7 +320,7 @@
       },
       "artifactBackend": {
         "label": "Artifact backend",
-        "description": "Backend used for previews, meshes, and metadata manifests."
+        "description": "Storage backend for generated artifacts."
       },
       "retentionDays": {
         "label": "Retention window",
@@ -303,7 +332,7 @@
       },
       "artifactPrefix": {
         "label": "Artifact prefix",
-        "description": "Storage path prefix for generated tasks and preview assets."
+        "description": "Storage path prefix for artifacts."
       },
       "rateLimitPerMin": {
         "label": "Rate limit",

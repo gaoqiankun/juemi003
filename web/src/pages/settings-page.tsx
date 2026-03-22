@@ -42,16 +42,9 @@ export function SettingsPage() {
       <section className="grid gap-4">
         {settings.sections.map((section) => (
           <Card key={section.key} className="p-5">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <div className="font-display text-[0.6875rem] font-semibold uppercase tracking-[0.05em] text-text-muted">
-                  {t(section.titleKey)}
-                </div>
-                <h3 className="mt-1 text-lg font-semibold tracking-[-0.02em] text-text-primary">
-                  {t(section.descriptionKey)}
-                </h3>
-              </div>
-            </div>
+            <h2 className="text-lg font-semibold tracking-[-0.02em] text-text-primary">
+              {t(section.titleKey)}
+            </h2>
 
             <div className="mt-4 grid gap-3">
               {section.fields.map((field) => (

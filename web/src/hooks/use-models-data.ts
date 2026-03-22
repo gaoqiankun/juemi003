@@ -1,106 +1,105 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
-import type { ModelsData } from "@/data/admin-mocks";
-import { fetchModels } from "@/lib/admin-api";
+import {
+  deleteModel,
+  fetchModels,
+  updateModel,
+  type RawAdminModelRecord,
+} from "@/lib/admin-api";
 
-interface RawModelRecord {
-  id?: string;
-  provider_type?: string;
-  display_name?: string;
-  model_path?: string;
-  is_enabled?: boolean;
-  is_default?: boolean;
-  min_vram_mb?: number;
-  runtimeState?: string;
-  updated_at?: string | null;
-  created_at?: string | null;
+export interface AdminModelItem {
+  id: string;
+  displayName: string;
+  isEnabled: boolean;
+  isDefault: boolean;
 }
 
-interface RawModelsResponse {
-  models?: RawModelRecord[];
-}
-
-function mapRuntimeStateToStatus(runtimeState: string, isEnabled: boolean) {
-  if (!isEnabled) {
-    return "queued" as const;
+function normalizeModels(payload: RawAdminModelRecord[] | undefined): AdminModelItem[] {
+  if (!Array.isArray(payload)) {
+    return [];
   }
-  if (runtimeState === "ready") {
-    return "ready" as const;
-  }
-  if (runtimeState === "loading") {
-    return "syncing" as const;
-  }
-  return "queued" as const;
-}
-
-function inferCapabilities(providerType: string) {
-  if (providerType === "hunyuan3d") {
-    return ["highDetail", "textureAware", "cleanTopology"];
-  }
-  if (providerType === "step1x3d") {
-    return ["fastDraft", "multiView", "cleanTopology"];
-  }
-  return ["highDetail", "pbr", "multiView"];
-}
-
-function extractVersion(modelPath: string) {
-  const parts = modelPath.split("/").filter(Boolean);
-  return parts[parts.length - 1] || modelPath || "N/A";
-}
-
-function mapModelsData(response: RawModelsResponse): ModelsData {
-  const nowIso = new Date().toISOString();
-  const models = (response.models || []).map((model) => {
-    const providerType = String(model.provider_type || "unknown").trim().toLowerCase();
-    const displayName = String(model.display_name || model.id || "Unknown model").trim();
-    const runtimeState = String(model.runtimeState || "").trim().toLowerCase();
-    const isEnabled = Boolean(model.is_enabled);
-    const status = mapRuntimeStateToStatus(runtimeState, isEnabled);
-    const minVramGb = Math.max(1, Math.round((Number(model.min_vram_mb || 0) || 0) / 1024));
-    const estimatedFootprintGb = Math.max(1, Math.round(minVramGb * 0.6 * 10) / 10);
-    const progress = status === "ready" ? 100 : status === "syncing" ? 50 : 0;
-    return {
-      id: String(model.id || ""),
-      name: displayName,
-      provider: providerType || "unknown",
-      version: extractVersion(String(model.model_path || "")),
-      status,
-      sizeGb: estimatedFootprintGb,
-      minVramGb,
-      downloads: 0,
-      progress,
-      capabilities: inferCapabilities(providerType),
-      updatedAt: String(model.updated_at || model.created_at || nowIso),
-    };
-  });
-
-  const ready = models.filter((model) => model.status === "ready").length;
-  const syncing = models.filter((model) => model.status === "syncing").length;
-  const queued = models.filter((model) => model.status === "queued").length;
-  const storageUsedGb = models.reduce((acc, model) => acc + model.sizeGb, 0);
-
-  return {
-    models,
-    summary: {
-      ready,
-      syncing,
-      queued,
-      storageUsedGb,
-    },
-  };
+  return payload
+    .map((item) => {
+      const id = String(item.id || "").trim();
+      const displayName = String(item.display_name || item.id || "").trim();
+      if (!id || !displayName) {
+        return null;
+      }
+      return {
+        id,
+        displayName,
+        isEnabled: Boolean(item.is_enabled),
+        isDefault: Boolean(item.is_default),
+      };
+    })
+    .filter((item): item is AdminModelItem => item !== null);
 }
 
 export function useModelsData() {
-  const [data, setData] = useState<ModelsData | null>(null);
+  const [models, setModels] = useState<AdminModelItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [busyModelId, setBusyModelId] = useState("");
 
-  useEffect(() => {
-    fetchModels()
-      .then((response) => setData(mapModelsData(response)))
-      .catch((e: Error) => setError(e.message))
-      .finally(() => setLoading(false));
+  const loadModels = useCallback(async (silent = false) => {
+    if (!silent) {
+      setLoading(true);
+    }
+    try {
+      const response = await fetchModels();
+      setModels(normalizeModels(response.models));
+      setError(null);
+    } catch (fetchError) {
+      setError(fetchError instanceof Error ? fetchError.message : String(fetchError));
+    } finally {
+      if (!silent) {
+        setLoading(false);
+      }
+    }
   }, []);
 
-  return { data, loading, error };
+  useEffect(() => {
+    loadModels().catch(() => undefined);
+  }, [loadModels]);
+
+  const setModelEnabled = useCallback(async (modelId: string, enabled: boolean) => {
+    setBusyModelId(modelId);
+    try {
+      await updateModel(modelId, { isEnabled: enabled });
+      await loadModels(true);
+    } finally {
+      setBusyModelId("");
+    }
+  }, [loadModels]);
+
+  const setModelDefault = useCallback(async (modelId: string) => {
+    setBusyModelId(modelId);
+    try {
+      await updateModel(modelId, { isDefault: true });
+      await loadModels(true);
+    } finally {
+      setBusyModelId("");
+    }
+  }, [loadModels]);
+
+  const removeModel = useCallback(async (modelId: string) => {
+    setBusyModelId(modelId);
+    try {
+      await deleteModel(modelId);
+      await loadModels(true);
+    } finally {
+      setBusyModelId("");
+    }
+  }, [loadModels]);
+
+  return {
+    models,
+    loading,
+    error,
+    busyModelId,
+    refresh: loadModels,
+    setModelEnabled,
+    setModelDefault,
+    removeModel,
+  };
 }

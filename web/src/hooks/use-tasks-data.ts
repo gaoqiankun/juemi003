@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import type { QueueTask, TaskOverviewMetric, TaskLogEntry } from "@/data/admin-mocks";
+import type { TaskOverviewMetric, TaskStatus } from "@/data/admin-mocks";
 import {
   fetchAdminTasks,
   fetchTasksStats,
@@ -8,13 +8,21 @@ import {
   type RawAdminTasksResponse,
 } from "@/lib/admin-api";
 
-export interface TasksDataResult {
-  overview: TaskOverviewMetric[];
-  tasks: QueueTask[];
-  logs: TaskLogEntry[];
+export interface AdminTaskItem {
+  id: string;
+  model: string;
+  status: TaskStatus;
+  createdAt: string;
+  latencySeconds: number;
+  owner: string;
 }
 
-function mapTaskStatus(status: string): QueueTask["status"] {
+export interface TasksDataResult {
+  overview: TaskOverviewMetric[];
+  tasks: AdminTaskItem[];
+}
+
+function mapTaskStatus(status: string): TaskStatus {
   const normalized = status.toLowerCase();
   if (normalized === "succeeded" || normalized === "completed") {
     return "completed";
@@ -40,30 +48,33 @@ function parseLatencySeconds(createdAt: string, finishedAt?: string | null) {
   return Math.max(0, Math.round((finished.getTime() - created.getTime()) / 1000));
 }
 
-function mapTask(item: RawAdminTaskSummary): QueueTask {
+function mapTask(item: RawAdminTaskSummary): AdminTaskItem | null {
+  const id = String(item.taskId || item.task_id || "").trim();
+  if (!id) {
+    return null;
+  }
   const createdAt = String(item.createdAt || item.created_at || new Date().toISOString());
   const status = mapTaskStatus(String(item.status || "queued"));
   const finishedAt = item.finishedAt ?? item.finished_at ?? null;
   return {
-    id: String(item.taskId || item.task_id || ""),
-    subjectKey: "subjects.sneaker",
-    model: String(item.model || "trellis"),
+    id,
+    model: String(item.model || "-"),
     status,
-    progress: status === "completed" ? 100 : status === "failed" ? 100 : status === "live" ? 60 : 0,
-    queue: "default",
     createdAt,
     latencySeconds: parseLatencySeconds(createdAt, finishedAt),
     owner: String(item.keyId || item.key_id || "-"),
   };
 }
 
-function normalizeTasksResponse(payload: RawAdminTasksResponse): QueueTask[] {
+function normalizeTasksResponse(payload: RawAdminTasksResponse): AdminTaskItem[] {
   const source = Array.isArray(payload.items)
     ? payload.items
     : Array.isArray(payload.tasks)
       ? payload.tasks
       : [];
-  return source.map(mapTask);
+  return source
+    .map(mapTask)
+    .filter((item): item is AdminTaskItem => item !== null);
 }
 
 export function useTasksData() {
@@ -77,7 +88,6 @@ export function useTasksData() {
         setData({
           overview: statsRes.overview,
           tasks: normalizeTasksResponse(tasksRes),
-          logs: [], // logs are not provided by the API
         });
       })
       .catch((e: Error) => setError(e.message))

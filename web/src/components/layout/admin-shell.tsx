@@ -215,12 +215,6 @@ export function AdminShell() {
             })}
           </nav>
 
-          <Card tone="low" className="mt-auto grid gap-3 p-4">
-            <div className={metaClassName}>{t("shell.deployLabel")}</div>
-            <div className="text-lg font-semibold tracking-[-0.03em] text-text-primary">
-              {t("shell.deployValue")}
-            </div>
-          </Card>
         </div>
       </aside>
 

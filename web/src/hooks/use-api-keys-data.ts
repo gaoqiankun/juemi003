@@ -1,7 +1,20 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
-import type { ApiKeyData, ApiKeysData, ApiUsageMetric } from "@/data/admin-mocks";
-import { fetchAdminKeys, fetchKeysStats, type RawAdminKeyItem } from "@/lib/admin-api";
+import { createAdminKey, fetchAdminKeys, type RawAdminKeyItem } from "@/lib/admin-api";
+
+export interface AdminApiKeyItem {
+  id: string;
+  label: string;
+  createdAt: string;
+  isActive: boolean;
+}
+
+export interface CreatedApiKey {
+  keyId: string;
+  token: string;
+  label: string;
+  createdAt: string;
+}
 
 function normalizeKeysResponse(payload: RawAdminKeyItem[] | { keys?: RawAdminKeyItem[] }): RawAdminKeyItem[] {
   if (Array.isArray(payload)) {
@@ -13,44 +26,74 @@ function normalizeKeysResponse(payload: RawAdminKeyItem[] | { keys?: RawAdminKey
   return [];
 }
 
-function toApiKeyData(item: RawAdminKeyItem): ApiKeyData {
-  const keyId = String(item.keyId || item.key_id || "");
-  const createdAt = String(item.createdAt || item.created_at || new Date().toISOString());
+function toApiKeyData(item: RawAdminKeyItem): AdminApiKeyItem | null {
+  const keyId = String(item.keyId || item.key_id || "").trim();
+  if (!keyId) {
+    return null;
+  }
+  const createdAt = String(item.createdAt || item.created_at || new Date().toISOString()).trim();
   return {
     id: keyId,
-    name: String(item.label || keyId || "API Key"),
-    prefix: keyId.slice(0, 8) || "key_",
+    label: String(item.label || keyId || "API Key"),
     createdAt,
-    lastUsedAt: String(item.lastUsedAt || item.last_used_at || createdAt),
-    requests: Number(item.requests || 0),
-    scopes: Array.isArray(item.scopes) ? item.scopes : [],
-    status: Boolean(item.isActive ?? item.is_active ?? true) ? "active" : "paused",
-    owner: String(item.owner || "-"),
+    isActive: Boolean(item.isActive ?? item.is_active ?? true),
   };
 }
 
 export function useApiKeysData() {
-  const [data, setData] = useState<ApiKeysData | null>(null);
+  const [keys, setKeys] = useState<AdminApiKeyItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isCreating, setIsCreating] = useState(false);
 
-  useEffect(() => {
-    Promise.all([fetchAdminKeys(), fetchKeysStats()])
-      .then(([keysRes, statsRes]) => {
-        const usage: ApiUsageMetric[] = [
-          { key: "requests", value: statsRes.total_requests },
-          { key: "projects", value: statsRes.active_keys },
-          { key: "spend", value: 0 },
-          { key: "errorRate", value: 0 },
-        ];
-        setData({
-          usage,
-          keys: normalizeKeysResponse(keysRes).map(toApiKeyData),
-        });
-      })
-      .catch((e: Error) => setError(e.message))
-      .finally(() => setLoading(false));
+  const refresh = useCallback(async (silent = false) => {
+    if (!silent) {
+      setLoading(true);
+    }
+    try {
+      const keysRes = await fetchAdminKeys();
+      setKeys(
+        normalizeKeysResponse(keysRes)
+          .map(toApiKeyData)
+          .filter((item): item is AdminApiKeyItem => item !== null),
+      );
+      setError(null);
+    } catch (fetchError) {
+      setError(fetchError instanceof Error ? fetchError.message : String(fetchError));
+    } finally {
+      if (!silent) {
+        setLoading(false);
+      }
+    }
   }, []);
 
-  return { data, loading, error };
+  useEffect(() => {
+    refresh().catch(() => undefined);
+  }, [refresh]);
+
+  const createKey = useCallback(async (label: string): Promise<CreatedApiKey> => {
+    setIsCreating(true);
+    try {
+      const created = await createAdminKey(label);
+      await refresh(true);
+      return {
+        keyId: created.keyId,
+        token: created.token,
+        label: created.label,
+        createdAt: created.createdAt,
+      };
+    } finally {
+      setIsCreating(false);
+    }
+  }, [refresh]);
+
+  return {
+    keys,
+    loading,
+    error,
+    isCreating,
+    activeCount: keys.filter((item) => item.isActive).length,
+    refresh,
+    createKey,
+  };
 }

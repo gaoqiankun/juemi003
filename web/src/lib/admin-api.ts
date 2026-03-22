@@ -1,6 +1,5 @@
 import type {
   DashboardData,
-  ModelsData,
   SettingsData,
   TaskOverviewMetric,
 } from "@/data/admin-mocks";
@@ -107,7 +106,24 @@ export interface TasksStatsResponse {
 export const fetchTasksStats = () => adminFetch<TasksStatsResponse>("/api/admin/tasks/stats");
 
 // Models
-export const fetchModels = () => adminFetch<ModelsData>("/api/admin/models");
+export interface RawAdminModelRecord {
+  id?: string;
+  provider_type?: string;
+  display_name?: string;
+  model_path?: string;
+  is_enabled?: boolean;
+  is_default?: boolean;
+  min_vram_mb?: number;
+  runtimeState?: string;
+  updated_at?: string | null;
+  created_at?: string | null;
+}
+
+export interface RawAdminModelsResponse {
+  models?: RawAdminModelRecord[];
+}
+
+export const fetchModels = () => adminFetch<RawAdminModelsResponse>("/api/admin/models");
 export const createModel = (data: Record<string, unknown>) =>
   adminFetch<unknown>("/api/admin/models", { method: "POST", body: JSON.stringify(data) });
 export const updateModel = (id: string, data: Record<string, unknown>) =>
@@ -135,6 +151,11 @@ export interface RawAdminKeyItem {
 }
 
 export const fetchAdminKeys = () => adminFetch<RawAdminKeyItem[] | { keys?: RawAdminKeyItem[] }>("/api/admin/keys");
+export const createAdminKey = (label: string) =>
+  adminFetch<{ keyId: string; token: string; label: string; createdAt: string }>("/api/admin/keys", {
+    method: "POST",
+    body: JSON.stringify({ label }),
+  });
 
 export interface KeysStatsResponse {
   total_keys: number;

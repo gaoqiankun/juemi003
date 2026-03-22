@@ -83,7 +83,7 @@
   },
   "dashboard": {
     "title": "运营总览",
-    "description": "在同一个管理工作台里监控队列状态、GPU 压力和集群稳定性。",
+    "description": "快速查看核心任务指标。",
     "stats": {
       "activeTasks": {
         "label": "进行中任务",
@@ -118,7 +118,7 @@
     },
     "recentTasks": {
       "title": "最近任务",
-      "subtitle": "优先队列和默认队列的最新变动。",
+      "subtitle": "最近任务动态。",
       "columns": {
         "task": "任务",
         "model": "模型",
@@ -152,16 +152,17 @@
       "completed": "已完成",
       "failed": "失败"
     },
-    "searchPlaceholder": "按任务 ID、负责人或主题搜索",
+    "searchPlaceholder": "按任务 ID、负责人或模型搜索",
     "table": {
-      "title": "队列积压",
-      "subtitle": "查看优先队列和默认队列中的当前任务。",
+      "title": "任务列表",
+      "subtitle": "当前任务",
       "columns": {
         "task": "任务",
         "subject": "主题",
         "queue": "队列",
         "progress": "进度",
         "model": "模型",
+        "status": "状态",
         "created": "创建时间",
         "latency": "耗时",
         "owner": "负责人"
@@ -201,6 +202,24 @@
     "importMeta": {
       "manifest": "manifest.json",
       "checksums": "SHA-256 校验信息"
+    },
+    "list": {
+      "title": "模型列表",
+      "columns": {
+        "name": "模型名称",
+        "status": "状态",
+        "default": "默认",
+        "actions": "操作"
+      },
+      "enabled": "启用",
+      "disabled": "禁用",
+      "defaultTag": "默认",
+      "setDefault": "设为默认",
+      "delete": "删除",
+      "saving": "正在保存模型设置...",
+      "empty": "暂无模型。",
+      "toggleLabel": "切换 {{name}}",
+      "confirmDelete": "确认删除模型“{{name}}”？"
     }
   },
   "apiKeys": {
@@ -224,7 +243,11 @@
         "scopes": "权限",
         "status": "状态",
         "owner": "负责人"
-      }
+      },
+      "empty": "暂无 API 密钥。"
+    },
+    "summary": {
+      "activeKeys": "活跃密钥"
     },
     "actions": {
       "rotate": "轮换密钥",
@@ -235,6 +258,12 @@
     "createPanel": {
       "title": "创建受限密钥",
       "copy": "为自动化流程、系统集成或合作方访问创建受限密钥，避免在界面中暴露完整凭据。",
+      "shortCopy": "为客户端创建新的用户 API 密钥。",
+      "labelField": "密钥名称",
+      "labelPlaceholder": "例如：production-client",
+      "creating": "创建中...",
+      "missingLabel": "请输入密钥名称。",
+      "createdNotice": "请立即保存该 token，后续不会再次显示。",
       "scopes": {
         "tasksRead": "tasks:read",
         "tasksWrite": "tasks:write",
@@ -263,23 +292,23 @@
     "fields": {
       "defaultProvider": {
         "label": "默认 Provider",
-        "description": "当客户端没有指定 provider 时，默认由哪个模型接收新任务。"
+        "description": "请求未指定模型时使用的默认模型。"
       },
       "maxParallelJobs": {
         "label": "最大并行任务数",
-        "description": "主集群可同时调度的渲染任务上限。"
+        "description": "同时运行的任务上限。"
       },
       "queueMaxSize": {
         "label": "队列容量",
-        "description": "排队任务数量上限，超过后将拒绝新的提交请求。"
+        "description": "排队任务上限，超过后拒绝新请求。"
       },
       "rateLimitPerHour": {
         "label": "每小时限流",
-        "description": "单个 API Key 在滚动一小时窗口内可用的请求配额。"
+        "description": "单个 API Key 每小时可发起的最大请求数。"
       },
       "rateLimitConcurrent": {
         "label": "单 Key 并发上限",
-        "description": "每个 API Key 同时允许持有的进行中任务数量。"
+        "description": "单个 API Key 允许的进行中任务上限。"
       },
       "previewRenderer": {
         "label": "预览渲染",
@@ -291,7 +320,7 @@
       },
       "artifactBackend": {
         "label": "产物后端",
-        "description": "预览图、网格和 manifest 使用的存储后端。"
+        "description": "生成产物使用的存储后端。"
       },
       "retentionDays": {
         "label": "保留窗口",
@@ -303,7 +332,7 @@
       },
       "artifactPrefix": {
         "label": "产物前缀",
-        "description": "生成任务及预览资源写入的存储路径前缀。"
+        "description": "生成产物写入的路径前缀。"
       },
       "rateLimitPerMin": {
         "label": "限流",
