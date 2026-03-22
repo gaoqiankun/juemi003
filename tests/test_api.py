@@ -1277,6 +1277,80 @@ def test_admin_tasks_returns_all_tasks_and_supports_key_filter(tmp_path: Path) -
     ]
 
 
+def test_admin_task_owner_prefers_key_label(tmp_path: Path) -> None:
+    with make_client(tmp_path, admin_token="admin-token") as client:
+        managed_key = create_managed_api_key(client, label="Studio Team")
+        create_response = client.post(
+            "/v1/tasks",
+            headers=auth_headers(managed_key["token"]),
+            json={
+                "type": "image_to_3d",
+                "input_url": upload_input_url(client),
+                "options": {"resolution": 1024},
+            },
+        )
+        tasks_response = client.get(
+            "/api/admin/tasks",
+            headers=admin_headers(),
+        )
+        dashboard_response = client.get(
+            "/api/admin/dashboard",
+            headers=admin_headers(),
+        )
+
+    assert create_response.status_code == 201
+    assert tasks_response.status_code == 200
+    task = task_page_items(tasks_response)[0]
+    assert task["keyId"] == managed_key["keyId"]
+    assert task["keyLabel"] == "Studio Team"
+    assert task["owner"] == "Studio Team"
+    assert dashboard_response.status_code == 200
+    assert dashboard_response.json()["recentTasks"][0]["owner"] == "Studio Team"
+
+
+def test_admin_task_owner_falls_back_to_key_prefix(tmp_path: Path) -> None:
+    database_path = tmp_path / "app.sqlite3"
+    key_id = "448572a7a8ab479b920c1efee99dcf88"
+    now = utcnow()
+    seed_tasks(
+        database_path,
+        [
+            RequestSequence(
+                task_id="owner-fallback-task",
+                task_type=TaskType.IMAGE_TO_3D,
+                model="trellis",
+                input_url=SAMPLE_IMAGE_DATA_URL,
+                options={"resolution": 1024},
+                status=TaskStatus.QUEUED,
+                progress=0,
+                current_stage=TaskStatus.QUEUED.value,
+                key_id=key_id,
+                created_at=now,
+                queued_at=now,
+                updated_at=now,
+            )
+        ],
+    )
+
+    with make_client(tmp_path, database_path=database_path, admin_token="admin-token") as client:
+        tasks_response = client.get(
+            "/api/admin/tasks",
+            headers=admin_headers(),
+        )
+        dashboard_response = client.get(
+            "/api/admin/dashboard",
+            headers=admin_headers(),
+        )
+
+    assert tasks_response.status_code == 200
+    task = task_page_items(tasks_response)[0]
+    assert task["keyId"] == key_id
+    assert task["keyLabel"] == ""
+    assert task["owner"] == "448572a7\u2026"
+    assert dashboard_response.status_code == 200
+    assert dashboard_response.json()["recentTasks"][0]["owner"] == "448572a7\u2026"
+
+
 def test_admin_tasks_requires_valid_admin_token(tmp_path: Path) -> None:
     with make_client(tmp_path, admin_token="admin-token") as client:
         missing_token_response = client.get("/api/admin/tasks")

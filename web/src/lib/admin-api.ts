@@ -90,6 +90,9 @@ export interface RawAdminTaskSummary {
   finished_at?: string | null;
   keyId?: string;
   key_id?: string;
+  keyLabel?: string;
+  key_label?: string;
+  owner?: string;
 }
 
 export interface RawAdminTasksResponse {

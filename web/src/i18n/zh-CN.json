@@ -367,6 +367,10 @@
       "storageValue": "对象存储，支持本地回退",
       "traffic": "流量姿态",
       "trafficValue": "优先通道已启用"
+    },
+    "save": {
+      "saving": "保存中...",
+      "success": "设置已保存。"
     }
   },
   "user": {

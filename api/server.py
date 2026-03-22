@@ -104,6 +104,44 @@ def _map_task_status(backend_status: str) -> str:
     return _TASK_STATUS_MAP.get(backend_status, "queued")
 
 
+def _short_key_id(key_id: str | None) -> str:
+    normalized = str(key_id or "").strip()
+    if not normalized:
+        return "-"
+    if len(normalized) <= 8:
+        return normalized
+    return f"{normalized[:8]}…"
+
+
+def _resolve_task_owner(
+    key_id: str | None,
+    key_label_map: dict[str, str],
+) -> tuple[str, str]:
+    normalized_key_id = str(key_id or "").strip()
+    if not normalized_key_id:
+        return "-", ""
+    label = key_label_map.get(normalized_key_id, "").strip()
+    if label:
+        return label, label
+    return _short_key_id(normalized_key_id), ""
+
+
+async def _build_user_key_label_map(
+    api_key_store: ApiKeyStore,
+) -> dict[str, str]:
+    try:
+        api_keys = await api_key_store.list_user_keys()
+    except Exception:
+        return {}
+    label_map: dict[str, str] = {}
+    for api_key in api_keys:
+        key_id = str(api_key.get("key_id") or "").strip()
+        label = str(api_key.get("label") or "").strip()
+        if key_id and label:
+            label_map[key_id] = label
+    return label_map
+
+
 async def _safe_record_usage(api_key_store: ApiKeyStore, key_id: str) -> None:
     try:
         await api_key_store.record_usage(key_id)
@@ -924,24 +962,33 @@ def create_app(
 
     @app.get(
         "/api/admin/tasks",
-        response_model=TaskListResponse,
         dependencies=[Depends(require_admin_token)],
     )
     async def list_admin_tasks(
         key_id: str | None = Query(default=None),
         pagination: CursorPaginationParams = Depends(get_cursor_pagination_params),
         app_container: AppContainer = Depends(get_container),
-    ) -> TaskListResponse:
+    ) -> dict:
         page = await app_container.engine.list_tasks(
             key_id=key_id,
             limit=pagination.limit,
             before=pagination.before,
         )
-        return TaskListResponse(
+        response = TaskListResponse(
             items=[TaskSummary.from_sequence(task) for task in page.items],
             has_more=page.has_more,
             next_cursor=page.next_cursor,
-        )
+        ).model_dump(by_alias=True, mode="json")
+        key_label_map = await _build_user_key_label_map(app_container.api_key_store)
+        items = response.get("items", [])
+        for index, sequence in enumerate(page.items):
+            if index >= len(items):
+                break
+            owner, key_label = _resolve_task_owner(sequence.key_id, key_label_map)
+            items[index]["keyId"] = str(sequence.key_id or "")
+            items[index]["keyLabel"] = key_label
+            items[index]["owner"] = owner
+        return response
 
     @app.delete(
         "/v1/tasks/{task_id}",
@@ -1177,6 +1224,7 @@ def create_app(
         recent = await app_container.task_store.get_recent_tasks(limit=10)
         throughput = await app_container.task_store.get_throughput_stats(hours=1)
         active = await app_container.task_store.get_active_task_count()
+        key_label_map = await _build_user_key_label_map(app_container.api_key_store)
 
         stats = [
             {"key": "activeTasks", "value": active, "change": ""},
@@ -1203,18 +1251,23 @@ def create_app(
             "avgLatencySeconds": throughput.get("avg_duration_seconds") or 0,
         }
 
-        recent_tasks = [
-            {
-                "id": t["id"],
-                "subjectKey": "",
-                "model": t.get("model", ""),
-                "status": _map_task_status(t["status"]),
-                "durationSeconds": 0,
-                "createdAt": t.get("created_at", ""),
-                "owner": t.get("key_id", ""),
-            }
-            for t in recent
-        ]
+        recent_tasks = []
+        for task in recent:
+            task_key_id = str(task.get("key_id") or "")
+            owner, key_label = _resolve_task_owner(task_key_id, key_label_map)
+            recent_tasks.append(
+                {
+                    "id": task["id"],
+                    "subjectKey": "",
+                    "model": task.get("model", ""),
+                    "status": _map_task_status(task["status"]),
+                    "durationSeconds": 0,
+                    "createdAt": task.get("created_at", ""),
+                    "owner": owner,
+                    "keyId": task_key_id,
+                    "keyLabel": key_label,
+                }
+            )
 
         return {
             "stats": stats,

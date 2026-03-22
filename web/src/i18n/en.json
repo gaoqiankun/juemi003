@@ -367,6 +367,10 @@
       "storageValue": "Object storage with local fallback",
       "traffic": "Traffic posture",
       "trafficValue": "priority lane enabled"
+    },
+    "save": {
+      "saving": "Saving...",
+      "success": "Settings saved."
     }
   },
   "user": {

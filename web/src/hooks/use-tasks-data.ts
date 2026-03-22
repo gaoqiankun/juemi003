@@ -17,6 +17,26 @@ export interface AdminTaskItem {
   owner: string;
 }
 
+function toOwnerLabel(
+  keyId: string,
+  keyLabel: string,
+  ownerFallback: string,
+) {
+  const normalizedLabel = String(keyLabel || "").trim();
+  if (normalizedLabel) {
+    return normalizedLabel;
+  }
+  const normalizedOwnerFallback = String(ownerFallback || "").trim();
+  if (normalizedOwnerFallback) {
+    return normalizedOwnerFallback;
+  }
+  const normalizedKeyId = String(keyId || "").trim();
+  if (!normalizedKeyId) {
+    return "-";
+  }
+  return `${normalizedKeyId.slice(0, 8)}${normalizedKeyId.length > 8 ? "…" : ""}`;
+}
+
 export interface TasksDataResult {
   overview: TaskOverviewMetric[];
   tasks: AdminTaskItem[];
@@ -56,13 +76,16 @@ function mapTask(item: RawAdminTaskSummary): AdminTaskItem | null {
   const createdAt = String(item.createdAt || item.created_at || new Date().toISOString());
   const status = mapTaskStatus(String(item.status || "queued"));
   const finishedAt = item.finishedAt ?? item.finished_at ?? null;
+  const keyId = String(item.keyId || item.key_id || "").trim();
+  const keyLabel = String(item.keyLabel || item.key_label || "").trim();
+  const ownerFallback = String(item.owner || "").trim();
   return {
     id,
     model: String(item.model || "-"),
     status,
     createdAt,
     latencySeconds: parseLatencySeconds(createdAt, finishedAt),
-    owner: String(item.keyId || item.key_id || "-"),
+    owner: toOwnerLabel(keyId, keyLabel, ownerFallback),
   };
 }
 
