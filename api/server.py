@@ -829,6 +829,23 @@ def create_app(
             )
         return AdminApiKeyListItem(**api_key)
 
+    @app.delete(
+        "/api/admin/keys/{key_id}",
+        status_code=status.HTTP_204_NO_CONTENT,
+        dependencies=[Depends(require_admin_token)],
+    )
+    async def delete_admin_key(
+        key_id: str,
+        app_container: AppContainer = Depends(get_container),
+    ) -> Response:
+        deleted = await app_container.api_key_store.revoke_user_key(key_id)
+        if not deleted:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="api key not found",
+            )
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
     @app.post(
         "/v1/upload",
         response_model=UploadImageResponse,

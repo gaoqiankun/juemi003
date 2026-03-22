@@ -218,6 +218,16 @@ class ApiKeyStore:
             await db.commit()
             return cursor.rowcount > 0
 
+    async def revoke_user_key(self, key_id: str) -> bool:
+        db = self._require_db()
+        async with self._lock:
+            cursor = await db.execute(
+                "DELETE FROM api_keys WHERE key_id = ? AND scope = ?",
+                (key_id, USER_KEY_SCOPE),
+            )
+            await db.commit()
+            return cursor.rowcount > 0
+
     async def get_key(
         self,
         key_id: str,

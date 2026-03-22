@@ -1053,6 +1053,15 @@ def test_admin_key_crud_flow_returns_token_once_and_list_hides_token(tmp_path: P
             headers=admin_headers(),
             json={"is_active": False},
         )
+        delete_response = client.delete(
+            f"/api/admin/keys/{key_id}",
+            headers=admin_headers(),
+        )
+        list_after_delete_response = client.get("/api/admin/keys", headers=admin_headers())
+        delete_missing_response = client.delete(
+            "/api/admin/keys/missing-key",
+            headers=admin_headers(),
+        )
 
     assert set(created_payload) == {"keyId", "token", "label", "createdAt"}
     assert created_payload["label"] == "QA Team"
@@ -1069,6 +1078,11 @@ def test_admin_key_crud_flow_returns_token_once_and_list_hides_token(tmp_path: P
 
     assert missing_response.status_code == 404
     assert missing_response.json()["detail"] == "api key not found"
+    assert delete_response.status_code == 204
+    assert list_after_delete_response.status_code == 200
+    assert all(item["keyId"] != key_id for item in list_after_delete_response.json())
+    assert delete_missing_response.status_code == 404
+    assert delete_missing_response.json()["detail"] == "api key not found"
 
 
 def test_user_key_auth_accepts_user_keys_and_rejects_other_token_scopes(

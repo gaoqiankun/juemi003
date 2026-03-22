@@ -125,7 +125,7 @@
         "status": "状态",
         "duration": "耗时",
         "created": "创建时间",
-        "owner": "负责人"
+        "owner": "API Key"
       }
     },
     "nodes": {
@@ -165,7 +165,7 @@
         "status": "状态",
         "created": "创建时间",
         "latency": "耗时",
-        "owner": "负责人"
+        "owner": "API Key"
       }
     },
     "logs": {
@@ -215,11 +215,16 @@
       "disabled": "禁用",
       "defaultTag": "默认",
       "setDefault": "设为默认",
-      "delete": "删除",
       "saving": "正在保存模型设置...",
       "empty": "暂无模型。",
-      "toggleLabel": "切换 {{name}}",
-      "confirmDelete": "确认删除模型“{{name}}”？"
+      "toggleLabel": "切换 {{name}}"
+    },
+    "runtime": {
+      "ready": "已就绪",
+      "loading": "加载中",
+      "not_loaded": "未加载",
+      "error": "异常",
+      "unknown": "未知"
     }
   },
   "apiKeys": {
@@ -242,7 +247,8 @@
         "requests": "请求量",
         "scopes": "权限",
         "status": "状态",
-        "owner": "负责人"
+        "owner": "负责人",
+        "actions": "操作"
       },
       "empty": "暂无 API 密钥。"
     },
@@ -252,6 +258,10 @@
     "actions": {
       "rotate": "轮换密钥",
       "disable": "停用密钥",
+      "enable": "启用密钥",
+      "delete": "删除密钥",
+      "saving": "正在更新密钥状态...",
+      "confirmDelete": "确认删除 API 密钥“{{name}}”？",
       "rotateHelper": "24 小时平滑切换期",
       "disableHelper": "立即撤销访问权限"
     },

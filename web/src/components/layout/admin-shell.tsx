@@ -1,6 +1,7 @@
 import clsx from "clsx";
 import {
   Boxes,
+  Check,
   Globe2,
   KeyRound,
   LayoutDashboard,
@@ -9,7 +10,7 @@ import {
   SunMedium,
   Workflow,
 } from "lucide-react";
-import { type FormEvent, useCallback, useEffect, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 
@@ -40,14 +41,15 @@ export function AdminShell() {
   const location = useLocation();
   const { t } = useTranslation();
   const { theme, toggleTheme } = useTheme();
-  const { language, toggleLanguage } = useLocale();
+  const { language, locales, setLanguage } = useLocale();
   const { connection } = useGen3d();
+  const languageMenuRef = useRef<HTMLDivElement | null>(null);
   const [authState, setAuthState] = useState<"checking" | "ready" | "needs_token">("checking");
   const [authTokenInput, setAuthTokenInput] = useState(() => getAdminToken());
   const [authError, setAuthError] = useState("");
   const [isSubmittingAuth, setIsSubmittingAuth] = useState(false);
+  const [isLanguageMenuOpen, setIsLanguageMenuOpen] = useState(false);
   const currentThemeLabel = theme === "dark" ? t("shell.themeDark") : t("shell.themeLight");
-  const currentLanguageLabel = language === "en" ? "English" : "中文";
   const toneClass = connection.tone === "ready"
     ? "bg-success-text"
     : connection.tone === "error"
@@ -102,6 +104,32 @@ export function AdminShell() {
       window.removeEventListener(ADMIN_AUTH_INVALID_EVENT, handleAuthInvalid);
     };
   }, [setNeedsTokenState, t]);
+
+  useEffect(() => {
+    if (!isLanguageMenuOpen) {
+      return;
+    }
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!languageMenuRef.current?.contains(event.target as Node)) {
+        setIsLanguageMenuOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsLanguageMenuOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isLanguageMenuOpen]);
+
+  useEffect(() => {
+    setIsLanguageMenuOpen(false);
+  }, [location.pathname]);
 
   const handleAdminTokenSubmit = useCallback(async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -245,15 +273,52 @@ export function AdminShell() {
                   {theme === "dark" ? <SunMedium className="h-4 w-4" /> : <MoonStar className="h-4 w-4" />}
                 </button>
 
-                <button
-                  type="button"
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-transparent text-text-secondary transition-colors hover:bg-surface-container-highest hover:text-text-primary"
-                  onClick={toggleLanguage}
-                  aria-label={t("shell.languageToggle")}
-                  title={currentLanguageLabel}
-                >
-                  <Globe2 className="h-4 w-4" />
-                </button>
+                <div ref={languageMenuRef} className="relative">
+                  <button
+                    type="button"
+                    className={clsx(
+                      "inline-flex h-10 w-10 items-center justify-center rounded-lg bg-transparent text-text-secondary transition-colors hover:bg-surface-container-highest hover:text-text-primary",
+                      isLanguageMenuOpen && "bg-surface-container-highest text-text-primary",
+                    )}
+                    onClick={() => setIsLanguageMenuOpen((current) => !current)}
+                    aria-label={t("shell.languageToggle")}
+                    title={t("shell.languageToggle")}
+                  >
+                    <Globe2 className="h-4 w-4" />
+                  </button>
+                  {isLanguageMenuOpen ? (
+                    <div
+                      className="absolute right-0 top-full z-20 mt-2 w-44 rounded-xl border border-outline bg-surface-glass p-1.5 shadow-float backdrop-blur-xl"
+                      role="menu"
+                      aria-label={t("shell.languageMenu")}
+                    >
+                      {locales.map((locale) => {
+                        const isSelected = language === locale.code;
+                        return (
+                          <button
+                            key={locale.code}
+                            type="button"
+                            className={clsx(
+                              "flex h-9 w-full items-center justify-between rounded-lg px-2.5 text-sm transition-colors",
+                              isSelected
+                                ? "bg-surface-container-high text-text-primary"
+                                : "text-text-secondary hover:bg-surface-container-low hover:text-text-primary",
+                            )}
+                            role="menuitemradio"
+                            aria-checked={isSelected}
+                            onClick={() => {
+                              void setLanguage(locale.code);
+                              setIsLanguageMenuOpen(false);
+                            }}
+                          >
+                            <span>{locale.nativeName}</span>
+                            {isSelected ? <Check className="h-4 w-4" /> : null}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                </div>
 
                 <NavLink
                   to="/admin/settings"

@@ -146,7 +146,6 @@ export function SettingsPage() {
                         >
                           {t(field.labelKey)}
                         </label>
-                        <p className="text-sm leading-6 text-text-secondary">{t(field.descriptionKey)}</p>
                       </div>
                       {field.type === "toggle" ? (
                         <ToggleSwitch

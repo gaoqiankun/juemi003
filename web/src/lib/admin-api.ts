@@ -134,8 +134,6 @@ export const updateModel = (id: string, data: Record<string, unknown>) =>
     method: "PATCH",
     body: JSON.stringify(data),
   });
-export const deleteModel = (id: string) =>
-  adminFetch<unknown>(`/api/admin/models/${encodeURIComponent(id)}`, { method: "DELETE" });
 
 // API Keys
 export interface RawAdminKeyItem {
@@ -158,6 +156,15 @@ export const createAdminKey = (label: string) =>
   adminFetch<{ keyId: string; token: string; label: string; createdAt: string }>("/api/admin/keys", {
     method: "POST",
     body: JSON.stringify({ label }),
+  });
+export const setAdminKeyActive = (keyId: string, isActive: boolean) =>
+  adminFetch<RawAdminKeyItem>(`/api/admin/keys/${encodeURIComponent(keyId)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ isActive }),
+  });
+export const deleteAdminKey = (keyId: string) =>
+  adminFetch<unknown>(`/api/admin/keys/${encodeURIComponent(keyId)}`, {
+    method: "DELETE",
   });
 
 export interface KeysStatsResponse {

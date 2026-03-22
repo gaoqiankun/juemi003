@@ -125,7 +125,7 @@
         "status": "Status",
         "duration": "Duration",
         "created": "Created",
-        "owner": "Owner"
+        "owner": "API Key"
       }
     },
     "nodes": {
@@ -165,7 +165,7 @@
         "status": "Status",
         "created": "Created",
         "latency": "Latency",
-        "owner": "Owner"
+        "owner": "API Key"
       }
     },
     "logs": {
@@ -215,11 +215,16 @@
       "disabled": "Disabled",
       "defaultTag": "Default",
       "setDefault": "Set as default",
-      "delete": "Delete",
       "saving": "Saving model changes...",
       "empty": "No models found.",
-      "toggleLabel": "Toggle {{name}}",
-      "confirmDelete": "Delete model \"{{name}}\"?"
+      "toggleLabel": "Toggle {{name}}"
+    },
+    "runtime": {
+      "ready": "Ready",
+      "loading": "Loading",
+      "not_loaded": "Not loaded",
+      "error": "Error",
+      "unknown": "Unknown"
     }
   },
   "apiKeys": {
@@ -242,7 +247,8 @@
         "requests": "Requests",
         "scopes": "Permissions",
         "status": "Status",
-        "owner": "Owner"
+        "owner": "Owner",
+        "actions": "Actions"
       },
       "empty": "No API keys yet."
     },
@@ -252,6 +258,10 @@
     "actions": {
       "rotate": "Rotate key",
       "disable": "Disable key",
+      "enable": "Enable key",
+      "delete": "Delete key",
+      "saving": "Updating key status...",
+      "confirmDelete": "Delete API key \"{{name}}\"?",
       "rotateHelper": "24-hour grace period",
       "disableHelper": "Revokes access immediately"
     },

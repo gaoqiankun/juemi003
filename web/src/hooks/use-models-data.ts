@@ -1,17 +1,33 @@
 import { useCallback, useEffect, useState } from "react";
 
 import {
-  deleteModel,
   fetchModels,
   updateModel,
   type RawAdminModelRecord,
 } from "@/lib/admin-api";
+
+export type AdminModelRuntimeState = "ready" | "loading" | "not_loaded" | "error" | "unknown";
 
 export interface AdminModelItem {
   id: string;
   displayName: string;
   isEnabled: boolean;
   isDefault: boolean;
+  runtimeState: AdminModelRuntimeState;
+}
+
+function normalizeRuntimeState(runtimeState: string): AdminModelRuntimeState {
+  const normalized = String(runtimeState || "").trim().toLowerCase();
+  if (
+    normalized === "ready"
+    || normalized === "loading"
+    || normalized === "not_loaded"
+    || normalized === "error"
+    || normalized === "unknown"
+  ) {
+    return normalized;
+  }
+  return "unknown";
 }
 
 function normalizeModels(payload: RawAdminModelRecord[] | undefined): AdminModelItem[] {
@@ -30,6 +46,7 @@ function normalizeModels(payload: RawAdminModelRecord[] | undefined): AdminModel
         displayName,
         isEnabled: Boolean(item.is_enabled),
         isDefault: Boolean(item.is_default),
+        runtimeState: normalizeRuntimeState(String(item.runtimeState || "")),
       };
     })
     .filter((item): item is AdminModelItem => item !== null);
@@ -82,16 +99,6 @@ export function useModelsData() {
     }
   }, [loadModels]);
 
-  const removeModel = useCallback(async (modelId: string) => {
-    setBusyModelId(modelId);
-    try {
-      await deleteModel(modelId);
-      await loadModels(true);
-    } finally {
-      setBusyModelId("");
-    }
-  }, [loadModels]);
-
   return {
     models,
     loading,
@@ -100,6 +107,5 @@ export function useModelsData() {
     refresh: loadModels,
     setModelEnabled,
     setModelDefault,
-    removeModel,
   };
 }

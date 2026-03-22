@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 
-import { createAdminKey, fetchAdminKeys, type RawAdminKeyItem } from "@/lib/admin-api";
+import {
+  createAdminKey,
+  deleteAdminKey,
+  fetchAdminKeys,
+  setAdminKeyActive,
+  type RawAdminKeyItem,
+} from "@/lib/admin-api";
 
 export interface AdminApiKeyItem {
   id: string;
@@ -45,6 +51,7 @@ export function useApiKeysData() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
+  const [busyKeyId, setBusyKeyId] = useState("");
 
   const refresh = useCallback(async (silent = false) => {
     if (!silent) {
@@ -87,13 +94,36 @@ export function useApiKeysData() {
     }
   }, [refresh]);
 
+  const setKeyActive = useCallback(async (keyId: string, isActive: boolean) => {
+    setBusyKeyId(keyId);
+    try {
+      await setAdminKeyActive(keyId, isActive);
+      await refresh(true);
+    } finally {
+      setBusyKeyId("");
+    }
+  }, [refresh]);
+
+  const removeKey = useCallback(async (keyId: string) => {
+    setBusyKeyId(keyId);
+    try {
+      await deleteAdminKey(keyId);
+      await refresh(true);
+    } finally {
+      setBusyKeyId("");
+    }
+  }, [refresh]);
+
   return {
     keys,
     loading,
     error,
     isCreating,
+    busyKeyId,
     activeCount: keys.filter((item) => item.isActive).length,
     refresh,
     createKey,
+    setKeyActive,
+    removeKey,
   };
 }
