@@ -68,6 +68,12 @@ class ModelRegistry:
         entry = self._entries.get(self._normalize_name(model_name))
         return entry.state if entry is not None else "not_loaded"
 
+    def get_error(self, model_name: str) -> Exception | None:
+        entry = self._entries.get(self._normalize_name(model_name))
+        if entry is None:
+            return None
+        return entry.error
+
     def has_ready_model(self) -> bool:
         return any(entry.state == "ready" for entry in self._entries.values())
 

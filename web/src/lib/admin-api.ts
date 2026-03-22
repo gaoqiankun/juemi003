@@ -118,6 +118,7 @@ export interface RawAdminModelRecord {
   is_default?: boolean;
   min_vram_mb?: number;
   runtimeState?: string;
+  error_message?: string | null;
   updated_at?: string | null;
   created_at?: string | null;
 }

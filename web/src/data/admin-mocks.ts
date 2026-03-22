@@ -134,7 +134,8 @@ export interface ApiKeysData {
 export type SettingFieldType = "toggle" | "number" | "text" | "select";
 
 export interface SettingOption {
-  labelKey: string;
+  labelKey?: string;
+  label?: string;
   value: string;
 }
 

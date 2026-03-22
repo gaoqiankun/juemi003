@@ -85,6 +85,26 @@ class TokenRateLimiter:
         self._task_owner_by_id: dict[str, str] = {}
         self._lock = asyncio.Lock()
 
+    @property
+    def max_concurrent(self) -> int:
+        return self._max_concurrent
+
+    @property
+    def max_requests_per_hour(self) -> int:
+        return self._max_requests_per_hour
+
+    async def update_limits(
+        self,
+        *,
+        max_concurrent: int | None = None,
+        max_requests_per_hour: int | None = None,
+    ) -> None:
+        async with self._lock:
+            if max_concurrent is not None:
+                self._max_concurrent = max(int(max_concurrent), 1)
+            if max_requests_per_hour is not None:
+                self._max_requests_per_hour = max(int(max_requests_per_hour), 1)
+
     async def record_request(self, token: str) -> None:
         async with self._lock:
             timestamps = self._request_timestamps[token]

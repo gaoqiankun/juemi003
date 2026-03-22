@@ -142,6 +142,27 @@ async def _build_user_key_label_map(
     return label_map
 
 
+def _friendly_model_error_message(error: Exception | None) -> str:
+    raw_message = str(error or "").strip()
+    lowered = raw_message.lower()
+    if (
+        "401" in lowered
+        or "403" in lowered
+        or "unauthorized" in lowered
+        or "forbidden" in lowered
+    ):
+        return "模型需要授权访问，请配置 HuggingFace Token"
+    if "timeout" in lowered or "connectionerror" in lowered or "connection error" in lowered:
+        return "模型下载超时，请检查网络连接"
+    if "no space left" in lowered or "disk" in lowered:
+        return "磁盘空间不足"
+    if "cuda out of memory" in lowered or " oom" in lowered or lowered == "oom":
+        return "GPU 显存不足"
+    if "path does not exist" in lowered:
+        return "模型路径不存在，请检查配置"
+    return raw_message or "模型加载失败"
+
+
 async def _safe_record_usage(api_key_store: ApiKeyStore, key_id: str) -> None:
     try:
         await api_key_store.record_usage(key_id)
@@ -179,6 +200,7 @@ class AppContainer:
     config: ServingConfig
     task_store: TaskStore
     api_key_store: ApiKeyStore
+    rate_limiter: TokenRateLimiter
     artifact_store: ArtifactStore
     preview_renderer_service: PreviewRendererServiceProtocol
     model_registry: ModelRegistry
@@ -580,6 +602,7 @@ def create_app(
         config=config,
         task_store=task_store,
         api_key_store=api_key_store,
+        rate_limiter=rate_limiter,
         artifact_store=artifact_store,
         preview_renderer_service=preview_renderer_service,
         model_registry=model_registry,
@@ -923,6 +946,13 @@ def create_app(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="input_url must start with upload://",
             )
+        normalized_model = str(payload.model).strip().lower() or "trellis"
+        model_definition = await app_container.model_store.get_model(normalized_model)
+        if model_definition is not None and not bool(model_definition.get("is_enabled")):
+            raise HTTPException(
+                status_code=422,
+                detail="该模型已被管理员禁用",
+            )
         try:
             sequence, created = await app_container.engine.submit_task(
                 task_type=task_type_from_request(payload.type),
@@ -931,7 +961,7 @@ def create_app(
                 callback_url=payload.callback_url,
                 idempotency_key=payload.idempotency_key,
                 key_id=key_id,
-                model=payload.model,
+                model=normalized_model,
             )
         except TaskSubmissionValidationError as exc:
             raise HTTPException(
@@ -1330,16 +1360,25 @@ def create_app(
         app_container: AppContainer = Depends(get_container),
     ) -> dict:
         models = await app_container.model_store.list_models()
-        for m in models:
+        for model in models:
             try:
                 state = (
-                    app_container.model_registry.get_state(m["id"])
+                    app_container.model_registry.get_state(model["id"])
                     if hasattr(app_container.model_registry, "get_state")
                     else "unknown"
                 )
             except Exception:
                 state = "unknown"
-            m["runtimeState"] = state
+            model["runtimeState"] = state
+            if state == "error":
+                error = None
+                try:
+                    error = app_container.model_registry.get_error(model["id"])
+                except Exception:
+                    error = None
+                model["error_message"] = _friendly_model_error_message(error)
+            else:
+                model["error_message"] = None
 
         enabled = sum(1 for m in models if m.get("is_enabled"))
         return {
@@ -1447,6 +1486,22 @@ def create_app(
     ) -> dict:
         db_settings = await app_container.settings_store.get_all()
         cfg = app_container.config
+        model_definitions = await app_container.model_store.list_models()
+        provider_options = [
+            {
+                "value": str(model["id"]),
+                "label": str(model["display_name"]),
+            }
+            for model in model_definitions
+            if str(model.get("id") or "").strip()
+        ]
+        if not provider_options:
+            provider_options = [
+                {
+                    "value": str(cfg.model_provider),
+                    "label": str(cfg.model_provider),
+                }
+            ]
 
         sections = [
             {
@@ -1460,20 +1515,7 @@ def create_app(
                         "descriptionKey": "settings.fields.defaultProvider.description",
                         "type": "select",
                         "value": db_settings.get("defaultProvider", cfg.model_provider),
-                        "options": [
-                            {"value": "trellis2", "labelKey": "settings.options.trellisLarge"},
-                            {"value": "hunyuan3d", "labelKey": "settings.options.hunyuan"},
-                        ],
-                    },
-                    {
-                        "key": "maxParallelJobs",
-                        "labelKey": "settings.fields.maxParallelJobs.label",
-                        "descriptionKey": "settings.fields.maxParallelJobs.description",
-                        "type": "number",
-                        "value": db_settings.get(
-                            "maxParallelJobs", len(cfg.gpu_device_ids)
-                        ),
-                        "suffix": "GPU",
+                        "options": provider_options,
                     },
                     {
                         "key": "queueMaxSize",
@@ -1504,29 +1546,6 @@ def create_app(
                     },
                 ],
             },
-            {
-                "key": "storage",
-                "titleKey": "settings.sections.storage.title",
-                "descriptionKey": "settings.sections.storage.description",
-                "fields": [
-                    {
-                        "key": "artifactStoreMode",
-                        "labelKey": "settings.fields.artifactBackend.label",
-                        "descriptionKey": "settings.fields.artifactBackend.description",
-                        "type": "text",
-                        "value": cfg.artifact_store_mode,
-                        "readonly": True,
-                    },
-                    {
-                        "key": "artifactsDir",
-                        "labelKey": "settings.fields.artifactPrefix.label",
-                        "descriptionKey": "settings.fields.artifactPrefix.description",
-                        "type": "text",
-                        "value": str(cfg.artifacts_dir),
-                        "readonly": True,
-                    },
-                ],
-            },
         ]
         return {"sections": sections}
 
@@ -1549,8 +1568,78 @@ def create_app(
             raise HTTPException(
                 status_code=422, detail="no updatable settings provided"
             )
-        await app_container.settings_store.set_many(updates)
-        return {"ok": True, "updated": list(updates.keys())}
+
+        normalized_updates: dict[str, Any] = {}
+
+        if "defaultProvider" in updates:
+            default_provider = str(updates["defaultProvider"] or "").strip()
+            if not default_provider:
+                raise HTTPException(
+                    status_code=422,
+                    detail="defaultProvider must be a non-empty string",
+                )
+            normalized_updates["defaultProvider"] = default_provider
+
+        if "queueMaxSize" in updates:
+            try:
+                queue_max_size = int(updates["queueMaxSize"])
+            except (TypeError, ValueError) as exc:
+                raise HTTPException(
+                    status_code=422,
+                    detail="queueMaxSize must be an integer",
+                ) from exc
+            if queue_max_size < 0:
+                raise HTTPException(
+                    status_code=422,
+                    detail="queueMaxSize must be >= 0",
+                )
+            normalized_updates["queueMaxSize"] = queue_max_size
+
+        if "rateLimitPerHour" in updates:
+            try:
+                rate_limit_per_hour = int(updates["rateLimitPerHour"])
+            except (TypeError, ValueError) as exc:
+                raise HTTPException(
+                    status_code=422,
+                    detail="rateLimitPerHour must be an integer",
+                ) from exc
+            if rate_limit_per_hour < 1:
+                raise HTTPException(
+                    status_code=422,
+                    detail="rateLimitPerHour must be >= 1",
+                )
+            normalized_updates["rateLimitPerHour"] = rate_limit_per_hour
+
+        if "rateLimitConcurrent" in updates:
+            try:
+                rate_limit_concurrent = int(updates["rateLimitConcurrent"])
+            except (TypeError, ValueError) as exc:
+                raise HTTPException(
+                    status_code=422,
+                    detail="rateLimitConcurrent must be an integer",
+                ) from exc
+            if rate_limit_concurrent < 1:
+                raise HTTPException(
+                    status_code=422,
+                    detail="rateLimitConcurrent must be >= 1",
+                )
+            normalized_updates["rateLimitConcurrent"] = rate_limit_concurrent
+
+        await app_container.settings_store.set_many(normalized_updates)
+
+        if "queueMaxSize" in normalized_updates:
+            app_container.engine.update_queue_capacity(normalized_updates["queueMaxSize"])
+
+        if (
+            "rateLimitConcurrent" in normalized_updates
+            or "rateLimitPerHour" in normalized_updates
+        ):
+            await app_container.rate_limiter.update_limits(
+                max_concurrent=normalized_updates.get("rateLimitConcurrent"),
+                max_requests_per_hour=normalized_updates.get("rateLimitPerHour"),
+            )
+
+        return {"ok": True, "updated": list(normalized_updates.keys())}
 
     @app.get("/", include_in_schema=False)
     async def spa_root() -> Response:

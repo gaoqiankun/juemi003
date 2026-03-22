@@ -943,6 +943,187 @@ def test_list_models_returns_enabled(tmp_path: Path) -> None:
     }
 
 
+def test_create_task_rejects_disabled_model_from_model_store(tmp_path: Path) -> None:
+    with make_client(tmp_path, admin_token="admin-token") as client:
+        managed_key = create_managed_api_key(client, label="Model Tester")
+        create_response = client.post(
+            "/v1/tasks",
+            headers=auth_headers(managed_key["token"]),
+            json={
+                "type": "image_to_3d",
+                "input_url": upload_input_url(client, token=managed_key["token"]),
+                "model": "hunyuan3d",
+                "options": {"resolution": 1024},
+            },
+        )
+
+    assert create_response.status_code == 422
+    assert create_response.json()["detail"] == "该模型已被管理员禁用"
+
+
+def test_create_task_allows_model_not_in_model_store_for_backward_compat(
+    tmp_path: Path,
+) -> None:
+    with make_client(tmp_path, admin_token="admin-token") as client:
+        managed_key = create_managed_api_key(client, label="Compat Tester")
+        create_response = client.post(
+            "/v1/tasks",
+            headers=auth_headers(managed_key["token"]),
+            json={
+                "type": "image_to_3d",
+                "input_url": upload_input_url(client, token=managed_key["token"]),
+                "model": "trellis",
+                "options": {"resolution": 1024},
+            },
+        )
+
+    assert create_response.status_code == 201
+
+
+def test_admin_settings_returns_dynamic_provider_options_and_excludes_deploy_fields(
+    tmp_path: Path,
+) -> None:
+    with make_client(tmp_path, admin_token="admin-token") as client:
+        rename_response = client.patch(
+            "/api/admin/models/step1x3d",
+            headers=admin_headers(),
+            json={"displayName": "Step1X-3D Custom"},
+        )
+        settings_response = client.get(
+            "/api/admin/settings",
+            headers=admin_headers(),
+        )
+
+    assert rename_response.status_code == 200
+    assert settings_response.status_code == 200
+    sections = settings_response.json()["sections"]
+    assert all(section["key"] != "storage" for section in sections)
+    generation_section = next(section for section in sections if section["key"] == "generation")
+    generation_fields = generation_section["fields"]
+    field_keys = {field["key"] for field in generation_fields}
+    assert "maxParallelJobs" not in field_keys
+    default_provider_field = next(
+        field for field in generation_fields if field["key"] == "defaultProvider"
+    )
+    options = default_provider_field["options"]
+    assert {"value": "trellis2", "label": "TRELLIS2"} in options
+    assert {"value": "hunyuan3d", "label": "HunYuan3D-2"} in options
+    assert {"value": "step1x3d", "label": "Step1X-3D Custom"} in options
+    assert all("labelKey" not in option for option in options)
+    assert all("Large" not in str(option.get("label", "")) for option in options)
+
+
+def test_admin_settings_patch_hot_updates_rate_limit_and_queue_capacity(
+    tmp_path: Path,
+) -> None:
+    with make_client(
+        tmp_path,
+        admin_token="admin-token",
+        rate_limit_per_hour=20,
+        queue_delay_ms=500,
+    ) as client:
+        managed_key_a = create_managed_api_key(client, label="Hot Reload A")
+        managed_key_b = create_managed_api_key(client, label="Hot Reload B")
+        patch_response = client.patch(
+            "/api/admin/settings",
+            headers=admin_headers(),
+            json={"rateLimitPerHour": 1, "queueMaxSize": 0},
+        )
+        first_task_response = client.post(
+            "/v1/tasks",
+            headers=auth_headers(managed_key_a["token"]),
+            json={
+                "type": "image_to_3d",
+                "input_url": upload_input_url(client, token=managed_key_a["token"]),
+                "options": {"resolution": 1024},
+            },
+        )
+        second_task_same_key_response = client.post(
+            "/v1/tasks",
+            headers=auth_headers(managed_key_a["token"]),
+            json={
+                "type": "image_to_3d",
+                "input_url": upload_input_url(client, token=managed_key_a["token"]),
+                "options": {"resolution": 1024},
+            },
+        )
+        third_task_other_key_response = client.post(
+            "/v1/tasks",
+            headers=auth_headers(managed_key_b["token"]),
+            json={
+                "type": "image_to_3d",
+                "input_url": upload_input_url(client, token=managed_key_b["token"]),
+                "options": {"resolution": 1024},
+            },
+        )
+
+    assert patch_response.status_code == 200
+    assert set(patch_response.json()["updated"]) == {"rateLimitPerHour", "queueMaxSize"}
+    assert first_task_response.status_code == 201
+    assert second_task_same_key_response.status_code == 429
+    assert "max 1 task requests per hour" in second_task_same_key_response.json()["detail"]
+    assert third_task_other_key_response.status_code == 503
+    assert third_task_other_key_response.json()["detail"]["code"] == "queue_full"
+
+
+def test_admin_models_returns_friendly_error_message_when_runtime_load_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_build_model_runtime = server_module.build_model_runtime
+
+    def failing_build_model_runtime(config: ServingConfig, model_name: str):
+        if str(model_name).strip().lower() == "hunyuan3d":
+            raise RuntimeError("CUDA out of memory while loading model")
+        return original_build_model_runtime(config, model_name)
+
+    monkeypatch.setattr(
+        server_module,
+        "build_model_runtime",
+        failing_build_model_runtime,
+    )
+
+    with make_client(tmp_path, admin_token="admin-token") as client:
+        managed_key = create_managed_api_key(client, label="Model Error Tester")
+        enable_response = client.patch(
+            "/api/admin/models/hunyuan3d",
+            headers=admin_headers(),
+            json={"isEnabled": True},
+        )
+        create_response = client.post(
+            "/v1/tasks",
+            headers=auth_headers(managed_key["token"]),
+            json={
+                "type": "image_to_3d",
+                "input_url": upload_input_url(client, token=managed_key["token"]),
+                "model": "hunyuan3d",
+                "options": {"resolution": 1024},
+            },
+        )
+        assert enable_response.status_code == 200
+        assert create_response.status_code == 201
+        wait_for_status(
+            client,
+            create_response.json()["taskId"],
+            "failed",
+            token=managed_key["token"],
+            timeout_seconds=5.0,
+        )
+        models_response = client.get(
+            "/api/admin/models",
+            headers=admin_headers(),
+        )
+
+    assert models_response.status_code == 200
+    hunyuan_model = next(
+        model
+        for model in models_response.json()["models"]
+        if model["id"] == "hunyuan3d"
+    )
+    assert hunyuan_model["runtimeState"] == "error"
+    assert hunyuan_model["error_message"] == "GPU 显存不足"
+
+
 def test_privileged_key_routes_return_401_when_admin_token_is_unset(tmp_path: Path) -> None:
     with make_client(tmp_path, admin_token=None) as client:
         response = client.get("/api/admin/privileged-keys", headers=admin_headers())

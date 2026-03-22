@@ -235,6 +235,9 @@ class AsyncGen3DEngine:
             )
         return sequence, True
 
+    def update_queue_capacity(self, queue_max_size: int) -> None:
+        self._queue_capacity = self._worker_count + max(int(queue_max_size), 0)
+
     async def list_tasks(
         self,
         *,
