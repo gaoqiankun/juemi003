@@ -207,17 +207,17 @@
       "title": "Models",
       "columns": {
         "name": "Model",
-        "status": "Status",
-        "default": "Default",
-        "actions": "Actions"
+        "runtime": "Runtime",
+        "availability": "Availability"
       },
       "enabled": "Enabled",
       "disabled": "Disabled",
       "defaultTag": "Default",
       "setDefault": "Set as default",
+      "enableControlLabel": "Model access",
       "saving": "Saving model changes...",
       "empty": "No models found.",
-      "toggleLabel": "Toggle {{name}}"
+      "toggleLabel": "Toggle access for {{name}}"
     },
     "runtime": {
       "ready": "Ready",

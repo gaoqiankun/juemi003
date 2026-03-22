@@ -14,6 +14,7 @@ export interface AdminModelItem {
   isEnabled: boolean;
   isDefault: boolean;
   runtimeState: AdminModelRuntimeState;
+  errorMessage: string;
 }
 
 function normalizeRuntimeState(runtimeState: string): AdminModelRuntimeState {
@@ -47,6 +48,7 @@ function normalizeModels(payload: RawAdminModelRecord[] | undefined): AdminModel
         isEnabled: Boolean(item.is_enabled),
         isDefault: Boolean(item.is_default),
         runtimeState: normalizeRuntimeState(String(item.runtimeState || "")),
+        errorMessage: String(item.error_message || "").trim(),
       };
     })
     .filter((item): item is AdminModelItem => item !== null);

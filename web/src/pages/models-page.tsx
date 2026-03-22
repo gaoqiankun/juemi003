@@ -53,19 +53,18 @@ export function ModelsPage() {
         <h2 className="text-lg font-semibold tracking-[-0.03em] text-text-primary">{t("models.list.title")}</h2>
 
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[760px] border-separate border-spacing-y-2">
+          <table className="w-full min-w-[700px] border-separate border-spacing-y-2">
             <thead>
               <tr>
                 <th className={tableHeadClassName}>{t("models.list.columns.name")}</th>
-                <th className={tableHeadClassName}>{t("models.list.columns.status")}</th>
-                <th className={tableHeadClassName}>{t("models.list.columns.default")}</th>
-                <th className={tableHeadClassName}>{t("models.list.columns.actions")}</th>
+                <th className={tableHeadClassName}>{t("models.list.columns.runtime")}</th>
+                <th className={tableHeadClassName}>{t("models.list.columns.availability")}</th>
               </tr>
             </thead>
             <tbody>
               {models.length === 0 ? (
                 <tr>
-                  <td className={tableCellClassName} colSpan={4}>
+                  <td className={tableCellClassName} colSpan={3}>
                     {t("models.list.empty")}
                   </td>
                 </tr>
@@ -74,43 +73,59 @@ export function ModelsPage() {
                 return (
                   <tr key={model.id}>
                     <td className={tableCellClassName}>
-                      <div className="text-sm font-semibold text-text-primary">{model.displayName}</div>
-                    </td>
-                    <td className={tableCellClassName}>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Badge tone={runtimeToneMap[model.runtimeState]}>
-                          {t(`models.runtime.${model.runtimeState}`)}
-                        </Badge>
-                        <Badge tone={model.isEnabled ? "success" : "neutral"}>
-                          {t(model.isEnabled ? "models.list.enabled" : "models.list.disabled")}
-                        </Badge>
-                      </div>
-                    </td>
-                    <td className={tableCellClassName}>
-                      {model.isDefault ? (
-                        <Badge tone="accent">{t("models.list.defaultTag")}</Badge>
-                      ) : (
-                        <span className="text-sm text-text-muted">—</span>
-                      )}
-                    </td>
-                    <td className={tableCellClassName}>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <ToggleSwitch
-                          checked={model.isEnabled}
-                          onChange={(nextValue) => handleToggleModel(model, nextValue)}
-                          label={t("models.list.toggleLabel", { name: model.displayName })}
-                          className="data-[state=checked]:bg-success-text"
-                        />
+                      <div className="grid gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <div className="text-sm font-semibold text-text-primary">{model.displayName}</div>
+                          {model.isDefault ? (
+                            <Badge tone="accent">{t("models.list.defaultTag")}</Badge>
+                          ) : null}
+                        </div>
+
                         {!model.isDefault ? (
                           <Button
                             type="button"
                             size="sm"
+                            variant="ghost"
                             disabled={isBusy}
+                            className="h-7 w-fit px-2 text-xs font-medium text-accent-strong hover:text-accent-strong"
                             onClick={() => handleSetDefault(model)}
                           >
                             {t("models.list.setDefault")}
                           </Button>
                         ) : null}
+                      </div>
+                    </td>
+                    <td className={tableCellClassName}>
+                      <div className="grid gap-2">
+                        <Badge tone={runtimeToneMap[model.runtimeState]}>
+                          {t(`models.runtime.${model.runtimeState}`)}
+                        </Badge>
+                        {model.runtimeState === "error" && model.errorMessage ? (
+                          <p className="rounded-md border border-danger/40 bg-danger/10 px-2 py-1 text-xs leading-5 text-danger-text">
+                            {model.errorMessage}
+                          </p>
+                        ) : null}
+                      </div>
+                    </td>
+                    <td className={tableCellClassName}>
+                      <div className="rounded-lg border border-outline bg-surface-container-low px-3 py-2">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="grid gap-1">
+                            <span className="font-display text-[0.625rem] font-semibold uppercase tracking-[0.05em] text-text-muted">
+                              {t("models.list.enableControlLabel")}
+                            </span>
+                            <span className="text-sm font-medium text-text-primary">
+                              {t(model.isEnabled ? "models.list.enabled" : "models.list.disabled")}
+                            </span>
+                          </div>
+
+                          <ToggleSwitch
+                            checked={model.isEnabled}
+                            onChange={(nextValue) => handleToggleModel(model, nextValue)}
+                            label={t("models.list.toggleLabel", { name: model.displayName })}
+                            className="data-[state=checked]:bg-success-text"
+                          />
+                        </div>
                       </div>
                     </td>
                   </tr>

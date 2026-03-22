@@ -128,31 +128,47 @@ export function SettingsPage() {
     <div className="grid gap-6">
       <section className="grid gap-4">
         {settings.sections.map((section) => (
-          <Card key={section.key} className="p-5">
-            <h2 className="text-lg font-semibold tracking-[-0.02em] text-text-primary">
-              {t(section.titleKey)}
-            </h2>
+          <Card key={section.key} className="grid gap-4 p-5">
+            <div className="grid gap-1">
+              <h2 className="text-lg font-semibold tracking-[-0.02em] text-text-primary">
+                {t(section.titleKey)}
+              </h2>
+              <p className="text-sm text-text-secondary">{t(section.descriptionKey)}</p>
+            </div>
 
-            <div className="mt-4 grid gap-3">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
               {section.fields.map((field) => {
                 const readonly = isFieldReadonly(field);
+                const fieldClassName = field.type === "text"
+                  ? "grid gap-2 rounded-lg border border-outline bg-surface-container-low p-3 md:col-span-2 xl:col-span-3"
+                  : "grid gap-2 rounded-lg border border-outline bg-surface-container-low p-3";
                 return (
-                  <div key={field.key} className="grid gap-3 rounded-lg border border-outline bg-surface-container-low p-4">
+                  <div key={field.key} className={fieldClassName}>
                     <div className="flex items-start justify-between gap-4">
-                      <div className="grid gap-1">
+                      {field.type === "toggle" ? (
+                        <span className="font-display text-[0.6875rem] font-semibold uppercase tracking-[0.05em] text-text-muted">
+                          {t(field.labelKey)}
+                        </span>
+                      ) : (
                         <label
                           className="font-display text-[0.6875rem] font-semibold uppercase tracking-[0.05em] text-text-muted"
                           htmlFor={field.key}
                         >
                           {t(field.labelKey)}
                         </label>
-                      </div>
+                      )}
+
                       {field.type === "toggle" ? (
-                        <ToggleSwitch
-                          checked={Boolean(field.value)}
-                          onChange={(nextValue) => updateField(section.key, field.key, nextValue)}
-                          label={t(field.labelKey)}
-                        />
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-medium text-text-secondary">
+                            {t(Boolean(field.value) ? "common.status.active" : "common.status.paused")}
+                          </span>
+                          <ToggleSwitch
+                            checked={Boolean(field.value)}
+                            onChange={(nextValue) => updateField(section.key, field.key, nextValue)}
+                            label={t(field.labelKey)}
+                          />
+                        </div>
                       ) : null}
                     </div>
 
@@ -188,7 +204,7 @@ export function SettingsPage() {
                         value={typeof field.value === "string" ? field.value : ""}
                         onValueChange={(value) => updateField(section.key, field.key, value)}
                         options={(field.options || []).map((option) => ({
-                          label: t(option.labelKey),
+                          label: option.labelKey ? t(option.labelKey) : (option.label || option.value),
                           value: option.value,
                         }))}
                       />

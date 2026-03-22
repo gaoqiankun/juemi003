@@ -207,17 +207,17 @@
       "title": "模型列表",
       "columns": {
         "name": "模型名称",
-        "status": "状态",
-        "default": "默认",
-        "actions": "操作"
+        "runtime": "运行状态",
+        "availability": "启用控制"
       },
       "enabled": "启用",
       "disabled": "禁用",
       "defaultTag": "默认",
       "setDefault": "设为默认",
+      "enableControlLabel": "模型访问",
       "saving": "正在保存模型设置...",
       "empty": "暂无模型。",
-      "toggleLabel": "切换 {{name}}"
+      "toggleLabel": "切换 {{name}} 的访问状态"
     },
     "runtime": {
       "ready": "已就绪",
