@@ -1,7 +1,33 @@
 import { useEffect, useState } from "react";
 
-import type { ApiKeysData, ApiUsageMetric } from "@/data/admin-mocks";
-import { fetchAdminKeys, fetchKeysStats } from "@/lib/admin-api";
+import type { ApiKeyData, ApiKeysData, ApiUsageMetric } from "@/data/admin-mocks";
+import { fetchAdminKeys, fetchKeysStats, type RawAdminKeyItem } from "@/lib/admin-api";
+
+function normalizeKeysResponse(payload: RawAdminKeyItem[] | { keys?: RawAdminKeyItem[] }): RawAdminKeyItem[] {
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+  if (payload && Array.isArray(payload.keys)) {
+    return payload.keys;
+  }
+  return [];
+}
+
+function toApiKeyData(item: RawAdminKeyItem): ApiKeyData {
+  const keyId = String(item.keyId || item.key_id || "");
+  const createdAt = String(item.createdAt || item.created_at || new Date().toISOString());
+  return {
+    id: keyId,
+    name: String(item.label || keyId || "API Key"),
+    prefix: keyId.slice(0, 8) || "key_",
+    createdAt,
+    lastUsedAt: String(item.lastUsedAt || item.last_used_at || createdAt),
+    requests: Number(item.requests || 0),
+    scopes: Array.isArray(item.scopes) ? item.scopes : [],
+    status: Boolean(item.isActive ?? item.is_active ?? true) ? "active" : "paused",
+    owner: String(item.owner || "-"),
+  };
+}
 
 export function useApiKeysData() {
   const [data, setData] = useState<ApiKeysData | null>(null);
@@ -19,7 +45,7 @@ export function useApiKeysData() {
         ];
         setData({
           usage,
-          keys: keysRes.keys,
+          keys: normalizeKeysResponse(keysRes).map(toApiKeyData),
         });
       })
       .catch((e: Error) => setError(e.message))

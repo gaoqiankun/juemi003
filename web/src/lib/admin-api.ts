@@ -1,8 +1,6 @@
 import type {
-  ApiKeysData,
   DashboardData,
   ModelsData,
-  QueueTask,
   SettingsData,
   TaskOverviewMetric,
 } from "@/data/admin-mocks";
@@ -82,7 +80,25 @@ export async function verifyAdminToken(token: string) {
 export const fetchDashboard = () => adminFetch<DashboardData>("/api/admin/dashboard");
 
 // Tasks
-export const fetchAdminTasks = () => adminFetch<{ tasks: QueueTask[] }>("/api/admin/tasks");
+export interface RawAdminTaskSummary {
+  taskId?: string;
+  task_id?: string;
+  status?: string;
+  model?: string;
+  createdAt?: string;
+  created_at?: string;
+  finishedAt?: string | null;
+  finished_at?: string | null;
+  keyId?: string;
+  key_id?: string;
+}
+
+export interface RawAdminTasksResponse {
+  items?: RawAdminTaskSummary[];
+  tasks?: RawAdminTaskSummary[];
+}
+
+export const fetchAdminTasks = () => adminFetch<RawAdminTasksResponse>("/api/admin/tasks");
 
 export interface TasksStatsResponse {
   overview: TaskOverviewMetric[];
@@ -103,7 +119,22 @@ export const deleteModel = (id: string) =>
   adminFetch<unknown>(`/api/admin/models/${encodeURIComponent(id)}`, { method: "DELETE" });
 
 // API Keys
-export const fetchAdminKeys = () => adminFetch<{ keys: ApiKeysData["keys"] }>("/api/admin/keys");
+export interface RawAdminKeyItem {
+  keyId?: string;
+  key_id?: string;
+  label?: string;
+  createdAt?: string;
+  created_at?: string;
+  isActive?: boolean;
+  is_active?: boolean;
+  requests?: number;
+  scopes?: string[];
+  owner?: string;
+  lastUsedAt?: string;
+  last_used_at?: string;
+}
+
+export const fetchAdminKeys = () => adminFetch<RawAdminKeyItem[] | { keys?: RawAdminKeyItem[] }>("/api/admin/keys");
 
 export interface KeysStatsResponse {
   total_keys: number;

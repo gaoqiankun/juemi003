@@ -29,12 +29,24 @@ Commits: N/A（按仓库 AGENTS 约束，本次未执行 git commit）
   - 将 `/api/admin/models` 的原始结构映射为前端 `ModelsData`，稳定渲染模型页。
 - `web/src/lib/admin-format.ts`
   - `formatTimestamp()` 增加空值/非法时间防御（返回 `—`）。
+- `web/src/hooks/use-tasks-data.ts`
+  - 新增 `/api/admin/tasks` 响应兼容映射（`items`/`tasks`），统一转换为页面使用的 `QueueTask[]`。
+- `web/src/hooks/use-api-keys-data.ts`
+  - 新增 `/api/admin/keys` 响应兼容映射（数组或 `{ keys: [...] }`），避免 `a.map is not a function`。
+- `web/src/pages/tasks-page.tsx`
+  - 修复 `useDeferredValue` 调用顺序（提前到条件 return 之前，且确保传入字符串），解决 React error #310；
+  - 移除内容区重复页面标题。
+- `web/src/pages/api-keys-page.tsx`
+  - `usage`/`keys` 增加数组兜底，确保 `.map()` 安全；
+  - 移除内容区重复页面标题。
+- `web/src/lib/admin-api.ts`
+  - 调整 admin tasks/keys 的前端原始响应类型声明，和后端实际返回结构一致。
 - `web/src/i18n/en.json`、`web/src/i18n/zh-CN.json`
   - 补全 `settings.fields.queueMaxSize.*`、`settings.fields.rateLimitPerHour.*`、`settings.fields.rateLimitConcurrent.*`；
   - 新增 `shell.adminAuth.*` 文案。
 - 页面标题层级清理
   - `web/src/pages/dashboard-page.tsx`：移除顶部重复小字；删除 GPU 卡片与节点硬件监控区，仅保留业务统计 + 最近任务。
-  - `web/src/pages/settings-page.tsx`：移除页面顶部“设置”小字。
+  - `web/src/pages/settings-page.tsx`：移除页面顶部“设置”小字；删除右侧“系统概览”卡片，仅保留配置表单。
   - `web/src/pages/tasks-page.tsx`、`web/src/pages/models-page.tsx`、`web/src/pages/api-keys-page.tsx`：移除页面顶部重复分类小字。
   - `web/src/pages/setup-page.tsx`：移除“连接设置”小字。
 

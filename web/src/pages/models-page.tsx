@@ -27,12 +27,6 @@ export function ModelsPage() {
 
   return (
     <div className="grid gap-6">
-      <section className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
-        <div>
-          <h2 className="text-2xl font-semibold tracking-[-0.03em] text-text-primary">{t("models.title")}</h2>
-        </div>
-      </section>
-
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <SummaryCard label={t("models.summary.ready")} value={formatNumber(locale, summary.ready)} />
         <SummaryCard label={t("models.summary.syncing")} value={formatNumber(locale, summary.syncing)} />

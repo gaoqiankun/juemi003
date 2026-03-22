@@ -31,16 +31,11 @@ export function ApiKeysPage() {
   if (loading) return <div className="flex items-center justify-center h-full"><span className="text-text-secondary">Loading...</span></div>;
   if (error || !data) return <div className="flex items-center justify-center h-full text-red-500">{error || "Failed to load"}</div>;
 
-  const { usage, keys } = data;
+  const usage = Array.isArray(data.usage) ? data.usage : [];
+  const keys = Array.isArray(data.keys) ? data.keys : [];
 
   return (
     <div className="grid gap-6">
-      <section className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
-        <div>
-          <h2 className="text-2xl font-semibold tracking-[-0.03em] text-text-primary">{t("apiKeys.title")}</h2>
-        </div>
-      </section>
-
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {usage.map((metric) => (
           <Card key={metric.key} className="grid gap-2 p-5">

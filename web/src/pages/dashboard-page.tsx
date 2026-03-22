@@ -53,12 +53,6 @@ export function DashboardPage() {
 
   return (
     <div className="grid gap-6">
-      <section className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
-        <div>
-          <h2 className="text-2xl font-semibold tracking-[-0.03em] text-text-primary">{t("dashboard.title")}</h2>
-        </div>
-      </section>
-
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {stats.map((item) => {
           const Icon = statIcons[item.key];
