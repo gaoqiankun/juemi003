@@ -4,9 +4,17 @@ import { useTranslation } from "react-i18next";
 import type { SettingField, SettingsData } from "@/data/admin-mocks";
 import { Button, Card, SelectField, TextField, ToggleSwitch } from "@/components/ui/primitives";
 import { useSettingsData } from "@/hooks/use-settings-data";
-import { connectHf, disconnectHf, fetchHfStatus, updateSettings, type HfStatusResponse } from "@/lib/admin-api";
+import {
+  connectHf,
+  disconnectHf,
+  fetchHfStatus,
+  updateHfEndpoint,
+  updateSettings,
+  type HfStatusResponse,
+} from "@/lib/admin-api";
 
 type SettingValue = boolean | number | string;
+const DEFAULT_HF_ENDPOINT = "https://huggingface.co";
 
 const UPDATABLE_SETTING_KEYS = new Set([
   "defaultProvider",
@@ -69,6 +77,8 @@ export function SettingsPage() {
   const [hfStatus, setHfStatus] = useState<HfStatusResponse | null>(null);
   const [hfLoading, setHfLoading] = useState(true);
   const [hfBusy, setHfBusy] = useState(false);
+  const [hfEndpointBusy, setHfEndpointBusy] = useState(false);
+  const [hfEndpoint, setHfEndpoint] = useState(DEFAULT_HF_ENDPOINT);
   const [hfToken, setHfToken] = useState("");
   const [hfError, setHfError] = useState("");
   const [hfSuccess, setHfSuccess] = useState("");
@@ -88,10 +98,12 @@ export function SettingsPage() {
     try {
       const status = await fetchHfStatus();
       setHfStatus(status);
+      setHfEndpoint(status.endpoint || DEFAULT_HF_ENDPOINT);
       setHfError("");
     } catch (hfStatusError) {
       setHfError(hfStatusError instanceof Error ? hfStatusError.message : String(hfStatusError));
       setHfStatus(null);
+      setHfEndpoint(DEFAULT_HF_ENDPOINT);
     } finally {
       setHfLoading(false);
     }
@@ -146,7 +158,7 @@ export function SettingsPage() {
   }, [currentFingerprint, currentPayload, hasChanges, isSaving, settings, t]);
 
   const handleHfConnect = useCallback(async () => {
-    if (hfBusy || hfLoading) {
+    if (hfBusy || hfLoading || hfEndpointBusy) {
       return;
     }
     const token = hfToken.trim();
@@ -167,10 +179,10 @@ export function SettingsPage() {
     } finally {
       setHfBusy(false);
     }
-  }, [hfBusy, hfLoading, hfToken, t]);
+  }, [hfBusy, hfEndpointBusy, hfLoading, hfToken, t]);
 
   const handleHfDisconnect = useCallback(async () => {
-    if (hfBusy || hfLoading) {
+    if (hfBusy || hfLoading || hfEndpointBusy) {
       return;
     }
     setHfBusy(true);
@@ -185,7 +197,33 @@ export function SettingsPage() {
     } finally {
       setHfBusy(false);
     }
-  }, [hfBusy, hfLoading, t]);
+  }, [hfBusy, hfEndpointBusy, hfLoading, t]);
+
+  const handleHfEndpointSave = useCallback(async () => {
+    if (hfBusy || hfLoading || hfEndpointBusy) {
+      return;
+    }
+    setHfEndpointBusy(true);
+    setHfError("");
+    setHfSuccess("");
+    try {
+      const result = await updateHfEndpoint(hfEndpoint);
+      const nextEndpoint = result.endpoint || DEFAULT_HF_ENDPOINT;
+      setHfEndpoint(nextEndpoint);
+      setHfStatus((current) => (
+        current ? { ...current, endpoint: nextEndpoint } : current
+      ));
+      setHfSuccess(t("settings.hf.endpointSaveSuccess"));
+    } catch (hfEndpointError) {
+      setHfError(hfEndpointError instanceof Error ? hfEndpointError.message : String(hfEndpointError));
+    } finally {
+      setHfEndpointBusy(false);
+    }
+  }, [hfBusy, hfEndpoint, hfEndpointBusy, hfLoading, t]);
+
+  const normalizedEndpointInput = hfEndpoint.trim() || DEFAULT_HF_ENDPOINT;
+  const persistedEndpoint = (hfStatus?.endpoint || DEFAULT_HF_ENDPOINT).trim() || DEFAULT_HF_ENDPOINT;
+  const hasEndpointChanges = normalizedEndpointInput !== persistedEndpoint;
 
   if (loading) return <div className="flex items-center justify-center h-full"><span className="text-text-secondary">Loading...</span></div>;
   if (error || !settings) return <div className="flex items-center justify-center h-full text-red-500">{error || "Failed to load"}</div>;
@@ -296,36 +334,65 @@ export function SettingsPage() {
             <h2 className="text-lg font-semibold tracking-[-0.02em] text-text-primary">
               {t("settings.hf.title")}
             </h2>
-            {hfLoading ? (
-              <p className="text-sm text-text-secondary">{t("settings.hf.loading")}</p>
-            ) : hfStatus?.logged_in ? (
-              <p className="text-sm text-success-text">
-                {t("settings.hf.connectedAs", { username: hfStatus.username || "-" })}
-              </p>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2">
+            <label className="grid gap-1.5 text-sm text-text-secondary" htmlFor="settings-hf-endpoint">
+              <span>{t("settings.hf.endpointLabel")}</span>
+              <TextField
+                id="settings-hf-endpoint"
+                type="text"
+                value={hfEndpoint}
+                placeholder={t("settings.hf.endpointPlaceholder")}
+                onChange={(event) => setHfEndpoint(event.target.value)}
+                disabled={hfLoading || hfEndpointBusy || hfBusy}
+              />
+              <span className="text-xs text-text-muted">{t("settings.hf.endpointHint")}</span>
+            </label>
+
+            {!hfLoading && !hfStatus?.logged_in ? (
+              <label className="grid gap-1.5 text-sm text-text-secondary" htmlFor="settings-hf-token">
+                <span>{t("settings.hf.tokenLabel")}</span>
+                <TextField
+                  id="settings-hf-token"
+                  type="password"
+                  value={hfToken}
+                  autoComplete="off"
+                  placeholder={t("settings.hf.tokenPlaceholder")}
+                  onChange={(event) => setHfToken(event.target.value)}
+                  disabled={hfBusy || hfEndpointBusy}
+                />
+              </label>
             ) : (
-              <p className="text-sm text-text-secondary">{t("settings.hf.notConnected")}</p>
+              <div className="grid gap-1.5 text-sm text-text-secondary">
+                <span>{t("settings.hf.statusLabel")}</span>
+                <div className="rounded-lg border border-outline bg-surface-container-low px-3 py-2 text-sm">
+                  {hfLoading ? (
+                    <span className="text-text-secondary">{t("settings.hf.loading")}</span>
+                  ) : hfStatus?.logged_in ? (
+                    <span className="text-success-text">
+                      {t("settings.hf.connectedAs", { username: hfStatus.username || "-" })}
+                    </span>
+                  ) : (
+                    <span className="text-text-secondary">{t("settings.hf.notConnected")}</span>
+                  )}
+                </div>
+              </div>
             )}
           </div>
 
-          {!hfLoading && !hfStatus?.logged_in ? (
-            <label className="grid gap-1.5 text-sm text-text-secondary" htmlFor="settings-hf-token">
-              <span>{t("settings.hf.tokenLabel")}</span>
-              <TextField
-                id="settings-hf-token"
-                type="password"
-                value={hfToken}
-                autoComplete="off"
-                placeholder={t("settings.hf.tokenPlaceholder")}
-                onChange={(event) => setHfToken(event.target.value)}
-              />
-            </label>
-          ) : null}
-
           <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              disabled={hfLoading || hfBusy || hfEndpointBusy || !hasEndpointChanges}
+              onClick={handleHfEndpointSave}
+            >
+              {hfEndpointBusy ? t("settings.hf.savingEndpoint") : t("settings.hf.saveEndpoint")}
+            </Button>
             {hfStatus?.logged_in ? (
               <Button
                 type="button"
-                disabled={hfBusy || hfLoading}
+                disabled={hfBusy || hfLoading || hfEndpointBusy}
                 onClick={handleHfDisconnect}
               >
                 {hfBusy ? t("settings.hf.disconnecting") : t("settings.hf.disconnect")}
@@ -334,7 +401,7 @@ export function SettingsPage() {
               <Button
                 type="button"
                 variant="primary"
-                disabled={hfBusy || hfLoading}
+                disabled={hfBusy || hfLoading || hfEndpointBusy}
                 onClick={handleHfConnect}
               >
                 {hfBusy ? t("settings.hf.connecting") : t("settings.hf.connect")}

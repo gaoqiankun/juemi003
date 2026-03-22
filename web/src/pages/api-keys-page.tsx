@@ -8,8 +8,12 @@ import {
   formatTimestamp,
 } from "@/lib/admin-format";
 
-const tableHeadClassName = "px-4 pb-2 text-center font-display text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted";
-const tableCellClassName = "bg-surface-container-lowest px-4 py-3 align-top text-sm text-text-secondary first:rounded-l-lg last:rounded-r-lg";
+const tableHeadBaseClassName = "px-4 pb-2 font-display text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted";
+const tableHeadLeftClassName = `${tableHeadBaseClassName} text-left`;
+const tableHeadCenterClassName = `${tableHeadBaseClassName} text-center`;
+const tableCellBaseClassName = "bg-surface-container-lowest px-4 py-3 align-top text-sm text-text-secondary first:rounded-l-lg last:rounded-r-lg";
+const tableCellLeftClassName = `${tableCellBaseClassName} text-left`;
+const tableCellCenterClassName = `${tableCellBaseClassName} text-center`;
 
 export function ApiKeysPage() {
   const { t, i18n } = useTranslation();
@@ -79,16 +83,16 @@ export function ApiKeysPage() {
             <table className="w-full min-w-[680px] border-separate border-spacing-y-2">
               <thead>
                 <tr>
-                  <th className={tableHeadClassName}>{t("apiKeys.table.columns.name")}</th>
-                  <th className={tableHeadClassName}>{t("apiKeys.table.columns.created")}</th>
-                  <th className={tableHeadClassName}>{t("apiKeys.table.columns.status")}</th>
-                  <th className={tableHeadClassName}>{t("apiKeys.table.columns.actions")}</th>
+                  <th className={tableHeadLeftClassName}>{t("apiKeys.table.columns.name")}</th>
+                  <th className={tableHeadCenterClassName}>{t("apiKeys.table.columns.created")}</th>
+                  <th className={tableHeadCenterClassName}>{t("apiKeys.table.columns.status")}</th>
+                  <th className={tableHeadCenterClassName}>{t("apiKeys.table.columns.actions")}</th>
                 </tr>
               </thead>
               <tbody>
                 {keys.length === 0 ? (
                   <tr>
-                    <td className={tableCellClassName} colSpan={4}>
+                    <td className={tableCellLeftClassName} colSpan={4}>
                       {t("apiKeys.table.empty")}
                     </td>
                   </tr>
@@ -96,18 +100,20 @@ export function ApiKeysPage() {
                   const isBusy = busyKeyId === key.id;
                   return (
                     <tr key={key.id}>
-                      <td className={tableCellClassName}>
+                      <td className={tableCellLeftClassName}>
                         <div className="text-sm font-semibold text-text-primary">{key.label}</div>
                       </td>
-                      <td className={tableCellClassName}>{formatTimestamp(locale, key.createdAt)}</td>
-                      <td className={tableCellClassName}>
-                        <StatusDot
-                          tone={key.isActive ? "success" : "neutral"}
-                          label={t(`common.status.${key.isActive ? "active" : "paused"}`)}
-                        />
+                      <td className={tableCellCenterClassName}>{formatTimestamp(locale, key.createdAt)}</td>
+                      <td className={tableCellCenterClassName}>
+                        <div className="flex justify-center">
+                          <StatusDot
+                            tone={key.isActive ? "success" : "neutral"}
+                            label={t(`common.status.${key.isActive ? "active" : "paused"}`)}
+                          />
+                        </div>
                       </td>
-                      <td className={tableCellClassName}>
-                        <div className="flex flex-wrap items-center gap-2">
+                      <td className={tableCellCenterClassName}>
+                        <div className="flex flex-wrap items-center justify-center gap-2">
                           <Button
                             type="button"
                             size="sm"

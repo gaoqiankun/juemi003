@@ -1216,6 +1216,7 @@ def test_admin_hf_routes_require_admin_token(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.delenv("HF_ENDPOINT", raising=False)
     monkeypatch.setattr(server_module, "_hf_get_token", lambda: None)
     monkeypatch.setattr(server_module, "_hf_login", lambda token: None)
     monkeypatch.setattr(server_module, "_hf_logout", lambda: None)
@@ -1231,19 +1232,44 @@ def test_admin_hf_routes_require_admin_token(
             "/api/admin/hf-status",
             headers=admin_headers(),
         )
+        missing_endpoint_token_response = client.patch(
+            "/api/admin/hf-endpoint",
+            json={"endpoint": "https://hf-mirror.com"},
+        )
+        invalid_endpoint_token_response = client.patch(
+            "/api/admin/hf-endpoint",
+            headers=auth_headers("wrong-token"),
+            json={"endpoint": "https://hf-mirror.com"},
+        )
+        admin_endpoint_response = client.patch(
+            "/api/admin/hf-endpoint",
+            headers=admin_headers(),
+            json={"endpoint": "https://hf-mirror.com"},
+        )
 
     assert missing_token_response.status_code == 401
     assert missing_token_response.json()["detail"] == "invalid admin token"
     assert invalid_token_response.status_code == 401
     assert invalid_token_response.json()["detail"] == "invalid admin token"
     assert admin_token_response.status_code == 200
-    assert admin_token_response.json() == {"logged_in": False, "username": None}
+    assert admin_token_response.json() == {
+        "logged_in": False,
+        "username": None,
+        "endpoint": "https://huggingface.co",
+    }
+    assert missing_endpoint_token_response.status_code == 401
+    assert missing_endpoint_token_response.json()["detail"] == "invalid admin token"
+    assert invalid_endpoint_token_response.status_code == 401
+    assert invalid_endpoint_token_response.json()["detail"] == "invalid admin token"
+    assert admin_endpoint_response.status_code == 200
+    assert admin_endpoint_response.json() == {"endpoint": "https://hf-mirror.com"}
 
 
 def test_admin_hf_login_status_logout_flow(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.delenv("HF_ENDPOINT", raising=False)
     state = {"token": ""}
 
     def fake_get_token() -> str | None:
@@ -1270,6 +1296,11 @@ def test_admin_hf_login_status_logout_flow(
 
     with make_client(tmp_path, admin_token="admin-token") as client:
         before_response = client.get("/api/admin/hf-status", headers=admin_headers())
+        set_endpoint_response = client.patch(
+            "/api/admin/hf-endpoint",
+            headers=admin_headers(),
+            json={"endpoint": "https://hf-mirror.com"},
+        )
         failed_login_response = client.post(
             "/api/admin/hf-login",
             headers=admin_headers(),
@@ -1282,25 +1313,56 @@ def test_admin_hf_login_status_logout_flow(
         )
         after_response = client.get("/api/admin/hf-status", headers=admin_headers())
         logout_response = client.post("/api/admin/hf-logout", headers=admin_headers())
+        reset_endpoint_response = client.patch(
+            "/api/admin/hf-endpoint",
+            headers=admin_headers(),
+            json={"endpoint": ""},
+        )
         final_response = client.get("/api/admin/hf-status", headers=admin_headers())
 
     assert before_response.status_code == 200
-    assert before_response.json() == {"logged_in": False, "username": None}
+    assert before_response.json() == {
+        "logged_in": False,
+        "username": None,
+        "endpoint": "https://huggingface.co",
+    }
+
+    assert set_endpoint_response.status_code == 200
+    assert set_endpoint_response.json() == {"endpoint": "https://hf-mirror.com"}
 
     assert failed_login_response.status_code == 422
     assert failed_login_response.json()["detail"] == "invalid token"
 
     assert login_response.status_code == 200
-    assert login_response.json() == {"logged_in": True, "username": "cubie-user"}
+    assert login_response.json() == {
+        "logged_in": True,
+        "username": "cubie-user",
+        "endpoint": "https://hf-mirror.com",
+    }
 
     assert after_response.status_code == 200
-    assert after_response.json() == {"logged_in": True, "username": "cubie-user"}
+    assert after_response.json() == {
+        "logged_in": True,
+        "username": "cubie-user",
+        "endpoint": "https://hf-mirror.com",
+    }
 
     assert logout_response.status_code == 200
-    assert logout_response.json() == {"logged_in": False, "username": None}
+    assert logout_response.json() == {
+        "logged_in": False,
+        "username": None,
+        "endpoint": "https://hf-mirror.com",
+    }
+
+    assert reset_endpoint_response.status_code == 200
+    assert reset_endpoint_response.json() == {"endpoint": "https://huggingface.co"}
 
     assert final_response.status_code == 200
-    assert final_response.json() == {"logged_in": False, "username": None}
+    assert final_response.json() == {
+        "logged_in": False,
+        "username": None,
+        "endpoint": "https://huggingface.co",
+    }
 
 
 def test_admin_key_crud_flow_returns_token_once_and_list_hides_token(tmp_path: Path) -> None:

@@ -4,8 +4,12 @@ import { useTranslation } from "react-i18next";
 import { Badge, Button, Card, ToggleSwitch } from "@/components/ui/primitives";
 import { useModelsData, type AdminModelItem, type AdminModelRuntimeState } from "@/hooks/use-models-data";
 
-const tableHeadClassName = "px-4 pb-2 text-center font-display text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted";
-const tableCellClassName = "bg-surface-container-lowest px-4 py-2.5 align-top text-sm text-text-secondary first:rounded-l-lg last:rounded-r-lg";
+const tableHeadBaseClassName = "px-4 pb-2 font-display text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted";
+const tableHeadLeftClassName = `${tableHeadBaseClassName} text-left`;
+const tableHeadCenterClassName = `${tableHeadBaseClassName} text-center`;
+const tableCellBaseClassName = "bg-surface-container-lowest px-4 py-2.5 align-top text-sm text-text-secondary first:rounded-l-lg last:rounded-r-lg";
+const tableCellLeftClassName = `${tableCellBaseClassName} text-left`;
+const tableCellCenterClassName = `${tableCellBaseClassName} text-center`;
 
 const runtimeToneMap: Record<AdminModelRuntimeState, "success" | "warning" | "danger" | "neutral"> = {
   ready: "success",
@@ -53,23 +57,23 @@ export function ModelsPage() {
         <h2 className="text-lg font-semibold tracking-[-0.03em] text-text-primary">{t("models.list.title")}</h2>
 
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[680px] table-auto border-separate border-spacing-y-2">
+          <table className="w-full min-w-[820px] table-fixed border-separate border-spacing-y-2">
             <colgroup>
-              <col />
-              <col className="w-[1%]" />
-              <col className="w-[1%]" />
+              <col className="w-[36%]" />
+              <col className="w-[22%]" />
+              <col className="w-[42%]" />
             </colgroup>
             <thead>
               <tr>
-                <th className={tableHeadClassName}>{t("models.list.columns.name")}</th>
-                <th className={tableHeadClassName}>{t("models.list.columns.runtime")}</th>
-                <th className={tableHeadClassName}>{t("models.list.columns.actions")}</th>
+                <th className={tableHeadLeftClassName}>{t("models.list.columns.name")}</th>
+                <th className={tableHeadCenterClassName}>{t("models.list.columns.runtime")}</th>
+                <th className={tableHeadCenterClassName}>{t("models.list.columns.actions")}</th>
               </tr>
             </thead>
             <tbody>
               {models.length === 0 ? (
                 <tr>
-                  <td className={tableCellClassName} colSpan={3}>
+                  <td className={tableCellLeftClassName} colSpan={3}>
                     {t("models.list.empty")}
                   </td>
                 </tr>
@@ -77,7 +81,7 @@ export function ModelsPage() {
                 const isBusy = busyModelId === model.id;
                 return (
                   <tr key={model.id}>
-                    <td className={tableCellClassName}>
+                    <td className={tableCellLeftClassName}>
                       <div className="flex flex-wrap items-center gap-2">
                         <div className="text-sm font-semibold text-text-primary">{model.displayName}</div>
                         {model.isDefault ? (
@@ -85,20 +89,20 @@ export function ModelsPage() {
                         ) : null}
                       </div>
                     </td>
-                    <td className={tableCellClassName}>
-                      <div className="grid gap-1.5 whitespace-nowrap">
+                    <td className={tableCellCenterClassName}>
+                      <div className="grid justify-items-center gap-1.5">
                         <Badge tone={runtimeToneMap[model.runtimeState]}>
                           {t(`models.runtime.${model.runtimeState}`)}
                         </Badge>
                         {model.runtimeState === "error" && model.errorMessage ? (
-                          <p className="rounded-md border border-danger/40 bg-danger/10 px-2 py-1 text-xs leading-5 text-danger-text">
+                          <p className="max-w-xs rounded-md border border-danger/40 bg-danger/10 px-2 py-1 text-left text-xs leading-5 text-danger-text">
                             {model.errorMessage}
                           </p>
                         ) : null}
                       </div>
                     </td>
-                    <td className={tableCellClassName}>
-                      <div className="flex flex-wrap items-center gap-2.5 whitespace-nowrap">
+                    <td className={tableCellCenterClassName}>
+                      <div className="flex items-center justify-center gap-2.5 whitespace-nowrap">
                         <div className="inline-flex items-center gap-1.5">
                           <ToggleSwitch
                             checked={model.isEnabled}

@@ -254,9 +254,18 @@ class AdminHfLoginRequest(BaseModel):
     token: str = Field(min_length=1)
 
 
+class AdminHfEndpointUpdateRequest(BaseModel):
+    endpoint: str = ""
+
+
+class AdminHfEndpointResponse(BaseModel):
+    endpoint: str
+
+
 class AdminHfStatusResponse(BaseModel):
     logged_in: bool
     username: str | None = None
+    endpoint: str
 
 
 class AdminApiKeySetActiveRequest(BaseModel):

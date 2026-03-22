@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import secrets
 import uuid
 from contextlib import asynccontextmanager
@@ -26,12 +27,16 @@ from starlette.types import Scope
 
 try:
     from huggingface_hub import (
+        constants as _hf_constants,
+        hf_api as _hf_api_module,
         get_token as _hf_get_token,
         login as _hf_login,
         logout as _hf_logout,
         whoami as _hf_whoami,
     )
 except Exception:
+    _hf_constants = None
+    _hf_api_module = None
     _hf_get_token = None
     _hf_login = None
     _hf_logout = None
@@ -42,6 +47,8 @@ from gen3d.api.schemas import (
     AdminApiKeyCreateResponse,
     AdminApiKeyListItem,
     AdminApiKeySetActiveRequest,
+    AdminHfEndpointResponse,
+    AdminHfEndpointUpdateRequest,
     AdminHfLoginRequest,
     AdminHfStatusResponse,
     CursorPaginationParams,
@@ -114,6 +121,10 @@ _TASK_STATUS_MAP: dict[str, str] = {
     "cancelled": "failed",
 }
 
+HF_ENDPOINT_ENV_KEY = "HF_ENDPOINT"
+HF_DEFAULT_ENDPOINT = "https://huggingface.co"
+HF_ENDPOINT_SETTING_KEY = "hfEndpoint"
+
 
 def _ensure_hf_client_available() -> None:
     if not all(callable(item) for item in (_hf_get_token, _hf_login, _hf_logout, _hf_whoami)):
@@ -121,6 +132,42 @@ def _ensure_hf_client_available() -> None:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="huggingface_hub is not available",
         )
+
+
+def _normalize_hf_endpoint(raw_value: Any, *, strict: bool) -> str:
+    endpoint = str(raw_value or "").strip()
+    if not endpoint:
+        return HF_DEFAULT_ENDPOINT
+    parsed = urlsplit(endpoint)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        if strict:
+            raise ValueError("endpoint must be a valid http(s) URL")
+        return HF_DEFAULT_ENDPOINT
+    normalized_path = parsed.path.rstrip("/")
+    return urlunsplit((parsed.scheme, parsed.netloc, normalized_path, "", ""))
+
+
+def _set_hf_endpoint(endpoint: str) -> str:
+    normalized_endpoint = _normalize_hf_endpoint(endpoint, strict=False)
+    os.environ[HF_ENDPOINT_ENV_KEY] = normalized_endpoint
+    if _hf_constants is not None:
+        try:
+            _hf_constants.ENDPOINT = normalized_endpoint
+        except Exception:
+            pass
+    if _hf_api_module is not None:
+        try:
+            _hf_api_module.ENDPOINT = normalized_endpoint
+            api_client = getattr(_hf_api_module, "api", None)
+            if api_client is not None:
+                api_client.endpoint = normalized_endpoint
+        except Exception:
+            pass
+    return normalized_endpoint
+
+
+def _current_hf_endpoint() -> str:
+    return _normalize_hf_endpoint(os.environ.get(HF_ENDPOINT_ENV_KEY, HF_DEFAULT_ENDPOINT), strict=False)
 
 
 def _resolve_hf_status() -> tuple[bool, str | None]:
@@ -659,6 +706,10 @@ def create_app(
         await container.api_key_store.initialize()
         await container.model_store.initialize()
         await container.settings_store.initialize()
+        configured_hf_endpoint = await container.settings_store.get(HF_ENDPOINT_SETTING_KEY)
+        _set_hf_endpoint(
+            _normalize_hf_endpoint(configured_hf_endpoint, strict=False)
+        )
         await artifact_store.initialize()
         await preview_renderer_service.start()
         if config.dev_proxy_target is not None:
@@ -1521,7 +1572,31 @@ def create_app(
     )
     async def get_hf_status() -> AdminHfStatusResponse:
         logged_in, username = _resolve_hf_status()
-        return AdminHfStatusResponse(logged_in=logged_in, username=username)
+        return AdminHfStatusResponse(
+            logged_in=logged_in,
+            username=username,
+            endpoint=_current_hf_endpoint(),
+        )
+
+    @app.patch(
+        "/api/admin/hf-endpoint",
+        response_model=AdminHfEndpointResponse,
+        dependencies=[Depends(require_admin_token)],
+    )
+    async def update_hf_endpoint(
+        payload: AdminHfEndpointUpdateRequest,
+        app_container: AppContainer = Depends(get_container),
+    ) -> AdminHfEndpointResponse:
+        try:
+            normalized_endpoint = _normalize_hf_endpoint(payload.endpoint, strict=True)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=str(exc),
+            ) from exc
+        _set_hf_endpoint(normalized_endpoint)
+        await app_container.settings_store.set(HF_ENDPOINT_SETTING_KEY, normalized_endpoint)
+        return AdminHfEndpointResponse(endpoint=normalized_endpoint)
 
     @app.post(
         "/api/admin/hf-login",
@@ -1536,6 +1611,8 @@ def create_app(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="token must be a non-empty string",
             )
+        # Keep login calls pinned to the current mirror endpoint.
+        _set_hf_endpoint(_current_hf_endpoint())
         try:
             _hf_login(token=token)
         except Exception as exc:
@@ -1544,7 +1621,11 @@ def create_app(
                 detail=str(exc),
             ) from exc
         logged_in, username = _resolve_hf_status()
-        return AdminHfStatusResponse(logged_in=logged_in, username=username)
+        return AdminHfStatusResponse(
+            logged_in=logged_in,
+            username=username,
+            endpoint=_current_hf_endpoint(),
+        )
 
     @app.post(
         "/api/admin/hf-logout",
@@ -1560,7 +1641,11 @@ def create_app(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=str(exc),
             ) from exc
-        return AdminHfStatusResponse(logged_in=False, username=None)
+        return AdminHfStatusResponse(
+            logged_in=False,
+            username=None,
+            endpoint=_current_hf_endpoint(),
+        )
 
     @app.get(
         "/api/admin/settings",

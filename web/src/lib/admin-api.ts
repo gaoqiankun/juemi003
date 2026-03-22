@@ -189,9 +189,19 @@ export const updateSettings = (data: Record<string, unknown>) =>
 export interface HfStatusResponse {
   logged_in: boolean;
   username: string | null;
+  endpoint: string;
+}
+
+export interface HfEndpointResponse {
+  endpoint: string;
 }
 
 export const fetchHfStatus = () => adminFetch<HfStatusResponse>("/api/admin/hf-status");
+export const updateHfEndpoint = (endpoint: string) =>
+  adminFetch<HfEndpointResponse>("/api/admin/hf-endpoint", {
+    method: "PATCH",
+    body: JSON.stringify({ endpoint }),
+  });
 export const connectHf = (token: string) =>
   adminFetch<HfStatusResponse>("/api/admin/hf-login", {
     method: "POST",

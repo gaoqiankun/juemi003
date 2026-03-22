@@ -19,8 +19,12 @@ const statusSummaryKeys: Array<"activeTasks" | "queued" | "completed" | "failed"
   "failed",
 ];
 const eyebrowClassName = "font-display text-[0.6875rem] font-semibold uppercase tracking-[0.05em] text-text-muted";
-const tableHeadClassName = "px-4 pb-2 text-center font-display text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted";
-const tableCellClassName = "bg-surface-container-lowest px-4 py-3 align-top text-sm text-text-secondary first:rounded-l-lg last:rounded-r-lg";
+const tableHeadBaseClassName = "px-4 pb-2 font-display text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted";
+const tableHeadLeftClassName = `${tableHeadBaseClassName} text-left`;
+const tableHeadCenterClassName = `${tableHeadBaseClassName} text-center`;
+const tableCellBaseClassName = "bg-surface-container-lowest px-4 py-3 align-top text-sm text-text-secondary first:rounded-l-lg last:rounded-r-lg";
+const tableCellLeftClassName = `${tableCellBaseClassName} text-left`;
+const tableCellCenterClassName = `${tableCellBaseClassName} text-center`;
 
 const statusSummaryIconMap = {
   activeTasks: Activity,
@@ -137,29 +141,29 @@ export function TasksPage() {
             <table className="w-full min-w-[960px] border-separate border-spacing-y-2">
               <thead>
                 <tr>
-                  <th className={tableHeadClassName}>{t("tasks.table.columns.task")}</th>
-                  <th className={tableHeadClassName}>{t("tasks.table.columns.model")}</th>
-                  <th className={tableHeadClassName}>{t("tasks.table.columns.status")}</th>
-                  <th className={tableHeadClassName}>{t("tasks.table.columns.created")}</th>
-                  <th className={tableHeadClassName}>{t("tasks.table.columns.latency")}</th>
-                  <th className={tableHeadClassName}>{t("tasks.table.columns.owner")}</th>
+                  <th className={tableHeadLeftClassName}>{t("tasks.table.columns.task")}</th>
+                  <th className={tableHeadCenterClassName}>{t("tasks.table.columns.model")}</th>
+                  <th className={tableHeadCenterClassName}>{t("tasks.table.columns.status")}</th>
+                  <th className={tableHeadCenterClassName}>{t("tasks.table.columns.created")}</th>
+                  <th className={tableHeadCenterClassName}>{t("tasks.table.columns.latency")}</th>
+                  <th className={tableHeadCenterClassName}>{t("tasks.table.columns.owner")}</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredTasks.map((task) => (
                   <tr key={task.id}>
-                    <td className={tableCellClassName}>
+                    <td className={tableCellLeftClassName}>
                       <div className="font-mono text-sm font-semibold text-text-primary">{task.id}</div>
                     </td>
-                    <td className={tableCellClassName}>{task.model}</td>
-                    <td className={tableCellClassName}>
+                    <td className={tableCellCenterClassName}>{task.model}</td>
+                    <td className={tableCellCenterClassName}>
                       <span className="font-medium text-text-primary">{t(`common.status.${task.status}`)}</span>
                     </td>
-                    <td className={tableCellClassName}>{formatTimestamp(locale, task.createdAt)}</td>
-                    <td className={`${tableCellClassName} font-mono`}>
+                    <td className={tableCellCenterClassName}>{formatTimestamp(locale, task.createdAt)}</td>
+                    <td className={`${tableCellCenterClassName} font-mono`}>
                       {task.latencySeconds ? `${formatNumber(locale, task.latencySeconds)}s` : "—"}
                     </td>
-                    <td className={tableCellClassName}>{task.owner}</td>
+                    <td className={tableCellCenterClassName}>{task.owner}</td>
                   </tr>
                 ))}
               </tbody>
