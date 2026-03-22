@@ -220,11 +220,18 @@ export function AdminShell() {
         <div className="flex h-full flex-col gap-6 px-6 py-8">
           <div className="grid gap-4">
             <div className="flex items-center gap-3">
-              <img
-                src={`${import.meta.env.BASE_URL}favicon.svg`}
-                alt="Cubie"
-                className="h-11 w-11 rounded-xl border border-outline bg-surface-container-low p-1.5"
-              />
+              <div className="relative">
+                <img
+                  src={`${import.meta.env.BASE_URL}favicon.svg`}
+                  alt="Cubie"
+                  className="h-11 w-11 rounded-xl border border-outline bg-surface-container-low p-1.5"
+                />
+                <span
+                  className={clsx("absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border border-surface", toneClass)}
+                  title={connection.detail}
+                  aria-label={connection.label}
+                />
+              </div>
               <div className="min-w-0">
                 <div className="text-xl font-semibold tracking-[-0.03em] text-text-primary">
                   Cubie
@@ -258,7 +265,7 @@ export function AdminShell() {
           <div className="mt-auto pt-2">
             <button
               type="button"
-              className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-outline bg-surface-container-low px-4 py-2.5 text-sm font-medium text-text-secondary transition-colors hover:bg-surface-container hover:text-text-primary"
+              className="inline-flex w-full items-center gap-3 rounded-xl border border-outline bg-surface-container-low px-4 py-3 text-sm font-medium text-text-secondary transition-colors hover:bg-surface-container hover:text-text-primary"
               onClick={handleSignOut}
             >
               <LogOut className="h-4 w-4" />
@@ -279,12 +286,6 @@ export function AdminShell() {
 
             <div className="flex flex-wrap items-center gap-3">
               <div className="flex items-center gap-1">
-                <span
-                  className={clsx("mx-1 h-2 w-2 rounded-full", toneClass)}
-                  title={connection.detail}
-                  aria-label={connection.label}
-                />
-
                 <div ref={languageMenuRef} className="relative">
                   <button
                     type="button"

@@ -19,7 +19,7 @@ const statusSummaryKeys: Array<"activeTasks" | "queued" | "completed" | "failed"
   "failed",
 ];
 const eyebrowClassName = "font-display text-[0.6875rem] font-semibold uppercase tracking-[0.05em] text-text-muted";
-const tableHeadClassName = "px-4 pb-2 text-left font-display text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted";
+const tableHeadClassName = "px-4 pb-2 text-center font-display text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted";
 const tableCellClassName = "bg-surface-container-lowest px-4 py-3 align-top text-sm text-text-secondary first:rounded-l-lg last:rounded-r-lg";
 
 const statusSummaryIconMap = {
@@ -48,6 +48,7 @@ export function TasksPage() {
   if (error || !data) return <div className="flex items-center justify-center h-full text-red-500">{error || "Failed to load"}</div>;
 
   const { overview, statusSummary, tasks } = data;
+  const dedupedOverview = overview.filter((item) => item.key !== "active");
 
   const filteredTasks = tasks.filter((task) => {
     if (filter !== "all" && task.status !== filter) {
@@ -88,7 +89,7 @@ export function TasksPage() {
           );
         })}
 
-        {overview.map((item) => (
+        {dedupedOverview.map((item) => (
           <Card key={item.key} className="p-5">
             <div className="flex items-start justify-between gap-4">
               <div className="grid gap-2">

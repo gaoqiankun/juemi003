@@ -136,7 +136,16 @@ export function SettingsPage() {
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
               {section.fields.map((field) => {
                 const readonly = isFieldReadonly(field);
-                const suffixText = field.suffixKey ? t(field.suffixKey) : field.suffix;
+                const fallbackSuffixKey = field.key === "rateLimitPerHour"
+                  ? "settings.suffix.perHour"
+                  : field.key === "rateLimitConcurrent"
+                    ? "settings.suffix.count"
+                    : "";
+                const suffixText = field.suffixKey
+                  ? t(field.suffixKey)
+                  : fallbackSuffixKey
+                    ? t(fallbackSuffixKey)
+                    : field.suffix;
                 const fieldClassName = field.type === "text"
                   ? "grid gap-2 rounded-lg border border-outline bg-surface-container-low p-3 md:col-span-2 xl:col-span-3"
                   : "grid gap-2 rounded-lg border border-outline bg-surface-container-low p-3";

@@ -79,6 +79,12 @@ export function useModelsData() {
 
   useEffect(() => {
     loadModels().catch(() => undefined);
+    const timer = window.setInterval(() => {
+      loadModels(true).catch(() => undefined);
+    }, 10_000);
+    return () => {
+      window.clearInterval(timer);
+    };
   }, [loadModels]);
 
   const setModelEnabled = useCallback(async (modelId: string, enabled: boolean) => {
