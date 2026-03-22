@@ -2,9 +2,9 @@ import clsx from "clsx";
 import {
   Boxes,
   Check,
-  Globe2,
+  Languages,
   KeyRound,
-  LayoutDashboard,
+  LogOut,
   MoonStar,
   Settings2,
   SunMedium,
@@ -28,7 +28,6 @@ import {
 } from "@/lib/admin-api";
 
 const navigation = [
-  { key: "dashboard", path: "/admin/dashboard", icon: LayoutDashboard },
   { key: "tasks", path: "/admin/tasks", icon: Workflow },
   { key: "models", path: "/admin/models", icon: Boxes },
   { key: "apiKeys", path: "/admin/api-keys", icon: KeyRound },
@@ -39,7 +38,7 @@ const metaClassName = "font-display text-[0.6875rem] font-semibold uppercase tra
 
 export function AdminShell() {
   const location = useLocation();
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { theme, toggleTheme } = useTheme();
   const { language, locales, setLanguage } = useLocale();
   const { connection } = useGen3d();
@@ -64,7 +63,10 @@ export function AdminShell() {
     setAuthError(message);
   }, []);
 
-  const validateStoredAdminToken = useCallback(async (token: string) => {
+  const validateStoredAdminToken = useCallback(async (
+    token: string,
+    copy: { invalidToken: string; unreachable: string },
+  ) => {
     const normalizedToken = String(token || "").trim();
     if (!normalizedToken) {
       setNeedsTokenState("");
@@ -80,18 +82,21 @@ export function AdminShell() {
       const adminError = error as AdminApiError;
       clearAdminToken();
       if (adminError.status === 401) {
-        setNeedsTokenState(t("shell.adminAuth.invalidToken"));
+        setNeedsTokenState(copy.invalidToken);
       } else {
-        setNeedsTokenState(adminError.message || t("shell.adminAuth.unreachable"));
+        setNeedsTokenState(adminError.message || copy.unreachable);
       }
     }
-  }, [setNeedsTokenState, t]);
+  }, [setNeedsTokenState]);
 
   useEffect(() => {
     const storedToken = getAdminToken();
     setAuthTokenInput(storedToken);
-    validateStoredAdminToken(storedToken).catch(() => undefined);
-  }, [validateStoredAdminToken]);
+    validateStoredAdminToken(storedToken, {
+      invalidToken: i18n.t("shell.adminAuth.invalidToken"),
+      unreachable: i18n.t("shell.adminAuth.unreachable"),
+    }).catch(() => undefined);
+  }, [i18n, validateStoredAdminToken]);
 
   useEffect(() => {
     const handleAuthInvalid = () => {
@@ -160,6 +165,13 @@ export function AdminShell() {
       setIsSubmittingAuth(false);
     }
   }, [authTokenInput, isSubmittingAuth, setNeedsTokenState, t]);
+
+  const handleSignOut = useCallback(() => {
+    clearAdminToken();
+    setAuthTokenInput("");
+    setIsLanguageMenuOpen(false);
+    setNeedsTokenState("");
+  }, [setNeedsTokenState]);
 
   if (authState !== "ready") {
     return (
@@ -243,6 +255,16 @@ export function AdminShell() {
             })}
           </nav>
 
+          <div className="mt-auto pt-2">
+            <button
+              type="button"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-outline bg-surface-container-low px-4 py-2.5 text-sm font-medium text-text-secondary transition-colors hover:bg-surface-container hover:text-text-primary"
+              onClick={handleSignOut}
+            >
+              <LogOut className="h-4 w-4" />
+              <span>{t("shell.adminAuth.signOut")}</span>
+            </button>
+          </div>
         </div>
       </aside>
 
@@ -263,16 +285,6 @@ export function AdminShell() {
                   aria-label={connection.label}
                 />
 
-                <button
-                  type="button"
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-transparent text-text-secondary transition-colors hover:bg-surface-container-highest hover:text-text-primary"
-                  onClick={toggleTheme}
-                  aria-label={t("shell.themeToggle")}
-                  title={currentThemeLabel}
-                >
-                  {theme === "dark" ? <SunMedium className="h-4 w-4" /> : <MoonStar className="h-4 w-4" />}
-                </button>
-
                 <div ref={languageMenuRef} className="relative">
                   <button
                     type="button"
@@ -284,7 +296,7 @@ export function AdminShell() {
                     aria-label={t("shell.languageToggle")}
                     title={t("shell.languageToggle")}
                   >
-                    <Globe2 className="h-4 w-4" />
+                    <Languages className="h-4 w-4" />
                   </button>
                   {isLanguageMenuOpen ? (
                     <div
@@ -319,6 +331,16 @@ export function AdminShell() {
                     </div>
                   ) : null}
                 </div>
+
+                <button
+                  type="button"
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-transparent text-text-secondary transition-colors hover:bg-surface-container-highest hover:text-text-primary"
+                  onClick={toggleTheme}
+                  aria-label={t("shell.themeToggle")}
+                  title={currentThemeLabel}
+                >
+                  {theme === "dark" ? <SunMedium className="h-4 w-4" /> : <MoonStar className="h-4 w-4" />}
+                </button>
 
                 <NavLink
                   to="/admin/settings"

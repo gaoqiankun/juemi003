@@ -26,13 +26,13 @@
       "verifying": "验证中...",
       "missingToken": "请先输入管理员 Token。",
       "invalidToken": "管理员 Token 无效，请重试。",
-      "unreachable": "暂时无法校验 Token，请检查网络或服务状态。"
+      "unreachable": "暂时无法校验 Token，请检查网络或服务状态。",
+      "signOut": "退出"
     },
     "nav": {
-      "dashboard": "总览",
       "tasks": "任务",
       "models": "模型",
-      "apiKeys": "API 密钥",
+      "apiKeys": "密钥",
       "settings": "设置",
       "generate": "工作台",
       "gallery": "资产"
@@ -125,7 +125,7 @@
         "status": "状态",
         "duration": "耗时",
         "created": "创建时间",
-        "owner": "API Key"
+        "owner": "密钥"
       }
     },
     "nodes": {
@@ -152,7 +152,7 @@
       "completed": "已完成",
       "failed": "失败"
     },
-    "searchPlaceholder": "按任务 ID、负责人或模型搜索",
+    "searchPlaceholder": "按任务 ID、密钥或模型搜索",
     "table": {
       "title": "任务列表",
       "subtitle": "当前任务",
@@ -165,7 +165,7 @@
         "status": "状态",
         "created": "创建时间",
         "latency": "耗时",
-        "owner": "API Key"
+        "owner": "密钥"
       }
     },
     "logs": {
@@ -208,13 +208,12 @@
       "columns": {
         "name": "模型名称",
         "runtime": "运行状态",
-        "availability": "启用控制"
+        "actions": "操作"
       },
       "enabled": "启用",
       "disabled": "禁用",
       "defaultTag": "默认",
       "setDefault": "设为默认",
-      "enableControlLabel": "模型访问",
       "saving": "正在保存模型设置...",
       "empty": "暂无模型。",
       "toggleLabel": "切换 {{name}} 的访问状态"
@@ -228,7 +227,7 @@
     }
   },
   "apiKeys": {
-    "title": "API 密钥管理",
+    "title": "密钥",
     "description": "查看使用情况、轮换凭据，并尽量收紧权限范围。",
     "usage": {
       "requests": "月请求量",
@@ -250,25 +249,21 @@
         "owner": "负责人",
         "actions": "操作"
       },
-      "empty": "暂无 API 密钥。"
-    },
-    "summary": {
-      "activeKeys": "活跃密钥"
+      "empty": "暂无密钥。"
     },
     "actions": {
       "rotate": "轮换密钥",
-      "disable": "停用密钥",
-      "enable": "启用密钥",
-      "delete": "删除密钥",
+      "disable": "停用",
+      "enable": "启用",
+      "delete": "删除",
       "saving": "正在更新密钥状态...",
-      "confirmDelete": "确认删除 API 密钥“{{name}}”？",
+      "confirmDelete": "确认删除密钥“{{name}}”？",
       "rotateHelper": "24 小时平滑切换期",
       "disableHelper": "立即撤销访问权限"
     },
     "createPanel": {
       "title": "创建受限密钥",
       "copy": "为自动化流程、系统集成或合作方访问创建受限密钥，避免在界面中暴露完整凭据。",
-      "shortCopy": "为客户端创建新的用户 API 密钥。",
       "labelField": "密钥名称",
       "labelPlaceholder": "例如：production-client",
       "creating": "创建中...",
@@ -287,21 +282,18 @@
     "description": "在同一套分层表面里调整生成引擎、产物存储和流量护栏。",
     "sections": {
       "generation": {
-        "title": "生成引擎",
-        "description": "主执行模型、并行度和预览行为。"
+        "title": "生成引擎"
       },
       "storage": {
-        "title": "存储",
-        "description": "生成产物的保留策略和后端路由。"
+        "title": "存储"
       },
       "traffic": {
-        "title": "流量与限制",
-        "description": "限流、并发上限，以及管理面允许来源。"
+        "title": "流量与限制"
       }
     },
     "fields": {
       "defaultProvider": {
-        "label": "默认 Provider",
+        "label": "默认模型",
         "description": "请求未指定模型时使用的默认模型。"
       },
       "maxParallelJobs": {
@@ -317,7 +309,7 @@
         "description": "单个 API Key 每小时可发起的最大请求数。"
       },
       "rateLimitConcurrent": {
-        "label": "单 Key 并发上限",
+        "label": "单密钥并发上限",
         "description": "单个 API Key 允许的进行中任务上限。"
       },
       "previewRenderer": {
@@ -360,6 +352,10 @@
         "label": "允许来源",
         "description": "允许访问管理面的域名，使用逗号分隔。"
       }
+    },
+    "suffix": {
+      "perHour": "次/时",
+      "count": "个"
     },
     "options": {
       "trellisLarge": "TRELLIS2 Large",

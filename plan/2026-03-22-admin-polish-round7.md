@@ -1,38 +1,25 @@
-# Admin 面板第七轮打磨：模型页重新设计 + 设置页紧凑布局
+# Admin 面板第七轮打磨（返工）：布局修正 + 文案统一 + Bug 修复
 Date: 2026-03-22
-Status: done
-Commits: N/A（按仓库 AGENTS 约束，本次未执行 git commit）
+Status: planning
 
 ## Goal
-1. 模型列表页重新设计，解决布局混乱问题
-2. 设置页紧凑化
+1. 总览页与任务页合并
+2. 模型列表页布局重做（紧凑 3 列）
+3. 密钥页简化（命名、文案、统计卡片）
+4. 设置页文案修正（去中英混合）
+5. 导航栏图标与用户侧统一
+6. 密钥停用接口字段名 Bug 修复
+7. 时间格式统一
+8. 任务状态去掉圆点
+9. 表头列名统一（API KEY → 密钥/Key）
+10. 语言切换闪现 Bug 修复
+11. Admin 退出功能
 
 ## Key Decisions
-- 模型列表改为 3 列：`模型名称 / 运行状态 / 启用控制`，去掉独立“默认”列。
-- 默认能力内聚到名称列：
-  - 默认模型在名称旁显示 `Default` badge；
-  - 非默认模型在名称区域显示“设为默认”按钮。
-- 运行时状态和启用状态强制分离：
-  - 运行时状态仅在“运行状态”列展示（含 error 时的错误文案）；
-  - 启用状态与 ToggleSwitch 放在“启用控制”列，并补充明确文字标签，避免“裸开关”。
-- 设置页采用响应式紧凑网格（`md:2 列 / xl:3 列`），文本字段跨整行，减少空白但保留可读性。
+待 AI Coder 调研后填写
 
 ## Changes
-- 模型列表页重构（`web/src/pages/models-page.tsx`）
-  - 表格列从 4 列调整为 3 列，移除独立默认列。
-  - 名称列合并默认标识与“设为默认”入口（仅非默认模型显示按钮）。
-  - 状态列只保留 runtime badge；error 状态继续展示友好错误信息。
-  - 启用控制列新增带文字说明的控制块（模型访问 + 当前启用状态 + ToggleSwitch）。
-- i18n 同步（`web/src/i18n/en.json`、`web/src/i18n/zh-CN.json`）
-  - 模型列表列名改为 `runtime` / `availability`；
-  - 新增 `models.list.enableControlLabel`；
-  - 调整 `models.list.toggleLabel` 为更明确的“切换访问状态”语义。
-- 设置页紧凑化（`web/src/pages/settings-page.tsx`）
-  - section 卡片改为更紧凑的信息密度，增加 section 描述；
-  - 字段容器由单列全宽改为响应式网格；
-  - toggle 字段补充当前状态文字（active/paused）并与开关并排展示；
-  - 文本字段跨多列，避免长输入框过窄。
+待 AI Coder 执行后填写
 
 ## Notes
-- 验证结果：
-  - `cd web && npm run build`（Node v24.14.0）→ 通过，TypeScript 无错误
+- 用户侧退出机制暂缓，后续再加

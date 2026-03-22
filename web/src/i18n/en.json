@@ -19,20 +19,20 @@
     "adminAuth": {
       "title": "Admin",
       "heading": "Admin token required",
-      "copy": "Enter the admin token to load dashboard data.",
+      "copy": "Enter the admin token to load admin data.",
       "tokenLabel": "Admin token",
       "tokenPlaceholder": "Paste your admin bearer token",
       "submit": "Continue",
       "verifying": "Verifying...",
       "missingToken": "Please enter an admin token.",
       "invalidToken": "Invalid admin token. Please try again.",
-      "unreachable": "Unable to verify token. Check network or service status."
+      "unreachable": "Unable to verify token. Check network or service status.",
+      "signOut": "Sign out"
     },
     "nav": {
-      "dashboard": "Dashboard",
       "tasks": "Tasks",
       "models": "Models",
-      "apiKeys": "API Keys",
+      "apiKeys": "Keys",
       "settings": "Settings",
       "generate": "Workspace",
       "gallery": "Assets"
@@ -125,7 +125,7 @@
         "status": "Status",
         "duration": "Duration",
         "created": "Created",
-        "owner": "API Key"
+        "owner": "Key"
       }
     },
     "nodes": {
@@ -152,7 +152,7 @@
       "completed": "Completed",
       "failed": "Failed"
     },
-    "searchPlaceholder": "Search by task ID, owner, or model",
+    "searchPlaceholder": "Search by task ID, key, or model",
     "table": {
       "title": "Tasks",
       "subtitle": "Current tasks",
@@ -165,7 +165,7 @@
         "status": "Status",
         "created": "Created",
         "latency": "Latency",
-        "owner": "API Key"
+        "owner": "Key"
       }
     },
     "logs": {
@@ -208,13 +208,12 @@
       "columns": {
         "name": "Model",
         "runtime": "Runtime",
-        "availability": "Availability"
+        "actions": "Actions"
       },
       "enabled": "Enabled",
       "disabled": "Disabled",
       "defaultTag": "Default",
       "setDefault": "Set as default",
-      "enableControlLabel": "Model access",
       "saving": "Saving model changes...",
       "empty": "No models found.",
       "toggleLabel": "Toggle access for {{name}}"
@@ -228,7 +227,7 @@
     }
   },
   "apiKeys": {
-    "title": "API key management",
+    "title": "Keys",
     "description": "Review usage, rotate credentials, and keep permissions tightly scoped.",
     "usage": {
       "requests": "Monthly requests",
@@ -250,25 +249,21 @@
         "owner": "Owner",
         "actions": "Actions"
       },
-      "empty": "No API keys yet."
-    },
-    "summary": {
-      "activeKeys": "Active keys"
+      "empty": "No keys yet."
     },
     "actions": {
       "rotate": "Rotate key",
-      "disable": "Disable key",
-      "enable": "Enable key",
-      "delete": "Delete key",
+      "disable": "Disable",
+      "enable": "Enable",
+      "delete": "Delete",
       "saving": "Updating key status...",
-      "confirmDelete": "Delete API key \"{{name}}\"?",
+      "confirmDelete": "Delete key \"{{name}}\"?",
       "rotateHelper": "24-hour grace period",
       "disableHelper": "Revokes access immediately"
     },
     "createPanel": {
       "title": "Create a scoped key",
       "copy": "Issue a scoped key for automation, integrations, or partner traffic without exposing full secrets in the interface.",
-      "shortCopy": "Create a new user API key for clients.",
       "labelField": "Key name",
       "labelPlaceholder": "e.g. production-client",
       "creating": "Creating...",
@@ -287,21 +282,18 @@
     "description": "Tune the generation engine, artifact storage, and traffic guardrails from one layered surface.",
     "sections": {
       "generation": {
-        "title": "Generation Engine",
-        "description": "Primary execution model, parallelism, and preview behavior."
+        "title": "Generation Engine"
       },
       "storage": {
-        "title": "Storage",
-        "description": "Artifact retention and backend routing for generated outputs."
+        "title": "Storage"
       },
       "traffic": {
-        "title": "Traffic & Limits",
-        "description": "Rate limits, concurrency caps, and allowed control-plane origins."
+        "title": "Traffic & Limits"
       }
     },
     "fields": {
       "defaultProvider": {
-        "label": "Default provider",
+        "label": "Default Model",
         "description": "Model used when a request does not specify one."
       },
       "maxParallelJobs": {
@@ -360,6 +352,10 @@
         "label": "Allowed origins",
         "description": "Comma-separated domains allowed to access the admin panel."
       }
+    },
+    "suffix": {
+      "perHour": "req/h",
+      "count": "jobs"
     },
     "options": {
       "trellisLarge": "TRELLIS2 Large",

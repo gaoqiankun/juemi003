@@ -129,16 +129,14 @@ export function SettingsPage() {
       <section className="grid gap-4">
         {settings.sections.map((section) => (
           <Card key={section.key} className="grid gap-4 p-5">
-            <div className="grid gap-1">
-              <h2 className="text-lg font-semibold tracking-[-0.02em] text-text-primary">
-                {t(section.titleKey)}
-              </h2>
-              <p className="text-sm text-text-secondary">{t(section.descriptionKey)}</p>
-            </div>
+            <h2 className="text-lg font-semibold tracking-[-0.02em] text-text-primary">
+              {t(section.titleKey)}
+            </h2>
 
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
               {section.fields.map((field) => {
                 const readonly = isFieldReadonly(field);
+                const suffixText = field.suffixKey ? t(field.suffixKey) : field.suffix;
                 const fieldClassName = field.type === "text"
                   ? "grid gap-2 rounded-lg border border-outline bg-surface-container-low p-3 md:col-span-2 xl:col-span-3"
                   : "grid gap-2 rounded-lg border border-outline bg-surface-container-low p-3";
@@ -189,11 +187,11 @@ export function SettingsPage() {
                           value={String(field.value ?? "")}
                           disabled={readonly}
                           onChange={(event) => updateField(section.key, field.key, Number(event.target.value))}
-                          className={field.suffix ? "pr-16" : undefined}
+                          className={suffixText ? "pr-16" : undefined}
                         />
-                        {field.suffix ? (
+                        {suffixText ? (
                           <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-text-muted">
-                            {field.suffix}
+                            {suffixText}
                           </span>
                         ) : null}
                       </div>

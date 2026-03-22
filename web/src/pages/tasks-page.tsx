@@ -1,26 +1,40 @@
 import { useDeferredValue, useState } from "react";
-import { Search, Workflow } from "lucide-react";
+import { Activity, CheckCircle2, Clock3, Search, TriangleAlert, Workflow } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { Card, StatusDot, Tabs, TabsList, TabsTrigger, TextField } from "@/components/ui/primitives";
+import { Card, Tabs, TabsList, TabsTrigger, TextField } from "@/components/ui/primitives";
 import type { AdminLocale, TaskStatus } from "@/data/admin-mocks";
 import { useTasksData } from "@/hooks/use-tasks-data";
 import {
+  formatCompactNumber,
   formatNumber,
   formatTimestamp,
 } from "@/lib/admin-format";
 
-const statusToneMap: Record<TaskStatus, "accent" | "warning" | "success" | "danger"> = {
-  live: "accent",
-  queued: "warning",
-  completed: "success",
-  failed: "danger",
-};
-
 const filterValues: Array<TaskStatus | "all"> = ["all", "live", "queued", "completed", "failed"];
+const statusSummaryKeys: Array<"activeTasks" | "queued" | "completed" | "failed"> = [
+  "activeTasks",
+  "queued",
+  "completed",
+  "failed",
+];
 const eyebrowClassName = "font-display text-[0.6875rem] font-semibold uppercase tracking-[0.05em] text-text-muted";
 const tableHeadClassName = "px-4 pb-2 text-left font-display text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted";
 const tableCellClassName = "bg-surface-container-lowest px-4 py-3 align-top text-sm text-text-secondary first:rounded-l-lg last:rounded-r-lg";
+
+const statusSummaryIconMap = {
+  activeTasks: Activity,
+  queued: Clock3,
+  completed: CheckCircle2,
+  failed: TriangleAlert,
+} as const;
+
+const statusSummaryToneClassMap = {
+  activeTasks: "text-accent-strong",
+  queued: "text-warning-text",
+  completed: "text-success-text",
+  failed: "text-danger-text",
+} as const;
 
 export function TasksPage() {
   const { t, i18n } = useTranslation();
@@ -33,7 +47,7 @@ export function TasksPage() {
   if (loading) return <div className="flex items-center justify-center h-full"><span className="text-text-secondary">Loading...</span></div>;
   if (error || !data) return <div className="flex items-center justify-center h-full text-red-500">{error || "Failed to load"}</div>;
 
-  const { overview, tasks } = data;
+  const { overview, statusSummary, tasks } = data;
 
   const filteredTasks = tasks.filter((task) => {
     if (filter !== "all" && task.status !== filter) {
@@ -54,6 +68,26 @@ export function TasksPage() {
   return (
     <div className="grid gap-6">
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {statusSummaryKeys.map((key) => {
+          const Icon = statusSummaryIconMap[key];
+          const value = statusSummary[key];
+          return (
+            <Card key={key} className="p-5">
+              <div className="flex items-start justify-between gap-4">
+                <div className="grid gap-2">
+                  <div className={eyebrowClassName}>{t(`dashboard.stats.${key}.label`)}</div>
+                  <div className="text-3xl font-semibold tracking-[-0.04em] text-text-primary">
+                    {formatCompactNumber(locale, value)}
+                  </div>
+                </div>
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-outline bg-surface-container-low">
+                  <Icon className={`h-5 w-5 ${statusSummaryToneClassMap[key]}`} />
+                </div>
+              </div>
+            </Card>
+          );
+        })}
+
         {overview.map((item) => (
           <Card key={item.key} className="p-5">
             <div className="flex items-start justify-between gap-4">
@@ -118,7 +152,7 @@ export function TasksPage() {
                     </td>
                     <td className={tableCellClassName}>{task.model}</td>
                     <td className={tableCellClassName}>
-                      <StatusDot tone={statusToneMap[task.status]} label={t(`common.status.${task.status}`)} />
+                      <span className="font-medium text-text-primary">{t(`common.status.${task.status}`)}</span>
                     </td>
                     <td className={tableCellClassName}>{formatTimestamp(locale, task.createdAt)}</td>
                     <td className={`${tableCellClassName} font-mono`}>

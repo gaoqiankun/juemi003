@@ -40,7 +40,7 @@ function toApiKeyData(item: RawAdminKeyItem): AdminApiKeyItem | null {
   const createdAt = String(item.createdAt || item.created_at || new Date().toISOString()).trim();
   return {
     id: keyId,
-    label: String(item.label || keyId || "API Key"),
+    label: String(item.label || keyId || "Key"),
     createdAt,
     isActive: Boolean(item.isActive ?? item.is_active ?? true),
   };

@@ -4,7 +4,6 @@ import { ProtectedUserRoute } from "@/components/guards/protected-user-route";
 import { AdminShell } from "@/components/layout/admin-shell";
 import { UserShell } from "@/components/layout/user-shell";
 import { ApiKeysPage } from "@/pages/api-keys-page";
-import { DashboardPage } from "@/pages/dashboard-page";
 import { GalleryPage } from "@/pages/gallery-page";
 import { GeneratePage } from "@/pages/generate-page";
 import { ModelsPage } from "@/pages/models-page";
@@ -38,13 +37,12 @@ export default function App() {
         </Route>
 
         <Route path="/admin" element={<AdminShell />}>
-          <Route index element={<Navigate to="/admin/dashboard" replace />} />
-          <Route path="dashboard" element={<DashboardPage />} />
+          <Route index element={<Navigate to="/admin/tasks" replace />} />
           <Route path="tasks" element={<TasksPage />} />
           <Route path="models" element={<ModelsPage />} />
           <Route path="api-keys" element={<ApiKeysPage />} />
           <Route path="settings" element={<SettingsPage />} />
-          <Route path="*" element={<Navigate to="/admin/dashboard" replace />} />
+          <Route path="*" element={<Navigate to="/admin/tasks" replace />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/generate" replace />} />

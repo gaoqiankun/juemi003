@@ -39,6 +39,12 @@ function toOwnerLabel(
 
 export interface TasksDataResult {
   overview: TaskOverviewMetric[];
+  statusSummary: {
+    activeTasks: number;
+    queued: number;
+    completed: number;
+    failed: number;
+  };
   tasks: AdminTaskItem[];
 }
 
@@ -108,8 +114,15 @@ export function useTasksData() {
   useEffect(() => {
     Promise.all([fetchTasksStats(), fetchAdminTasks()])
       .then(([statsRes, tasksRes]) => {
+        const counts = statsRes.countByStatus || {};
         setData({
           overview: statsRes.overview,
+          statusSummary: {
+            activeTasks: Number(counts.processing || 0),
+            queued: Number(counts.queued || 0) + Number(counts.gpu_queued || 0),
+            completed: Number(counts.succeeded || 0),
+            failed: Number(counts.failed || 0),
+          },
           tasks: normalizeTasksResponse(tasksRes),
         });
       })

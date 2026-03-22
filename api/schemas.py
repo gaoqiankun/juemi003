@@ -251,7 +251,10 @@ class AdminApiKeyCreateRequest(BaseModel):
 
 
 class AdminApiKeySetActiveRequest(BaseModel):
-    is_active: bool = Field(serialization_alias="isActive")
+    is_active: bool = Field(
+        validation_alias=AliasChoices("is_active", "isActive"),
+        serialization_alias="isActive",
+    )
 
     model_config = ConfigDict(populate_by_name=True)
 

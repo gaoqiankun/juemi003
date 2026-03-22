@@ -1227,12 +1227,12 @@ def test_admin_key_crud_flow_returns_token_once_and_list_hides_token(tmp_path: P
         patch_response = client.patch(
             f"/api/admin/keys/{key_id}",
             headers=admin_headers(),
-            json={"is_active": False},
+            json={"isActive": False},
         )
         missing_response = client.patch(
             "/api/admin/keys/missing-key",
             headers=admin_headers(),
-            json={"is_active": False},
+            json={"isActive": False},
         )
         delete_response = client.delete(
             f"/api/admin/keys/{key_id}",

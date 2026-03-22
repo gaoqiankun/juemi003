@@ -5,11 +5,9 @@ import { Button, Card, StatusDot, TextField } from "@/components/ui/primitives";
 import type { AdminLocale } from "@/data/admin-mocks";
 import { type CreatedApiKey, useApiKeysData } from "@/hooks/use-api-keys-data";
 import {
-  formatCompactNumber,
   formatTimestamp,
 } from "@/lib/admin-format";
 
-const eyebrowClassName = "font-display text-[0.6875rem] font-semibold uppercase tracking-[0.05em] text-text-muted";
 const tableHeadClassName = "px-4 pb-2 text-left font-display text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted";
 const tableCellClassName = "bg-surface-container-lowest px-4 py-3 align-top text-sm text-text-secondary first:rounded-l-lg last:rounded-r-lg";
 
@@ -22,7 +20,6 @@ export function ApiKeysPage() {
     error,
     isCreating,
     busyKeyId,
-    activeCount,
     createKey,
     setKeyActive,
     removeKey,
@@ -74,15 +71,6 @@ export function ApiKeysPage() {
 
   return (
     <div className="grid gap-6">
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <Card className="grid gap-2 p-5">
-          <div className={eyebrowClassName}>{t("apiKeys.summary.activeKeys")}</div>
-          <div className="text-3xl font-semibold tracking-[-0.04em] text-text-primary">
-            {formatCompactNumber(locale, activeCount)}
-          </div>
-        </Card>
-      </section>
-
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1.5fr)_22rem]">
         <Card className="grid gap-5 p-5">
           <h2 className="text-lg font-semibold tracking-[-0.03em] text-text-primary">{t("apiKeys.table.title")}</h2>
@@ -150,10 +138,7 @@ export function ApiKeysPage() {
         </Card>
 
         <Card tone="low" className="grid content-start gap-4 p-5">
-          <div className="grid gap-1">
-            <h2 className="text-lg font-semibold tracking-[-0.03em] text-text-primary">{t("common.createKey")}</h2>
-            <p className="text-sm text-text-secondary">{t("apiKeys.createPanel.shortCopy")}</p>
-          </div>
+          <h2 className="text-lg font-semibold tracking-[-0.03em] text-text-primary">{t("common.createKey")}</h2>
 
           <label className="grid gap-1.5 text-sm text-text-secondary" htmlFor="admin-key-label">
             <span>{t("apiKeys.createPanel.labelField")}</span>

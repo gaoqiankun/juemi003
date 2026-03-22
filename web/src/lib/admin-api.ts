@@ -1,5 +1,4 @@
 import type {
-  DashboardData,
   SettingsData,
   TaskOverviewMetric,
 } from "@/data/admin-mocks";
@@ -74,9 +73,6 @@ export async function verifyAdminToken(token: string) {
     throw buildAdminError(response, await extractErrorMessage(response));
   }
 }
-
-// Dashboard
-export const fetchDashboard = () => adminFetch<DashboardData>("/api/admin/dashboard");
 
 // Tasks
 export interface RawAdminTaskSummary {

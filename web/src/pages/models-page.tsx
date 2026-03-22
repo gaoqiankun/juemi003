@@ -5,7 +5,7 @@ import { Badge, Button, Card, ToggleSwitch } from "@/components/ui/primitives";
 import { useModelsData, type AdminModelItem, type AdminModelRuntimeState } from "@/hooks/use-models-data";
 
 const tableHeadClassName = "px-4 pb-2 text-left font-display text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted";
-const tableCellClassName = "bg-surface-container-lowest px-4 py-3 align-top text-sm text-text-secondary first:rounded-l-lg last:rounded-r-lg";
+const tableCellClassName = "bg-surface-container-lowest px-4 py-2.5 align-top text-sm text-text-secondary first:rounded-l-lg last:rounded-r-lg";
 
 const runtimeToneMap: Record<AdminModelRuntimeState, "success" | "warning" | "danger" | "neutral"> = {
   ready: "success",
@@ -58,7 +58,7 @@ export function ModelsPage() {
               <tr>
                 <th className={tableHeadClassName}>{t("models.list.columns.name")}</th>
                 <th className={tableHeadClassName}>{t("models.list.columns.runtime")}</th>
-                <th className={tableHeadClassName}>{t("models.list.columns.availability")}</th>
+                <th className={tableHeadClassName}>{t("models.list.columns.actions")}</th>
               </tr>
             </thead>
             <tbody>
@@ -73,25 +73,10 @@ export function ModelsPage() {
                 return (
                   <tr key={model.id}>
                     <td className={tableCellClassName}>
-                      <div className="grid gap-2">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <div className="text-sm font-semibold text-text-primary">{model.displayName}</div>
-                          {model.isDefault ? (
-                            <Badge tone="accent">{t("models.list.defaultTag")}</Badge>
-                          ) : null}
-                        </div>
-
-                        {!model.isDefault ? (
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="ghost"
-                            disabled={isBusy}
-                            className="h-7 w-fit px-2 text-xs font-medium text-accent-strong hover:text-accent-strong"
-                            onClick={() => handleSetDefault(model)}
-                          >
-                            {t("models.list.setDefault")}
-                          </Button>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div className="text-sm font-semibold text-text-primary">{model.displayName}</div>
+                        {model.isDefault ? (
+                          <Badge tone="accent">{t("models.list.defaultTag")}</Badge>
                         ) : null}
                       </div>
                     </td>
@@ -108,24 +93,29 @@ export function ModelsPage() {
                       </div>
                     </td>
                     <td className={tableCellClassName}>
-                      <div className="rounded-lg border border-outline bg-surface-container-low px-3 py-2">
-                        <div className="flex items-center justify-between gap-3">
-                          <div className="grid gap-1">
-                            <span className="font-display text-[0.625rem] font-semibold uppercase tracking-[0.05em] text-text-muted">
-                              {t("models.list.enableControlLabel")}
-                            </span>
-                            <span className="text-sm font-medium text-text-primary">
-                              {t(model.isEnabled ? "models.list.enabled" : "models.list.disabled")}
-                            </span>
-                          </div>
-
+                      <div className="flex flex-wrap items-center gap-3">
+                        <div className="inline-flex items-center gap-2">
                           <ToggleSwitch
                             checked={model.isEnabled}
                             onChange={(nextValue) => handleToggleModel(model, nextValue)}
                             label={t("models.list.toggleLabel", { name: model.displayName })}
                             className="data-[state=checked]:bg-success-text"
                           />
+                          <span className="text-sm font-medium text-text-primary">
+                            {t(model.isEnabled ? "models.list.enabled" : "models.list.disabled")}
+                          </span>
                         </div>
+
+                        {!model.isDefault ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            disabled={isBusy}
+                            onClick={() => handleSetDefault(model)}
+                          >
+                            {t("models.list.setDefault")}
+                          </Button>
+                        ) : null}
                       </div>
                     </td>
                   </tr>

@@ -29,7 +29,11 @@ export function formatPercent(locale: AdminLocale, value: number, maximumFractio
   return `${formatNumber(locale, value, maximumFractionDigits)}%`;
 }
 
-export function formatTimestamp(locale: AdminLocale, value: string | null | undefined) {
+function pad2(value: number) {
+  return String(value).padStart(2, "0");
+}
+
+export function formatTimestamp(_locale: AdminLocale, value: string | null | undefined) {
   if (!value) {
     return "—";
   }
@@ -37,12 +41,12 @@ export function formatTimestamp(locale: AdminLocale, value: string | null | unde
   if (Number.isNaN(date.getTime())) {
     return "—";
   }
-  return new Intl.DateTimeFormat(resolveLocale(locale), {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
+  const year = date.getFullYear();
+  const month = pad2(date.getMonth() + 1);
+  const day = pad2(date.getDate());
+  const hours = pad2(date.getHours());
+  const minutes = pad2(date.getMinutes());
+  return `${year}-${month}-${day} ${hours}:${minutes}`;
 }
 
 export function maskKey(prefix: string) {

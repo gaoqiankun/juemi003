@@ -146,6 +146,7 @@ export interface SettingField {
   type: SettingFieldType;
   value: boolean | number | string;
   suffix?: string;
+  suffixKey?: string;
   options?: SettingOption[];
 }
 

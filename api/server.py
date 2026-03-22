@@ -1532,7 +1532,7 @@ def create_app(
                         "value": db_settings.get(
                             "rateLimitPerHour", cfg.rate_limit_per_hour
                         ),
-                        "suffix": "req/h",
+                        "suffixKey": "settings.suffix.perHour",
                     },
                     {
                         "key": "rateLimitConcurrent",
@@ -1542,7 +1542,7 @@ def create_app(
                         "value": db_settings.get(
                             "rateLimitConcurrent", cfg.rate_limit_concurrent
                         ),
-                        "suffix": "jobs",
+                        "suffixKey": "settings.suffix.count",
                     },
                 ],
             },
