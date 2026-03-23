@@ -62,23 +62,25 @@ export function ModelsPage() {
         <h2 className="text-lg font-semibold tracking-[-0.03em] text-text-primary">{t("models.list.title")}</h2>
 
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[820px] table-fixed border-separate border-spacing-y-2">
+          <table className="w-full min-w-[980px] table-fixed border-separate border-spacing-y-2">
             <colgroup>
-              <col className="w-[36%]" />
-              <col className="w-[22%]" />
-              <col className="w-[42%]" />
+              <col className="w-[34%]" />
+              <col className="w-[21%]" />
+              <col className="w-[160px]" />
+              <col className="w-[200px]" />
+              <col className="w-[160px]" />
             </colgroup>
             <thead>
               <tr>
                 <th className={tableHeadLeftClassName}>{t("models.list.columns.name")}</th>
                 <th className={tableHeadCenterClassName}>{t("models.list.columns.runtime")}</th>
-                <th className={tableHeadCenterClassName}>{t("models.list.columns.actions")}</th>
+                <th className={tableHeadCenterClassName} colSpan={3}>{t("models.list.columns.actions")}</th>
               </tr>
             </thead>
             <tbody>
               {models.length === 0 ? (
                 <tr>
-                  <td className={tableCellLeftClassName} colSpan={3}>
+                  <td className={tableCellLeftClassName} colSpan={5}>
                     {t("models.list.empty")}
                   </td>
                 </tr>
@@ -109,47 +111,47 @@ export function ModelsPage() {
                         ) : null}
                       </div>
                     </td>
-                    <td className={tableCellCenterClassName}>
-                      <div className="flex items-center justify-center gap-3 whitespace-nowrap">
-                        {model.runtimeState === "not_loaded" || model.runtimeState === "error" || model.runtimeState === "loading" ? (
-                          <Button
-                            type="button"
-                            size="xs"
-                            variant="outline"
-                            disabled={isBusy || model.runtimeState === "loading"}
-                            onClick={() => handleLoadOrRetry(model)}
-                          >
-                            {model.runtimeState === "error"
-                              ? t("models.list.retry")
-                              : model.runtimeState === "loading"
-                                ? t("models.list.loading")
-                                : t("models.list.load")}
-                          </Button>
-                        ) : null}
-
-                        <div className="inline-flex items-center gap-1.5">
-                          <ToggleSwitch
-                            checked={model.isEnabled}
-                            onChange={(nextValue) => handleToggleModel(model, nextValue)}
-                            label={t("models.list.toggleLabel", { name: model.displayName })}
-                            className="data-[state=checked]:bg-success-text"
-                          />
-                          <span className="text-xs font-semibold tracking-wide text-text-primary">
-                            {t(model.isEnabled ? "models.list.enabled" : "models.list.disabled")}
-                          </span>
-                        </div>
-
+                    <td className={`${tableCellCenterClassName} w-[160px]`}>
+                      {model.runtimeState === "not_loaded" || model.runtimeState === "error" || model.runtimeState === "loading" ? (
                         <Button
                           type="button"
-                          size="xs"
+                          size="sm"
                           variant="outline"
-                          disabled={isBusy || model.isDefault}
-                          className={model.isDefault ? "invisible" : ""}
-                          onClick={() => handleSetDefault(model)}
+                          disabled={isBusy || model.runtimeState === "loading"}
+                          onClick={() => handleLoadOrRetry(model)}
                         >
-                          {t("models.list.setDefault")}
+                          {model.runtimeState === "error"
+                            ? t("models.list.retry")
+                            : model.runtimeState === "loading"
+                              ? t("models.list.loading")
+                              : t("models.list.load")}
                         </Button>
+                      ) : null}
+                    </td>
+                    <td className={`${tableCellCenterClassName} w-[200px]`}>
+                      <div className="inline-flex items-center gap-1.5">
+                        <ToggleSwitch
+                          checked={model.isEnabled}
+                          onChange={(nextValue) => handleToggleModel(model, nextValue)}
+                          label={t("models.list.toggleLabel", { name: model.displayName })}
+                          className="data-[state=checked]:bg-success-text"
+                        />
+                        <span className="text-xs font-semibold tracking-wide text-text-primary">
+                          {t(model.isEnabled ? "models.list.enabled" : "models.list.disabled")}
+                        </span>
                       </div>
+                    </td>
+                    <td className={`${tableCellCenterClassName} w-[160px]`}>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={isBusy || model.isDefault}
+                        className={model.isDefault ? "invisible" : ""}
+                        onClick={() => handleSetDefault(model)}
+                      >
+                        {t("models.list.setDefault")}
+                      </Button>
                     </td>
                   </tr>
                 );
