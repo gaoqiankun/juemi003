@@ -208,6 +208,7 @@
       "columns": {
         "name": "模型名称",
         "runtime": "运行状态",
+        "slotUsage": "槽位用量",
         "actions": "操作"
       },
       "enabled": "启用",
@@ -216,7 +217,8 @@
       "setDefault": "设为默认",
       "load": "加载",
       "retry": "重试",
-      "loading": "加载中...",
+      "loading": "加载中",
+      "loaded": "已加载",
       "tasksProcessed": "已处理：{{count}}",
       "saving": "正在保存模型设置...",
       "empty": "暂无模型。",

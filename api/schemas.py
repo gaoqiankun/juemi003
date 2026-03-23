@@ -258,6 +258,7 @@ class AdminModelDetail(BaseModel):
     vram_gb: float | None = None
     runtime_state: Literal["not_loaded", "loading", "ready", "error", "unknown"] = "unknown"
     tasks_processed: int = 0
+    max_tasks_per_slot: int = 0
     error_message: str | None = None
     created_at: str
     updated_at: str

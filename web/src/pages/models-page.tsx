@@ -65,27 +65,35 @@ export function ModelsPage() {
           <table className="w-full min-w-[980px] table-fixed border-separate border-spacing-y-2">
             <colgroup>
               <col className="w-[34%]" />
-              <col className="w-[21%]" />
-              <col className="w-[160px]" />
-              <col className="w-[200px]" />
-              <col className="w-[160px]" />
+              <col className="w-[20%]" />
+              <col className="w-[14%]" />
+              <col className="w-[32%]" />
             </colgroup>
             <thead>
               <tr>
                 <th className={tableHeadLeftClassName}>{t("models.list.columns.name")}</th>
                 <th className={tableHeadCenterClassName}>{t("models.list.columns.runtime")}</th>
-                <th className={tableHeadCenterClassName} colSpan={3}>{t("models.list.columns.actions")}</th>
+                <th className={tableHeadCenterClassName}>{t("models.list.columns.slotUsage")}</th>
+                <th className={tableHeadCenterClassName}>{t("models.list.columns.actions")}</th>
               </tr>
             </thead>
             <tbody>
               {models.length === 0 ? (
                 <tr>
-                  <td className={tableCellLeftClassName} colSpan={5}>
+                  <td className={tableCellLeftClassName} colSpan={4}>
                     {t("models.list.empty")}
                   </td>
                 </tr>
               ) : models.map((model) => {
                 const isBusy = busyModelId === model.id;
+                const loadActionLabel = model.runtimeState === "ready"
+                  ? t("models.list.loaded")
+                  : model.runtimeState === "loading"
+                    ? t("models.list.loading")
+                    : model.runtimeState === "error"
+                      ? t("models.list.retry")
+                      : t("models.list.load");
+                const loadActionDisabled = isBusy || model.runtimeState === "ready" || model.runtimeState === "loading";
                 return (
                   <tr key={model.id}>
                     <td className={tableCellLeftClassName}>
@@ -101,9 +109,6 @@ export function ModelsPage() {
                         <Badge tone={runtimeToneMap[model.runtimeState]}>
                           {t(`models.runtime.${model.runtimeState}`)}
                         </Badge>
-                        <p className="text-xs text-text-muted">
-                          {t("models.list.tasksProcessed", { count: model.tasksProcessed })}
-                        </p>
                         {model.runtimeState === "error" && model.errorMessage ? (
                           <p className="max-w-xs rounded-md border border-danger/40 bg-danger/10 px-2 py-1 text-left text-xs leading-5 text-danger-text">
                             {model.errorMessage}
@@ -111,47 +116,43 @@ export function ModelsPage() {
                         ) : null}
                       </div>
                     </td>
-                    <td className={`${tableCellCenterClassName} w-[160px]`}>
-                      {model.runtimeState === "not_loaded" || model.runtimeState === "error" || model.runtimeState === "loading" ? (
+                    <td className={tableCellCenterClassName}>
+                      {model.runtimeState === "ready"
+                        ? `${model.tasksProcessed} / ${model.maxTasksPerSlot}`
+                        : "—"}
+                    </td>
+                    <td className={tableCellCenterClassName}>
+                      <div className="flex items-center justify-center gap-2">
+                        <div className="inline-flex items-center gap-1.5">
+                          <ToggleSwitch
+                            checked={model.isEnabled}
+                            onChange={(nextValue) => handleToggleModel(model, nextValue)}
+                            label={t("models.list.toggleLabel", { name: model.displayName })}
+                            className="data-[state=checked]:bg-success-text"
+                          />
+                          <span className="text-xs font-semibold tracking-wide text-text-primary">
+                            {t(model.isEnabled ? "models.list.enabled" : "models.list.disabled")}
+                          </span>
+                        </div>
                         <Button
                           type="button"
                           size="sm"
                           variant="outline"
-                          disabled={isBusy || model.runtimeState === "loading"}
+                          disabled={isBusy || model.isDefault}
+                          onClick={() => handleSetDefault(model)}
+                        >
+                          {t("models.list.setDefault")}
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={loadActionDisabled}
                           onClick={() => handleLoadOrRetry(model)}
                         >
-                          {model.runtimeState === "error"
-                            ? t("models.list.retry")
-                            : model.runtimeState === "loading"
-                              ? t("models.list.loading")
-                              : t("models.list.load")}
+                          {loadActionLabel}
                         </Button>
-                      ) : null}
-                    </td>
-                    <td className={`${tableCellCenterClassName} w-[200px]`}>
-                      <div className="inline-flex items-center gap-1.5">
-                        <ToggleSwitch
-                          checked={model.isEnabled}
-                          onChange={(nextValue) => handleToggleModel(model, nextValue)}
-                          label={t("models.list.toggleLabel", { name: model.displayName })}
-                          className="data-[state=checked]:bg-success-text"
-                        />
-                        <span className="text-xs font-semibold tracking-wide text-text-primary">
-                          {t(model.isEnabled ? "models.list.enabled" : "models.list.disabled")}
-                        </span>
                       </div>
-                    </td>
-                    <td className={`${tableCellCenterClassName} w-[160px]`}>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        disabled={isBusy || model.isDefault}
-                        className={model.isDefault ? "invisible" : ""}
-                        onClick={() => handleSetDefault(model)}
-                      >
-                        {t("models.list.setDefault")}
-                      </Button>
                     </td>
                   </tr>
                 );

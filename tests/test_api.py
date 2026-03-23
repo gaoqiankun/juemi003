@@ -1228,6 +1228,9 @@ def test_admin_models_returns_friendly_error_message_when_runtime_load_fails(
     assert hunyuan_model["runtimeState"] == "error"
     assert hunyuan_model["runtime_state"] == "error"
     assert hunyuan_model["error_message"] == "GPU 显存不足"
+    assert hunyuan_model["maxTasksPerSlot"] == hunyuan_model["max_tasks_per_slot"]
+    assert isinstance(hunyuan_model["max_tasks_per_slot"], int)
+    assert hunyuan_model["max_tasks_per_slot"] >= 1
 
 
 def test_privileged_key_routes_return_401_when_admin_token_is_unset(tmp_path: Path) -> None:

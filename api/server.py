@@ -1556,12 +1556,15 @@ def create_app(
     ) -> dict:
         models = await app_container.model_store.list_models()
         runtime_states = app_container.model_registry.runtime_states()
+        max_tasks_per_slot = app_container.model_scheduler.max_tasks_per_slot
         for model in models:
             model_id = str(model["id"]).strip().lower()
             state = str(runtime_states.get(model_id, "not_loaded"))
             model["runtimeState"] = state
             model["runtime_state"] = state
             model["tasks_processed"] = app_container.model_scheduler.get_tasks_processed(model_id)
+            model["maxTasksPerSlot"] = max_tasks_per_slot
+            model["max_tasks_per_slot"] = max_tasks_per_slot
             if state == "error":
                 error = None
                 try:

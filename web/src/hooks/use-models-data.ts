@@ -16,6 +16,7 @@ export interface AdminModelItem {
   isDefault: boolean;
   runtimeState: AdminModelRuntimeState;
   tasksProcessed: number;
+  maxTasksPerSlot: number;
   errorMessage: string;
 }
 
@@ -51,6 +52,7 @@ function normalizeModels(payload: RawAdminModelRecord[] | undefined): AdminModel
         isDefault: Boolean(item.is_default),
         runtimeState: normalizeRuntimeState(String(item.runtime_state || item.runtimeState || "")),
         tasksProcessed: Number(item.tasks_processed || 0),
+        maxTasksPerSlot: Number(item.max_tasks_per_slot || item.maxTasksPerSlot || 0),
         errorMessage: String(item.error_message || "").trim(),
       };
     })

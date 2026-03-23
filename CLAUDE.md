@@ -155,3 +155,4 @@ pointer-events-none（外层禁止事件）
 - GPU scheduler：简单 FIFO，`max_batch + deadline` 调度未实现
 - 取消运行中任务：仅支持 `gpu_queued` 状态
 - Docker 配置不一致：`MODEL_DIR` 卷挂载无用（模型实际在 `HF_HOME` 缓存）、`MODEL_PATH` 默认值 Dockerfile 与 Compose 冲突、`HF_TOKEN` 未透传导致 Admin HF 面板显示"未连接"
+- **模型 Pipeline 自维护**（v0.2）：当前 HunYuan3D-2 / Step1X-3D 通过 `git clone` 外部 repo + editable install 方式引入，长期应将各模型推理核心代码摘入 `model/<provider>/pipeline/` 自行维护，彻底去掉 build 时的 GitHub 依赖，同时裁掉训练/Demo 无关代码以减小镜像体积

@@ -126,6 +126,8 @@ export interface RawAdminModelRecord {
   runtimeState?: string;
   runtime_state?: string;
   tasks_processed?: number;
+  maxTasksPerSlot?: number;
+  max_tasks_per_slot?: number;
   error_message?: string | null;
   updated_at?: string | null;
   created_at?: string | null;

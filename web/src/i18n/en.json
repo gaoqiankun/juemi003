@@ -208,6 +208,7 @@
       "columns": {
         "name": "Model",
         "runtime": "Runtime",
+        "slotUsage": "Slot Usage",
         "actions": "Actions"
       },
       "enabled": "Enabled",
@@ -216,7 +217,8 @@
       "setDefault": "Set as default",
       "load": "Load",
       "retry": "Retry",
-      "loading": "Loading...",
+      "loading": "Loading",
+      "loaded": "Loaded",
       "tasksProcessed": "Processed: {{count}}",
       "saving": "Saving model changes...",
       "empty": "No models found.",
