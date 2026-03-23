@@ -178,7 +178,7 @@ def _resolve_hf_status() -> tuple[bool, str | None]:
     try:
         profile = _hf_whoami(token=token)
     except Exception:
-        return False, None
+        return True, None
     profile_dict = profile if isinstance(profile, dict) else {}
     username = str(profile_dict.get("name") or "").strip()
     return True, username or None

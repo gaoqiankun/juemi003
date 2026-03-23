@@ -14,7 +14,6 @@ import { type FormEvent, useCallback, useEffect, useRef, useState } from "react"
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 
-import { useGen3d } from "@/app/gen3d-provider";
 import { Button, Card, TextField } from "@/components/ui/primitives";
 import { useLocale } from "@/hooks/use-locale";
 import { useTheme } from "@/hooks/use-theme";
@@ -41,7 +40,6 @@ export function AdminShell() {
   const { t, i18n } = useTranslation();
   const { theme, toggleTheme } = useTheme();
   const { language, locales, setLanguage } = useLocale();
-  const { connection } = useGen3d();
   const languageMenuRef = useRef<HTMLDivElement | null>(null);
   const [authState, setAuthState] = useState<"checking" | "ready" | "needs_token">("checking");
   const [authTokenInput, setAuthTokenInput] = useState(() => getAdminToken());
@@ -49,12 +47,6 @@ export function AdminShell() {
   const [isSubmittingAuth, setIsSubmittingAuth] = useState(false);
   const [isLanguageMenuOpen, setIsLanguageMenuOpen] = useState(false);
   const currentThemeLabel = theme === "dark" ? t("shell.themeDark") : t("shell.themeLight");
-  const toneClass = connection.tone === "ready"
-    ? "bg-success-text"
-    : connection.tone === "error"
-      ? "bg-danger-text"
-      : "bg-text-muted";
-
   const activeItem = navigation.find((item) => location.pathname.startsWith(item.path))
     ?? navigation[0];
 
@@ -198,7 +190,7 @@ export function AdminShell() {
                   onChange={(event) => setAuthTokenInput(event.target.value)}
                 />
               </label>
-              <Button type="submit" variant="primary" disabled={isSubmittingAuth || authState === "checking"}>
+              <Button type="submit" variant="primary" size="sm" disabled={isSubmittingAuth || authState === "checking"}>
                 {authState === "checking" ? t("shell.adminAuth.verifying") : t("shell.adminAuth.submit")}
               </Button>
             </form>
@@ -220,18 +212,11 @@ export function AdminShell() {
         <div className="flex h-full flex-col gap-6 px-6 py-8">
           <div className="grid gap-4">
             <div className="flex items-center gap-3">
-              <div className="relative">
-                <img
-                  src={`${import.meta.env.BASE_URL}favicon.svg`}
-                  alt="Cubie"
-                  className="h-11 w-11 rounded-xl border border-outline bg-surface-container-low p-1.5"
-                />
-                <span
-                  className={clsx("absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border border-surface", toneClass)}
-                  title={connection.detail}
-                  aria-label={connection.label}
-                />
-              </div>
+              <img
+                src={`${import.meta.env.BASE_URL}favicon.svg`}
+                alt="Cubie"
+                className="h-11 w-11 rounded-xl border border-outline bg-surface-container-low p-1.5"
+              />
               <div className="min-w-0">
                 <div className="text-xl font-semibold tracking-[-0.03em] text-text-primary">
                   Cubie
@@ -262,16 +247,6 @@ export function AdminShell() {
             })}
           </nav>
 
-          <div className="mt-auto pt-2">
-            <button
-              type="button"
-              className="inline-flex w-full items-center gap-3 rounded-xl border border-outline bg-surface-container-low px-4 py-3 text-sm font-medium text-text-secondary transition-colors hover:bg-surface-container hover:text-text-primary"
-              onClick={handleSignOut}
-            >
-              <LogOut className="h-4 w-4" />
-              <span>{t("shell.adminAuth.signOut")}</span>
-            </button>
-          </div>
         </div>
       </aside>
 
@@ -341,6 +316,16 @@ export function AdminShell() {
                   title={currentThemeLabel}
                 >
                   {theme === "dark" ? <SunMedium className="h-4 w-4" /> : <MoonStar className="h-4 w-4" />}
+                </button>
+
+                <button
+                  type="button"
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-transparent text-text-secondary transition-colors hover:bg-surface-container-highest hover:text-text-primary"
+                  onClick={handleSignOut}
+                  aria-label={t("shell.adminAuth.signOut")}
+                  title={t("shell.adminAuth.signOut")}
+                >
+                  <LogOut className="h-4 w-4" />
                 </button>
               </div>
             </div>

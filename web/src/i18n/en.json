@@ -361,6 +361,7 @@
       "title": "HuggingFace",
       "loading": "Checking connection status...",
       "notConnected": "Not connected",
+      "connected": "Connected",
       "connectedAs": "Connected as {{username}}",
       "statusLabel": "Connection status",
       "endpointLabel": "Mirror endpoint",

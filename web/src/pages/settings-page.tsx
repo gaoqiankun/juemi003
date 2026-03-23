@@ -224,6 +224,20 @@ export function SettingsPage() {
   const normalizedEndpointInput = hfEndpoint.trim() || DEFAULT_HF_ENDPOINT;
   const persistedEndpoint = (hfStatus?.endpoint || DEFAULT_HF_ENDPOINT).trim() || DEFAULT_HF_ENDPOINT;
   const hasEndpointChanges = normalizedEndpointInput !== persistedEndpoint;
+  const hfStatusBadge = hfLoading
+    ? {
+      className: "inline-flex items-center rounded-full bg-surface-container-low px-2 py-0.5 text-xs font-medium text-text-muted",
+      text: "...",
+    }
+    : hfStatus?.logged_in
+      ? {
+        className: "inline-flex items-center rounded-full bg-success/10 px-2 py-0.5 text-xs font-medium text-success-text",
+        text: String(hfStatus.username || "").trim() || t("settings.hf.connected"),
+      }
+      : {
+        className: "inline-flex items-center rounded-full bg-surface-container-low px-2 py-0.5 text-xs font-medium text-text-muted",
+        text: t("settings.hf.notConnected"),
+      };
 
   if (loading) return <div className="flex items-center justify-center h-full"><span className="text-text-secondary">Loading...</span></div>;
   if (error || !settings) return <div className="flex items-center justify-center h-full text-red-500">{error || "Failed to load"}</div>;
@@ -324,21 +338,40 @@ export function SettingsPage() {
                 );
               })}
             </div>
+
+            {section.key === "generation" ? (
+              <div className="flex flex-wrap items-center gap-3">
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="sm"
+                  disabled={!hasChanges || isSaving}
+                  onClick={handleSave}
+                >
+                  {isSaving ? t("settings.save.saving") : t("common.saveChanges")}
+                </Button>
+                {saveSuccess ? <p className="text-sm text-success-text">{saveSuccess}</p> : null}
+                {saveError ? <p className="text-sm text-danger-text">{saveError}</p> : null}
+              </div>
+            ) : null}
           </Card>
         ))}
       </section>
 
       <section>
         <Card tone="low" className="grid gap-4 p-5">
-          <div className="grid gap-1">
+          <div className="flex items-center gap-2">
             <h2 className="text-lg font-semibold tracking-[-0.02em] text-text-primary">
               {t("settings.hf.title")}
             </h2>
+            <span className={hfStatusBadge.className}>{hfStatusBadge.text}</span>
           </div>
 
           <div className="grid gap-3 md:grid-cols-2">
             <label className="grid gap-1.5 text-sm text-text-secondary" htmlFor="settings-hf-endpoint">
-              <span>{t("settings.hf.endpointLabel")}</span>
+              <span className="font-display text-[0.6875rem] font-semibold uppercase tracking-[0.05em] text-text-muted">
+                {t("settings.hf.endpointLabel")}
+              </span>
               <TextField
                 id="settings-hf-endpoint"
                 type="text"
@@ -347,43 +380,29 @@ export function SettingsPage() {
                 onChange={(event) => setHfEndpoint(event.target.value)}
                 disabled={hfLoading || hfEndpointBusy || hfBusy}
               />
-              <span className="text-xs text-text-muted">{t("settings.hf.endpointHint")}</span>
             </label>
 
-            {!hfLoading && !hfStatus?.logged_in ? (
-              <label className="grid gap-1.5 text-sm text-text-secondary" htmlFor="settings-hf-token">
-                <span>{t("settings.hf.tokenLabel")}</span>
-                <TextField
-                  id="settings-hf-token"
-                  type="password"
-                  value={hfToken}
-                  autoComplete="off"
-                  placeholder={t("settings.hf.tokenPlaceholder")}
-                  onChange={(event) => setHfToken(event.target.value)}
-                  disabled={hfBusy || hfEndpointBusy}
-                />
-              </label>
-            ) : (
-              <div className="grid gap-1.5 text-sm text-text-secondary">
-                <span>{t("settings.hf.statusLabel")}</span>
-                <div className="rounded-lg border border-outline bg-surface-container-low px-3 py-2 text-sm">
-                  {hfLoading ? (
-                    <span className="text-text-secondary">{t("settings.hf.loading")}</span>
-                  ) : hfStatus?.logged_in ? (
-                    <span className="text-success-text">
-                      {t("settings.hf.connectedAs", { username: hfStatus.username || "-" })}
-                    </span>
-                  ) : (
-                    <span className="text-text-secondary">{t("settings.hf.notConnected")}</span>
-                  )}
-                </div>
-              </div>
-            )}
+            <label className="grid gap-1.5 text-sm text-text-secondary" htmlFor="settings-hf-token">
+              <span className="font-display text-[0.6875rem] font-semibold uppercase tracking-[0.05em] text-text-muted">
+                {t("settings.hf.tokenLabel")}
+              </span>
+              <TextField
+                id="settings-hf-token"
+                type="password"
+                value={hfStatus?.logged_in ? "" : hfToken}
+                autoComplete="off"
+                placeholder={hfStatus?.logged_in ? t("settings.hf.connected") : t("settings.hf.tokenPlaceholder")}
+                onChange={(event) => setHfToken(event.target.value)}
+                disabled={hfBusy || hfEndpointBusy || hfLoading || Boolean(hfStatus?.logged_in)}
+              />
+            </label>
           </div>
+          <p className="text-xs text-text-muted">{t("settings.hf.endpointHint")}</p>
 
           <div className="flex flex-wrap items-center gap-2">
             <Button
               type="button"
+              size="sm"
               disabled={hfLoading || hfBusy || hfEndpointBusy || !hasEndpointChanges}
               onClick={handleHfEndpointSave}
             >
@@ -392,6 +411,7 @@ export function SettingsPage() {
             {hfStatus?.logged_in ? (
               <Button
                 type="button"
+                size="sm"
                 disabled={hfBusy || hfLoading || hfEndpointBusy}
                 onClick={handleHfDisconnect}
               >
@@ -401,6 +421,7 @@ export function SettingsPage() {
               <Button
                 type="button"
                 variant="primary"
+                size="sm"
                 disabled={hfBusy || hfLoading || hfEndpointBusy}
                 onClick={handleHfConnect}
               >
@@ -414,18 +435,6 @@ export function SettingsPage() {
         </Card>
       </section>
 
-      <section className="flex flex-wrap items-center gap-3">
-        <Button
-          type="button"
-          variant="primary"
-          disabled={!hasChanges || isSaving}
-          onClick={handleSave}
-        >
-          {isSaving ? t("settings.save.saving") : t("common.saveChanges")}
-        </Button>
-        {saveSuccess ? <p className="text-sm text-success-text">{saveSuccess}</p> : null}
-        {saveError ? <p className="text-sm text-danger-text">{saveError}</p> : null}
-      </section>
     </div>
   );
 }

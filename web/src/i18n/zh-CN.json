@@ -361,6 +361,7 @@
       "title": "HuggingFace",
       "loading": "正在检查连接状态...",
       "notConnected": "未连接",
+      "connected": "已连接",
       "connectedAs": "已连接账号：{{username}}",
       "statusLabel": "连接状态",
       "endpointLabel": "镜像地址",

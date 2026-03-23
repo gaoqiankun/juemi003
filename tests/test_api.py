@@ -1365,6 +1365,29 @@ def test_admin_hf_login_status_logout_flow(
     }
 
 
+def test_admin_hf_status_keeps_logged_in_when_whoami_unreachable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("HF_ENDPOINT", raising=False)
+    monkeypatch.setattr(server_module, "_hf_get_token", lambda: "hf-valid-token")
+    monkeypatch.setattr(server_module, "_hf_login", lambda token: None)
+    monkeypatch.setattr(server_module, "_hf_logout", lambda: None)
+
+    def failing_whoami(token: str | None = None) -> dict[str, str]:
+        raise RuntimeError("network unreachable")
+
+    monkeypatch.setattr(server_module, "_hf_whoami", failing_whoami)
+
+    with make_client(tmp_path, admin_token="admin-token") as client:
+        response = client.get("/api/admin/hf-status", headers=admin_headers())
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["logged_in"] is True
+    assert body["username"] is None
+
+
 def test_admin_key_crud_flow_returns_token_once_and_list_hides_token(tmp_path: Path) -> None:
     with make_client(tmp_path, admin_token="admin-token") as client:
         create_response = client.post(

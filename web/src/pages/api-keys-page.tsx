@@ -155,7 +155,7 @@ export function ApiKeysPage() {
             />
           </label>
 
-          <Button type="button" variant="primary" disabled={isCreating} onClick={handleCreateKey}>
+          <Button type="button" variant="primary" size="sm" disabled={isCreating} onClick={handleCreateKey}>
             {isCreating ? t("apiKeys.createPanel.creating") : t("common.createKey")}
           </Button>
 
