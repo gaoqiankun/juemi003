@@ -222,3 +222,56 @@ def test_get_active_task_count() -> None:
                 await store.close()
 
     asyncio.run(_run())
+
+
+def test_get_oldest_queued_task_time_by_model() -> None:
+    async def _run() -> None:
+        with TemporaryDirectory() as tmp:
+            store = await _make_store(Path(tmp) / "test.db")
+            try:
+                base = _now()
+                await _insert_task(
+                    store,
+                    task_id="q-a-1",
+                    status="queued",
+                    model="trellis2",
+                    created_at=base + timedelta(seconds=20),
+                )
+                await _insert_task(
+                    store,
+                    task_id="q-a-0",
+                    status="queued",
+                    model="trellis2",
+                    created_at=base + timedelta(seconds=10),
+                )
+                await _insert_task(
+                    store,
+                    task_id="q-b-0",
+                    status="queued",
+                    model="hunyuan3d",
+                    created_at=base + timedelta(seconds=30),
+                )
+                await _insert_task(
+                    store,
+                    task_id="not-queued",
+                    status="preprocessing",
+                    model="step1x3d",
+                    created_at=base,
+                )
+                await _insert_task(
+                    store,
+                    task_id="queued-deleted",
+                    status="queued",
+                    model="step1x3d",
+                    created_at=base,
+                    deleted_at=base + timedelta(seconds=1),
+                )
+
+                oldest = await store.get_oldest_queued_task_time_by_model()
+                assert oldest["trellis2"] == _serialize_datetime(base + timedelta(seconds=10))
+                assert oldest["hunyuan3d"] == _serialize_datetime(base + timedelta(seconds=30))
+                assert "step1x3d" not in oldest
+            finally:
+                await store.close()
+
+    asyncio.run(_run())

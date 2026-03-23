@@ -890,6 +890,84 @@ def test_create_task_returns_immediately_while_model_loads_in_background(
     }
 
 
+def test_worker_calls_request_load_before_wait_ready(tmp_path: Path) -> None:
+    with make_client(tmp_path, queue_delay_ms=0) as client:
+        container = client.app.state.container
+        call_state = {
+            "request_load_calls": 0,
+            "wait_ready_checked": False,
+        }
+
+        original_request_load = container.model_scheduler.request_load
+        original_wait_ready = container.model_registry.wait_ready
+
+        async def tracking_request_load(model_name: str):
+            call_state["request_load_calls"] += 1
+            return await original_request_load(model_name)
+
+        async def checking_wait_ready(model_name: str):
+            assert call_state["request_load_calls"] > 0
+            call_state["wait_ready_checked"] = True
+            return await original_wait_ready(model_name)
+
+        container.model_scheduler.request_load = tracking_request_load
+        container.model_registry.wait_ready = checking_wait_ready
+
+        response = client.post(
+            "/v1/tasks",
+            headers=task_auth_headers(client),
+            json={
+                "type": "image_to_3d",
+                "input_url": upload_input_url(client),
+                "options": {"resolution": 1024},
+            },
+        )
+        assert response.status_code == 201
+        wait_for_status(
+            client,
+            response.json()["taskId"],
+            "succeeded",
+            timeout_seconds=5.0,
+        )
+
+    assert call_state["wait_ready_checked"] is True
+    assert call_state["request_load_calls"] >= 1
+
+
+def test_mock_mode_scheduler_disabled_with_eager_loaded_model_still_processes_tasks(
+    tmp_path: Path,
+) -> None:
+    with make_client(tmp_path, queue_delay_ms=0) as client:
+        container = client.app.state.container
+        assert container.config.is_mock_provider is True
+        assert container.model_scheduler._enabled is False
+        wait_for_condition(
+            lambda: client.get("/readiness").status_code == 200,
+            timeout_seconds=3.0,
+        )
+        assert container.model_registry.get_state("trellis2") == "ready"
+
+        response = client.post(
+            "/v1/tasks",
+            headers=task_auth_headers(client),
+            json={
+                "type": "image_to_3d",
+                "input_url": upload_input_url(client),
+                "model": "trellis2",
+                "options": {"resolution": 1024},
+            },
+        )
+        assert response.status_code == 201
+        final_payload = wait_for_status(
+            client,
+            response.json()["taskId"],
+            "succeeded",
+            timeout_seconds=5.0,
+        )
+
+    assert final_payload["model"] == "trellis2"
+
+
 def test_bearer_auth_is_required_for_task_routes(tmp_path: Path) -> None:
     with make_client(tmp_path) as client:
         create_response = client.post(

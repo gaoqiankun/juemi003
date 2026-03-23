@@ -12,7 +12,7 @@ WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
 if str(WORKSPACE_ROOT) not in sys.path:
     sys.path.insert(0, str(WORKSPACE_ROOT))
 
-from gen3d.engine.model_registry import ModelRegistry, ModelRuntime
+from gen3d.engine.model_registry import ModelRegistry, ModelRegistryLoadError, ModelRuntime
 from gen3d.model.base import BaseModelProvider
 from gen3d.stages.gpu.scheduler import GPUSlotScheduler
 from gen3d.stages.gpu.worker import GPUWorkerHandle
@@ -84,6 +84,7 @@ def test_model_registry_unload() -> None:
             )
 
         registry = ModelRegistry(runtime_loader)
+        registry.load("trellis2")
         await registry.wait_ready("trellis2")
         assert registry.get_state("trellis2") == "ready"
 
@@ -100,3 +101,15 @@ def test_model_registry_unload() -> None:
 
 def test_model_registry_normalize_name_keeps_empty_string() -> None:
     assert ModelRegistry._normalize_name("") == ""
+
+
+def test_wait_ready_raises_if_not_loading() -> None:
+    async def scenario() -> None:
+        async def runtime_loader(model_name: str) -> ModelRuntime:
+            raise AssertionError(f"runtime_loader should not be called for {model_name}")
+
+        registry = ModelRegistry(runtime_loader)
+        with pytest.raises(ModelRegistryLoadError, match="is not loading"):
+            await registry.wait_ready("trellis2")
+
+    asyncio.run(scenario())

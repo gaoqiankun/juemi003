@@ -100,9 +100,11 @@ class ModelRegistry:
 
     async def wait_ready(self, model_name: str) -> ModelRuntime:
         normalized = self._normalize_name(model_name)
-        self.load(normalized)
-        entry = self._entries[normalized]
-        await entry.event.wait()
+        entry = self._entries.get(normalized)
+        if entry is None or entry.state == "not_loaded":
+            raise ModelRegistryLoadError(f"model {normalized} is not loading")
+        if entry.state == "loading":
+            await entry.event.wait()
         if entry.state != "ready" or entry.runtime is None:
             message = f"model {normalized} failed to load"
             if entry.error is not None:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import math
 import subprocess
+from datetime import UTC, datetime
 from typing import Protocol
 
 import structlog
@@ -32,6 +33,9 @@ class _TaskStoreProtocol(Protocol):
         ...
 
     async def count_running_tasks_by_model(self) -> dict[str, int]:
+        ...
+
+    async def get_oldest_queued_task_time_by_model(self) -> dict[str, str]:
         ...
 
 
@@ -83,6 +87,10 @@ class ModelScheduler:
         return self._max_possible_loaded
 
     @property
+    def enabled(self) -> bool:
+        return self._enabled
+
+    @property
     def max_loaded_models(self) -> int:
         return self._max_loaded_models
 
@@ -128,6 +136,7 @@ class ModelScheduler:
             max_loaded_models=self._max_loaded_models,
             max_tasks_per_slot=self._max_tasks_per_slot,
         )
+        await self._startup_scan_queued_models()
 
     async def request_load(self, model_id: str) -> None:
         if not self._enabled:
@@ -197,6 +206,8 @@ class ModelScheduler:
         await self._enforce_loaded_slot_limit()
 
     async def _load_or_queue(self, target_model: str) -> None:
+        if not target_model:
+            return
         state = self._model_registry.get_state(target_model)
         if state in {"ready", "loading"}:
             if state == "ready":
@@ -285,6 +296,19 @@ class ModelScheduler:
                 self._tasks_processed.pop(candidate, None)
                 self._last_used.pop(candidate, None)
 
+    async def _startup_scan_queued_models(self) -> None:
+        if not self._enabled:
+            return
+        oldest_task_time_by_model = await self._task_store.get_oldest_queued_task_time_by_model()
+        if not oldest_task_time_by_model:
+            return
+        sorted_models = sorted(
+            oldest_task_time_by_model.items(),
+            key=lambda item: (_parse_iso_datetime(item[1]), item[0]),
+        )
+        for model_id, _ in sorted_models:
+            await self._load_or_queue(model_id)
+
     def _normalize_max_loaded_models(self, value: object) -> int:
         try:
             parsed = int(value)
@@ -347,6 +371,16 @@ def _compute_max_possible_loaded(
     if largest_model <= 0:
         return 1
     return max(1, math.floor(total_vram_gb / largest_model))
+
+
+def _parse_iso_datetime(value: str) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(str(value))
+    except Exception:
+        return datetime.max.replace(tzinfo=UTC)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
 
 
 def _detect_total_vram_with_torch() -> float | None:

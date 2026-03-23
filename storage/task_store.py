@@ -334,7 +334,7 @@ class TaskStore:
         )
         rows = await cursor.fetchall()
         return {
-            str(row["model"]).strip().lower() or "trellis": int(row["c"])
+            str(row["model"]).strip().lower(): int(row["c"])
             for row in rows
         }
 
@@ -357,8 +357,28 @@ class TaskStore:
         )
         rows = await cursor.fetchall()
         return {
-            str(row["model"]).strip().lower() or "trellis": int(row["c"])
+            str(row["model"]).strip().lower(): int(row["c"])
             for row in rows
+        }
+
+    async def get_oldest_queued_task_time_by_model(self) -> dict[str, str]:
+        db = self._require_db()
+        cursor = await db.execute(
+            """
+            SELECT model, MIN(created_at) AS oldest_created_at
+            FROM tasks
+            WHERE deleted_at IS NULL
+              AND status = ?
+              AND assigned_worker_id IS NULL
+            GROUP BY model
+            """,
+            (TaskStatus.QUEUED.value,),
+        )
+        rows = await cursor.fetchall()
+        return {
+            str(row["model"]).strip().lower(): str(row["oldest_created_at"])
+            for row in rows
+            if row["oldest_created_at"] is not None
         }
 
     async def claim_next_queued_task(self, worker_id: str) -> RequestSequence | None:

@@ -42,12 +42,16 @@ class FakeTaskStore:
     def __init__(self) -> None:
         self.pending_counts: dict[str, int] = {}
         self.running_counts: dict[str, int] = {}
+        self.oldest_queued_task_time_by_model: dict[str, str] = {}
 
     async def count_pending_tasks_by_model(self) -> dict[str, int]:
         return dict(self.pending_counts)
 
     async def count_running_tasks_by_model(self) -> dict[str, int]:
         return dict(self.running_counts)
+
+    async def get_oldest_queued_task_time_by_model(self) -> dict[str, str]:
+        return dict(self.oldest_queued_task_time_by_model)
 
 
 class FakeModelStore:
@@ -212,3 +216,95 @@ def test_scheduler_vram_detection_failure_falls_back_to_one_slot() -> None:
 
 def test_scheduler_normalize_model_name_keeps_empty_string() -> None:
     assert _normalize_model_name("") == ""
+
+
+def test_scheduler_startup_scan_loads_model_with_oldest_task() -> None:
+    async def scenario() -> None:
+        task_store = FakeTaskStore()
+        task_store.oldest_queued_task_time_by_model = {
+            "hunyuan3d": "2026-03-23T10:00:00+00:00",
+            "trellis2": "2026-03-23T09:00:00+00:00",
+        }
+        registry = FakeRegistry(states={"trellis2": "not_loaded", "hunyuan3d": "not_loaded"})
+        scheduler = ModelScheduler(
+            model_registry=registry,
+            task_store=task_store,
+            model_store=FakeModelStore(
+                [
+                    {"id": "trellis2", "vram_gb": 24.0},
+                    {"id": "hunyuan3d", "vram_gb": 24.0},
+                ]
+            ),
+            settings_store=FakeSettingsStore(
+                {
+                    MAX_LOADED_MODELS_KEY: 2,
+                    MAX_TASKS_PER_SLOT_KEY: 8,
+                }
+            ),
+            enabled=True,
+            vram_detection_enabled=True,
+        )
+        scheduler._detect_total_vram_gb = lambda: 48.0  # type: ignore[method-assign]
+        await scheduler.initialize()
+        assert registry.load_calls == ["trellis2", "hunyuan3d"]
+
+    asyncio.run(scenario())
+
+
+def test_scheduler_startup_scan_respects_slot_limit() -> None:
+    async def scenario() -> None:
+        task_store = FakeTaskStore()
+        task_store.oldest_queued_task_time_by_model = {
+            "hunyuan3d": "2026-03-23T10:00:00+00:00",
+            "trellis2": "2026-03-23T09:00:00+00:00",
+        }
+        registry = FakeRegistry(states={"trellis2": "not_loaded", "hunyuan3d": "not_loaded"})
+        scheduler = ModelScheduler(
+            model_registry=registry,
+            task_store=task_store,
+            model_store=FakeModelStore(
+                [
+                    {"id": "trellis2", "vram_gb": 24.0},
+                    {"id": "hunyuan3d", "vram_gb": 24.0},
+                ]
+            ),
+            settings_store=FakeSettingsStore(
+                {
+                    MAX_LOADED_MODELS_KEY: 1,
+                    MAX_TASKS_PER_SLOT_KEY: 8,
+                }
+            ),
+            enabled=True,
+            vram_detection_enabled=False,
+        )
+        await scheduler.initialize()
+        assert registry.load_calls == ["trellis2"]
+        assert registry.unload_calls == []
+
+    asyncio.run(scenario())
+
+
+def test_scheduler_startup_scan_skips_when_disabled() -> None:
+    async def scenario() -> None:
+        task_store = FakeTaskStore()
+        task_store.oldest_queued_task_time_by_model = {
+            "hunyuan3d": "2026-03-23T10:00:00+00:00",
+        }
+        registry = FakeRegistry(states={"hunyuan3d": "not_loaded"})
+        scheduler = ModelScheduler(
+            model_registry=registry,
+            task_store=task_store,
+            model_store=FakeModelStore([{"id": "hunyuan3d", "vram_gb": 24.0}]),
+            settings_store=FakeSettingsStore(
+                {
+                    MAX_LOADED_MODELS_KEY: 1,
+                    MAX_TASKS_PER_SLOT_KEY: 8,
+                }
+            ),
+            enabled=False,
+            vram_detection_enabled=False,
+        )
+        await scheduler.initialize()
+        assert registry.load_calls == []
+
+    asyncio.run(scenario())

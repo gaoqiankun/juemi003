@@ -137,7 +137,7 @@ class AsyncGen3DEngine:
         set_queue_depth(await self._task_store.count_queued_tasks())
         self._started = True
         for model_name in self._startup_models:
-            self._dispatch_startup_prewarm(model_name)
+            self._start_startup_prewarm(model_name)
 
     def set_startup_models(self, startup_models: tuple[str, ...]) -> None:
         self._startup_models = tuple(
@@ -427,6 +427,18 @@ class AsyncGen3DEngine:
                         model=sequence.model,
                     )
                 try:
+                    if self._model_scheduler is not None:
+                        await self._model_scheduler.request_load(sequence.model)
+                        if (
+                            not self._model_scheduler.enabled
+                            and self._model_registry.get_state(sequence.model) == "not_loaded"
+                        ):
+                            # In mock mode, scheduler is disabled. Keep a direct load fallback
+                            # so legacy alias tasks (e.g. "trellis") do not fail.
+                            self._model_registry.load(sequence.model)
+                    else:
+                        # Fallback for unit-test wiring where scheduler is not injected.
+                        self._model_registry.load(sequence.model)
                     await self._model_registry.wait_ready(sequence.model)
                 except ModelRegistryLoadError as exc:
                     latest = await self._task_store.get_task(sequence.task_id) or sequence
