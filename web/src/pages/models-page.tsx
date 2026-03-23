@@ -7,7 +7,7 @@ import { useModelsData, type AdminModelItem, type AdminModelRuntimeState } from 
 const tableHeadBaseClassName = "px-4 pb-2 font-display text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted";
 const tableHeadLeftClassName = `${tableHeadBaseClassName} text-left`;
 const tableHeadCenterClassName = `${tableHeadBaseClassName} text-center`;
-const tableCellBaseClassName = "bg-surface-container-lowest px-4 py-2.5 align-top text-sm text-text-secondary first:rounded-l-lg last:rounded-r-lg";
+const tableCellBaseClassName = "bg-surface-container-lowest px-4 py-2.5 align-middle text-sm text-text-secondary first:rounded-l-lg last:rounded-r-lg";
 const tableCellLeftClassName = `${tableCellBaseClassName} text-left`;
 const tableCellCenterClassName = `${tableCellBaseClassName} text-center`;
 
@@ -115,16 +115,16 @@ export function ModelsPage() {
                           </span>
                         </div>
 
-                        {!model.isDefault ? (
-                          <Button
-                            type="button"
-                            size="sm"
-                            disabled={isBusy}
-                            onClick={() => handleSetDefault(model)}
-                          >
-                            {t("models.list.setDefault")}
-                          </Button>
-                        ) : null}
+                        <Button
+                          type="button"
+                          size="xs"
+                          variant="outline"
+                          disabled={isBusy || model.isDefault}
+                          className={model.isDefault ? "invisible" : ""}
+                          onClick={() => handleSetDefault(model)}
+                        >
+                          {t("models.list.setDefault")}
+                        </Button>
                       </div>
                     </td>
                   </tr>

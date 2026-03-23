@@ -344,7 +344,7 @@ export function SettingsPage() {
                 <Button
                   type="button"
                   variant="primary"
-                  size="sm"
+                  size="xs"
                   disabled={!hasChanges || isSaving}
                   onClick={handleSave}
                 >
@@ -402,7 +402,7 @@ export function SettingsPage() {
           <div className="flex flex-wrap items-center gap-1.5">
             <Button
               type="button"
-              size="sm"
+              size="xs"
               disabled={hfLoading || hfBusy || hfEndpointBusy || !hasEndpointChanges}
               onClick={handleHfEndpointSave}
             >
@@ -411,7 +411,7 @@ export function SettingsPage() {
             {hfStatus?.logged_in ? (
               <Button
                 type="button"
-                size="sm"
+                size="xs"
                 disabled={hfBusy || hfLoading || hfEndpointBusy}
                 onClick={handleHfDisconnect}
               >
@@ -421,7 +421,7 @@ export function SettingsPage() {
               <Button
                 type="button"
                 variant="primary"
-                size="sm"
+                size="xs"
                 disabled={hfBusy || hfLoading || hfEndpointBusy}
                 onClick={handleHfConnect}
               >

@@ -11,7 +11,7 @@ import {
 const tableHeadBaseClassName = "px-4 pb-2 font-display text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted";
 const tableHeadLeftClassName = `${tableHeadBaseClassName} text-left`;
 const tableHeadCenterClassName = `${tableHeadBaseClassName} text-center`;
-const tableCellBaseClassName = "bg-surface-container-lowest px-4 py-3 align-top text-sm text-text-secondary first:rounded-l-lg last:rounded-r-lg";
+const tableCellBaseClassName = "bg-surface-container-lowest px-4 py-3 align-middle text-sm text-text-secondary first:rounded-l-lg last:rounded-r-lg";
 const tableCellLeftClassName = `${tableCellBaseClassName} text-left`;
 const tableCellCenterClassName = `${tableCellBaseClassName} text-center`;
 
@@ -116,7 +116,8 @@ export function ApiKeysPage() {
                         <div className="flex flex-wrap items-center justify-center gap-1.5">
                           <Button
                             type="button"
-                            size="sm"
+                            size="xs"
+                            variant="outline"
                             disabled={isBusy}
                             onClick={() => handleSetKeyActive(key.id, !key.isActive)}
                           >
@@ -124,7 +125,7 @@ export function ApiKeysPage() {
                           </Button>
                           <Button
                             type="button"
-                            size="sm"
+                            size="xs"
                             variant="danger"
                             disabled={isBusy}
                             onClick={() => handleDeleteKey(key.id, key.label)}

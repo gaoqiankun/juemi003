@@ -39,17 +39,19 @@ export function Card({ className, tone = "default", ...props }: CardProps) {
   return <UiCard tone={resolvedTone} className={className} {...props} />;
 }
 
-type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
-type ButtonSize = "sm" | "md" | "lg";
+type ButtonVariant = "primary" | "secondary" | "outline" | "ghost" | "danger";
+type ButtonSize = "xs" | "sm" | "md" | "lg";
 
 const buttonVariantMap: Record<ButtonVariant, NonNullable<UiButtonProps["variant"]>> = {
   primary: "default",
   secondary: "secondary",
+  outline: "outline",
   ghost: "ghost",
   danger: "destructive",
 };
 
 const buttonSizeMap: Record<ButtonSize, NonNullable<UiButtonProps["size"]>> = {
+  xs: "xs",
   sm: "sm",
   md: "default",
   lg: "lg",
