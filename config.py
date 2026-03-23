@@ -16,11 +16,6 @@ class ServingConfig(BaseSettings):
     port: int = 18001
     log_level: str = "info"
     provider_mode: str = Field(default="mock", alias="PROVIDER_MODE")
-    model_provider: str = Field(default="trellis2", alias="MODEL_PROVIDER")
-    model_path: str = Field(
-        default="microsoft/TRELLIS.2-4B",
-        alias="MODEL_PATH",
-    )
     admin_token: str | None = Field(
         default=None,
         alias="ADMIN_TOKEN",

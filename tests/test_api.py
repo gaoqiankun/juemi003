@@ -39,6 +39,7 @@ from gen3d.storage.artifact_store import (
     ArtifactStoreOperationError,
     ObjectStorageStreamResult,
 )
+from gen3d.storage.model_store import ModelStore
 from gen3d.storage.task_store import TaskStore
 
 WebhookSender = Callable[[str, dict], Awaitable[None]]
@@ -150,7 +151,7 @@ def make_real_mode_client(
     monkeypatch.setattr(
         server_module,
         "build_provider",
-        lambda config: MockTrellis2Provider(stage_delay_ms=0),
+        lambda provider_name, provider_mode, model_path, mock_delay_ms=60: MockTrellis2Provider(stage_delay_ms=0),
     )
     config = ServingConfig(
         provider_mode="real",
@@ -803,10 +804,10 @@ def test_app_startup_triggers_async_model_prewarm_without_blocking(
     original_build_model_runtime = server_module.build_model_runtime
     calls: list[str] = []
 
-    def tracking_build_model_runtime(config: ServingConfig, model_name: str):
+    async def tracking_build_model_runtime(model_store: ModelStore, config: ServingConfig, model_name: str):
         calls.append(model_name)
-        time.sleep(0.5)
-        return original_build_model_runtime(config, model_name)
+        await asyncio.sleep(0.5)
+        return await original_build_model_runtime(model_store, config, model_name)
 
     monkeypatch.setattr(
         server_module,
@@ -818,7 +819,7 @@ def test_app_startup_triggers_async_model_prewarm_without_blocking(
     with make_client(tmp_path) as client:
         startup_elapsed_seconds = time.perf_counter() - startup_started_at
         readiness_loading_response = client.get("/readiness")
-        wait_for_condition(lambda: calls == ["trellis"], timeout_seconds=1.0)
+        wait_for_condition(lambda: calls == ["trellis2"], timeout_seconds=1.0)
         wait_for_condition(
             lambda: client.get("/readiness").status_code == 200,
             timeout_seconds=2.0,
@@ -831,7 +832,7 @@ def test_app_startup_triggers_async_model_prewarm_without_blocking(
         "status": "not_ready",
         "service": "cubie3d",
     }
-    assert calls == ["trellis"]
+    assert calls == ["trellis2"]
     assert readiness_ready_response.status_code == 200
     assert readiness_ready_response.json() == {
         "status": "ready",
@@ -845,9 +846,9 @@ def test_create_task_returns_immediately_while_model_loads_in_background(
 ) -> None:
     original_build_model_runtime = server_module.build_model_runtime
 
-    def slow_build_model_runtime(config: ServingConfig, model_name: str):
-        time.sleep(0.7)
-        return original_build_model_runtime(config, model_name)
+    async def slow_build_model_runtime(model_store: ModelStore, config: ServingConfig, model_name: str):
+        await asyncio.sleep(0.7)
+        return await original_build_model_runtime(model_store, config, model_name)
 
     monkeypatch.setattr(
         server_module,
@@ -1072,10 +1073,10 @@ def test_admin_models_returns_friendly_error_message_when_runtime_load_fails(
 ) -> None:
     original_build_model_runtime = server_module.build_model_runtime
 
-    def failing_build_model_runtime(config: ServingConfig, model_name: str):
+    async def failing_build_model_runtime(model_store: ModelStore, config: ServingConfig, model_name: str):
         if str(model_name).strip().lower() == "hunyuan3d":
             raise RuntimeError("CUDA out of memory while loading model")
-        return original_build_model_runtime(config, model_name)
+        return await original_build_model_runtime(model_store, config, model_name)
 
     monkeypatch.setattr(
         server_module,
@@ -3968,10 +3969,19 @@ def test_invalid_image_input_fails_during_preprocessing(
 def test_real_mode_model_load_failure_marks_task_failed_without_blocking_startup(
     tmp_path: Path,
 ) -> None:
+    async def configure_default_model() -> None:
+        store = ModelStore(tmp_path / "app.sqlite3")
+        await store.initialize()
+        await store.update_model(
+            "trellis2",
+            model_path=str(tmp_path / "missing-model"),
+        )
+        await store.close()
+
+    asyncio.run(configure_default_model())
+
     config = ServingConfig(
         provider_mode="real",
-        model_provider="trellis2",
-        model_path=str(tmp_path / "missing-model"),
         admin_token="admin-token",
         database_path=tmp_path / "app.sqlite3",
         artifacts_dir=tmp_path / "artifacts",
@@ -4128,8 +4138,6 @@ def test_trellis2_provider_export_glb_uses_mesh_with_voxel_fields(
 def test_real_mode_preflight_requires_provider_mode_real(tmp_path: Path) -> None:
     config = ServingConfig(
         provider_mode="mock",
-        model_provider="trellis2",
-        model_path=str(tmp_path / "model"),
         database_path=tmp_path / "app.sqlite3",
         artifacts_dir=tmp_path / "artifacts",
     )
@@ -4148,6 +4156,17 @@ def test_real_mode_preflight_reports_runtime_and_artifact_backend(
     model_dir = tmp_path / "trellis2"
     model_dir.mkdir()
     observed: dict[str, object] = {}
+
+    async def configure_default_model() -> None:
+        store = ModelStore(tmp_path / "app.sqlite3")
+        await store.initialize()
+        await store.update_model(
+            "trellis2",
+            model_path=str(model_dir),
+        )
+        await store.close()
+
+    asyncio.run(configure_default_model())
 
     async def fake_initialize(self) -> None:
         observed["artifact_mode"] = self.mode
@@ -4174,8 +4193,6 @@ def test_real_mode_preflight_reports_runtime_and_artifact_backend(
 
     config = ServingConfig(
         provider_mode="real",
-        model_provider="trellis2",
-        model_path=str(model_dir),
         artifact_store_mode="local",
         database_path=tmp_path / "app.sqlite3",
         artifacts_dir=tmp_path / "artifacts",
@@ -4340,13 +4357,13 @@ def test_hunyuan3d_mock_provider_export_glb_writes_valid_file(tmp_path: Path) ->
 
 
 def test_build_provider_supports_hunyuan3d_mock(tmp_path: Path) -> None:
-    config = ServingConfig(
+    del tmp_path
+    provider = server_module.build_provider(
+        provider_name="hunyuan3d",
         provider_mode="mock",
-        model_provider="hunyuan3d",
-        database_path=tmp_path / "app.sqlite3",
-        artifacts_dir=tmp_path / "artifacts",
+        model_path="tencent/Hunyuan3D-2",
+        mock_delay_ms=60,
     )
-    provider = server_module.build_provider(config)
     assert isinstance(provider, MockHunyuan3DProvider)
 
 
@@ -4476,25 +4493,25 @@ def test_step1x3d_mock_provider_export_glb_valid(tmp_path: Path) -> None:
 
 
 def test_build_provider_supports_step1x3d_mock(tmp_path: Path) -> None:
-    config = ServingConfig(
+    del tmp_path
+    provider = server_module.build_provider(
+        provider_name="step1x3d",
         provider_mode="mock",
-        model_provider="step1x3d",
-        database_path=tmp_path / "app.sqlite3",
-        artifacts_dir=tmp_path / "artifacts",
+        model_path="stepfun-ai/Step1X-3D",
+        mock_delay_ms=60,
     )
-    provider = server_module.build_provider(config)
     assert isinstance(provider, MockStep1X3DProvider)
 
 
 def test_build_provider_rejects_unknown_provider(tmp_path: Path) -> None:
-    config = ServingConfig(
-        provider_mode="mock",
-        model_provider="unknown_model",
-        database_path=tmp_path / "app.sqlite3",
-        artifacts_dir=tmp_path / "artifacts",
-    )
+    del tmp_path
     with pytest.raises(ModelProviderConfigurationError, match="unsupported MODEL_PROVIDER"):
-        server_module.build_provider(config)
+        server_module.build_provider(
+            provider_name="unknown_model",
+            provider_mode="mock",
+            model_path="unused",
+            mock_delay_ms=60,
+        )
 
 
 def test_minio_artifact_store_requires_complete_config(tmp_path: Path) -> None:

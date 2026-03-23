@@ -344,32 +344,38 @@ def _resolve_dev_local_model_path(config: ServingConfig, filename: str | None) -
     return candidate
 
 
-def build_provider(config: ServingConfig):
-    provider_name = config.model_provider.strip().lower()
-    provider_mode = config.provider_mode.strip().lower()
+def build_provider(
+    provider_name: str,
+    provider_mode: str,
+    model_path: str,
+    mock_delay_ms: int = 60,
+):
+    provider_name = str(provider_name).strip().lower()
+    provider_mode = str(provider_mode).strip().lower()
+    model_path = str(model_path).strip()
 
     if provider_name == "trellis2":
         if provider_mode == "mock":
-            return MockTrellis2Provider(stage_delay_ms=config.mock_gpu_stage_delay_ms)
+            return MockTrellis2Provider(stage_delay_ms=mock_delay_ms)
         if provider_mode == "real":
-            return Trellis2Provider.from_pretrained(config.model_path)
+            return Trellis2Provider.from_pretrained(model_path)
     elif provider_name == "hunyuan3d":
         if provider_mode == "mock":
-            return MockHunyuan3DProvider(stage_delay_ms=config.mock_gpu_stage_delay_ms)
+            return MockHunyuan3DProvider(stage_delay_ms=mock_delay_ms)
         if provider_mode == "real":
-            return Hunyuan3DProvider.from_pretrained(config.model_path)
+            return Hunyuan3DProvider.from_pretrained(model_path)
     elif provider_name == "step1x3d":
         if provider_mode == "mock":
-            return MockStep1X3DProvider(stage_delay_ms=config.mock_gpu_stage_delay_ms)
+            return MockStep1X3DProvider(stage_delay_ms=mock_delay_ms)
         if provider_mode == "real":
-            return Step1X3DProvider.from_pretrained(config.model_path)
+            return Step1X3DProvider.from_pretrained(model_path)
     else:
         raise ModelProviderConfigurationError(
-            f"unsupported MODEL_PROVIDER: {config.model_provider}"
+            f"unsupported MODEL_PROVIDER: {provider_name}"
         )
 
     raise ModelProviderConfigurationError(
-        f"unsupported PROVIDER_MODE: {config.provider_mode}"
+        f"unsupported PROVIDER_MODE: {provider_mode}"
     )
 
 
@@ -411,15 +417,46 @@ def build_artifact_store(config: ServingConfig) -> ArtifactStore:
     )
 
 
-def build_model_runtime(config: ServingConfig, model_name: str) -> ModelRuntime:
+async def build_model_runtime(
+    model_store: ModelStore,
+    config: ServingConfig,
+    model_name: str,
+) -> ModelRuntime:
     normalized_model_name = str(model_name).strip().lower() or "trellis"
+    model_definition = await model_store.get_model(normalized_model_name)
+    if model_definition is None and normalized_model_name == "trellis":
+        # Backward compatibility: legacy tasks that still send "trellis"
+        # resolve to the current default model in model_definitions.
+        model_definition = await model_store.get_default_model()
+    if model_definition is None:
+        raise ModelProviderConfigurationError(
+            f"model definition not found: {normalized_model_name}"
+        )
 
-    provider = build_provider(config)
+    provider_name = str(model_definition.get("provider_type") or "").strip().lower()
+    if not provider_name:
+        raise ModelProviderConfigurationError(
+            f"model definition is missing provider_type: {normalized_model_name}"
+        )
+
+    model_path = str(model_definition.get("model_path") or "").strip()
+    if not model_path:
+        raise ModelProviderConfigurationError(
+            f"model definition is missing model_path: {normalized_model_name}"
+        )
+
+    provider = await asyncio.to_thread(
+        build_provider,
+        provider_name=provider_name,
+        provider_mode=config.provider_mode,
+        model_path=model_path,
+        mock_delay_ms=config.mock_gpu_stage_delay_ms,
+    )
     workers = build_gpu_workers(
         provider=provider,
         provider_mode=config.provider_mode,
-        provider_name=config.model_provider,
-        model_path=config.model_path,
+        provider_name=provider_name,
+        model_path=model_path,
         device_ids=config.gpu_device_ids,
     )
     return ModelRuntime(
@@ -596,19 +633,40 @@ async def run_real_mode_preflight(config: ServingConfig) -> dict[str, Any]:
             }
         )
 
-    provider_name = config.model_provider.strip().lower()
+    model_store = ModelStore(config.database_path)
+    await model_store.initialize()
+    try:
+        model_definition = await model_store.get_default_model()
+        if model_definition is None:
+            model_definitions = await model_store.list_models()
+            if not model_definitions:
+                raise ModelProviderConfigurationError(
+                    "no model definitions found in model_definitions"
+                )
+            model_definition = model_definitions[0]
+    finally:
+        await model_store.close()
+
+    provider_name = str(model_definition.get("provider_type") or "").strip().lower()
+    model_id = str(model_definition.get("id") or "").strip()
     if provider_name != "trellis2":
         raise ModelProviderConfigurationError(
-            f"unsupported MODEL_PROVIDER: {config.model_provider}"
+            f"unsupported MODEL_PROVIDER in model_definitions: {provider_name}"
+        )
+    model_path = str(model_definition.get("model_path") or "").strip()
+    if not model_path:
+        raise ModelProviderConfigurationError(
+            "default model in model_definitions has empty model_path"
         )
 
     provider_report = await asyncio.to_thread(
         Trellis2Provider.inspect_runtime,
-        config.model_path,
+        model_path,
         load_pipeline=True,
     )
     return {
         "provider_mode": provider_mode,
+        "model_id": model_id,
         "provider": provider_report,
         "artifact_store": artifact_report,
     }
@@ -631,7 +689,11 @@ def create_app(
     settings_store = SettingsStore(config.database_path)
     artifact_store = build_artifact_store(config)
     preview_renderer_service = preview_renderer_service or PreviewRendererService()
-    model_registry = ModelRegistry(lambda model_name: build_model_runtime(config, model_name))
+
+    async def runtime_loader(model_name: str) -> ModelRuntime:
+        return await build_model_runtime(model_store, config, model_name)
+
+    model_registry = ModelRegistry(runtime_loader)
     rate_limiter = TokenRateLimiter(
         max_concurrent=config.rate_limit_concurrent,
         max_requests_per_hour=config.rate_limit_per_hour,
@@ -680,7 +742,6 @@ def create_app(
         parallel_slots=len(config.gpu_device_ids),
         queue_max_size=config.queue_max_size,
         uploads_dir=config.uploads_dir,
-        startup_models=("trellis",),
     )
     container = AppContainer(
         config=config,
@@ -706,6 +767,13 @@ def create_app(
         await container.api_key_store.initialize()
         await container.model_store.initialize()
         await container.settings_store.initialize()
+        default_models = await container.model_store.list_models()
+        default_model_ids = tuple(
+            str(model["id"]).strip().lower()
+            for model in default_models
+            if model.get("is_default") and str(model.get("id") or "").strip()
+        )
+        container.engine.set_startup_models(default_model_ids)
         configured_hf_endpoint = await container.settings_store.get(HF_ENDPOINT_SETTING_KEY)
         _set_hf_endpoint(
             _normalize_hf_endpoint(configured_hf_endpoint, strict=False)
@@ -1665,13 +1733,23 @@ def create_app(
             for model in model_definitions
             if str(model.get("id") or "").strip()
         ]
+        default_model = next(
+            (model for model in model_definitions if model.get("is_default")),
+            None,
+        )
+        fallback_provider = (
+            str(default_model.get("id") or "").strip()
+            if default_model is not None
+            else ""
+        )
         if not provider_options:
-            provider_options = [
-                {
-                    "value": str(cfg.model_provider),
-                    "label": str(cfg.model_provider),
-                }
-            ]
+            if fallback_provider:
+                provider_options = [
+                    {
+                        "value": fallback_provider,
+                        "label": fallback_provider,
+                    }
+                ]
 
         sections = [
             {
@@ -1684,7 +1762,7 @@ def create_app(
                         "labelKey": "settings.fields.defaultProvider.label",
                         "descriptionKey": "settings.fields.defaultProvider.description",
                         "type": "select",
-                        "value": db_settings.get("defaultProvider", cfg.model_provider),
+                        "value": db_settings.get("defaultProvider", fallback_provider),
                         "options": provider_options,
                     },
                     {

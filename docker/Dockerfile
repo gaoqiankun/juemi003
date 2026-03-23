@@ -47,8 +47,6 @@ WORKDIR /app/gen3d
 
 ENV PYTHONPATH=/opt/TRELLIS.2 \
     PROVIDER_MODE=real \
-    MODEL_PROVIDER=trellis2 \
-    MODEL_PATH=/models/trellis2 \
     ARTIFACT_STORE_MODE=local \
     DATABASE_PATH=/data/app.sqlite3 \
     ARTIFACTS_DIR=/data/artifacts

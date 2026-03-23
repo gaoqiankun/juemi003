@@ -16,9 +16,8 @@ services:
     environment:
       # ADMIN_TOKEN only protects /admin/privileged-keys bootstrap endpoints.
       ADMIN_TOKEN: ${ADMIN_TOKEN:-}
+      HF_TOKEN: ${HF_TOKEN:-}
       PROVIDER_MODE: ${PROVIDER_MODE:-real}
-      MODEL_PROVIDER: trellis2
-      MODEL_PATH: ${MODEL_PATH:-microsoft/TRELLIS.2-4B}
       HOME: /data/home
       HF_HOME: /data/huggingface
       XDG_CACHE_HOME: /data/.cache
@@ -42,7 +41,6 @@ services:
       NVIDIA_DRIVER_CAPABILITIES: ${NVIDIA_DRIVER_CAPABILITIES:-compute,utility}
     volumes:
       - ${DATA_DIR:-./data}:/data
-      - ${MODEL_DIR:-./models/trellis2}:/models/trellis2:ro
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:18001/health', timeout=3)"]
       interval: 30s

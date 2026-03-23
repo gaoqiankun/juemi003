@@ -58,7 +58,11 @@ def main(argv: list[str] | None = None) -> None:
             )
             raise SystemExit(1) from exc
 
-        logger.info("service.real_env_check.succeeded", provider=config.model_provider)
+        logger.info(
+            "service.real_env_check.succeeded",
+            model_id=report.get("model_id"),
+            provider=report.get("provider", {}).get("provider"),
+        )
         print(json.dumps({"ok": True, **report}, ensure_ascii=False, indent=2))
         return
 

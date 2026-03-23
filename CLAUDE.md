@@ -67,6 +67,25 @@ pointer-events-none（外层禁止事件）
     → bg-surface-glass backdrop-blur-xl shadow-soft border border-outline rounded-2xl
 ```
 
+### 响应式与布局规范
+
+- 最小支持 iPad 横屏（1024px），不做小屏/移动端适配
+- 侧边栏 + 内容区固定双列，不用 `lg:` 条件切换
+- 内容区撑满可用宽度，不设 `max-width`（Canvas 页除外）
+- Header 固定横排，不用 `xl:` 条件做竖排 fallback
+- 不使用 `sm:` / `md:` / `lg:` / `xl:` 响应式前缀（Admin 和用户侧均适用）
+
+### 间距体系（全站统一）
+
+| 层级 | 用途 | 值 |
+|------|------|-----|
+| 页面级 | 卡片/区块之间 | `gap-4` = 16px |
+| 卡片内 | 分组之间、字段网格 | `gap-3` = 12px |
+| 字段内 | label→input、按钮组 | `gap-1.5` = 6px |
+
+- 卡片 padding 统一 `p-4`（16px）
+- 操作按钮统一 `size="sm"`（h-8 = 32px），不允许自定义 `h-*` 覆盖
+
 ### 组件约定
 
 - Select / Dialog：使用 Radix UI（`@/components/ui/select`、`react-dialog`）
@@ -135,3 +154,4 @@ pointer-events-none（外层禁止事件）
 - GPU 细粒度进度 hook：`gpu_ss/gpu_shape/gpu_material` 是语义占位
 - GPU scheduler：简单 FIFO，`max_batch + deadline` 调度未实现
 - 取消运行中任务：仅支持 `gpu_queued` 状态
+- Docker 配置不一致：`MODEL_DIR` 卷挂载无用（模型实际在 `HF_HOME` 缓存）、`MODEL_PATH` 默认值 Dockerfile 与 Compose 冲突、`HF_TOKEN` 未透传导致 Admin HF 面板显示"未连接"

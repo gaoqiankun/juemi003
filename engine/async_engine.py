@@ -134,6 +134,15 @@ class AsyncGen3DEngine:
         for model_name in self._startup_models:
             self._dispatch_startup_prewarm(model_name)
 
+    def set_startup_models(self, startup_models: tuple[str, ...]) -> None:
+        self._startup_models = tuple(
+            dict.fromkeys(
+                str(model_name).strip().lower()
+                for model_name in startup_models
+                if str(model_name).strip()
+            )
+        )
+
     async def stop(self) -> None:
         if not self._started:
             return
