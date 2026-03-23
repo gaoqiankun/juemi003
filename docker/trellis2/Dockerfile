@@ -90,9 +90,7 @@ RUN cd /opt/Hunyuan3D-2/hy3dgen/texgen/custom_rasterizer && \
 RUN cd /opt/Hunyuan3D-2/hy3dgen/texgen/differentiable_renderer && \
     python setup.py install
 
-RUN git clone https://github.com/stepfun-ai/Step1X-3D /opt/Step1X-3D && \
-    cd /opt/Step1X-3D && \
-    python -m pip install -e .
+RUN git clone https://github.com/stepfun-ai/Step1X-3D /opt/Step1X-3D
 
 RUN cd /opt/Step1X-3D/step1x3d_texture/custom_rasterizer && \
     python setup.py install
