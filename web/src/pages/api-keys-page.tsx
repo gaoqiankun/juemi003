@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { Button, Card, StatusDot, TextField } from "@/components/ui/primitives";
+import { Badge, Button, Card, TextField } from "@/components/ui/primitives";
 import type { AdminLocale } from "@/data/admin-mocks";
 import { type CreatedApiKey, useApiKeysData } from "@/hooks/use-api-keys-data";
 import {
@@ -85,21 +85,20 @@ export function ApiKeysPage() {
                 <col className="w-[34%]" />
                 <col className="w-[22%]" />
                 <col className="w-[20%]" />
-                <col className="w-[132px]" />
-                <col className="w-[112px]" />
+                <col className="w-[24%]" />
               </colgroup>
               <thead>
                 <tr>
                   <th className={tableHeadLeftClassName}>{t("apiKeys.table.columns.name")}</th>
                   <th className={tableHeadCenterClassName}>{t("apiKeys.table.columns.created")}</th>
                   <th className={tableHeadCenterClassName}>{t("apiKeys.table.columns.status")}</th>
-                  <th className={tableHeadCenterClassName} colSpan={2}>{t("apiKeys.table.columns.actions")}</th>
+                  <th className={tableHeadCenterClassName}>{t("apiKeys.table.columns.actions")}</th>
                 </tr>
               </thead>
               <tbody>
                 {keys.length === 0 ? (
                   <tr>
-                    <td className={tableCellLeftClassName} colSpan={5}>
+                    <td className={tableCellLeftClassName} colSpan={4}>
                       {t("apiKeys.table.empty")}
                     </td>
                   </tr>
@@ -113,33 +112,34 @@ export function ApiKeysPage() {
                       <td className={tableCellCenterClassName}>{formatTimestamp(locale, key.createdAt)}</td>
                       <td className={tableCellCenterClassName}>
                         <div className="flex justify-center">
-                          <StatusDot
+                          <Badge
                             tone={key.isActive ? "success" : "neutral"}
-                            label={t(`common.status.${key.isActive ? "active" : "paused"}`)}
-                          />
+                          >
+                            {t(`common.status.${key.isActive ? "active" : "paused"}`)}
+                          </Badge>
                         </div>
                       </td>
-                      <td className={`${tableCellCenterClassName} w-[132px]`}>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          disabled={isBusy}
-                          onClick={() => handleSetKeyActive(key.id, !key.isActive)}
-                        >
-                          {t(key.isActive ? "apiKeys.actions.disable" : "apiKeys.actions.enable")}
-                        </Button>
-                      </td>
-                      <td className={`${tableCellCenterClassName} w-[112px]`}>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="danger"
-                          disabled={isBusy}
-                          onClick={() => handleDeleteKey(key.id, key.label)}
-                        >
-                          {t("apiKeys.actions.delete")}
-                        </Button>
+                      <td className={tableCellCenterClassName}>
+                        <div className="flex items-center justify-center gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            disabled={isBusy}
+                            onClick={() => handleSetKeyActive(key.id, !key.isActive)}
+                          >
+                            {t(key.isActive ? "apiKeys.actions.disable" : "apiKeys.actions.enable")}
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="danger"
+                            disabled={isBusy}
+                            onClick={() => handleDeleteKey(key.id, key.label)}
+                          >
+                            {t("apiKeys.actions.delete")}
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   );

@@ -86,14 +86,13 @@ export function ModelsPage() {
                 </tr>
               ) : models.map((model) => {
                 const isBusy = busyModelId === model.id;
-                const loadActionLabel = model.runtimeState === "ready"
-                  ? t("models.list.loaded")
-                  : model.runtimeState === "loading"
-                    ? t("models.list.loading")
-                    : model.runtimeState === "error"
-                      ? t("models.list.retry")
-                      : t("models.list.load");
-                const loadActionDisabled = isBusy || model.runtimeState === "ready" || model.runtimeState === "loading";
+                const shouldShowLoadAction = model.runtimeState === "not_loaded" || model.runtimeState === "error";
+                const loadActionLabel = model.runtimeState === "error"
+                  ? t("models.list.retry")
+                  : t("models.list.load");
+                const runtimeErrorTooltip = model.runtimeState === "error" && model.errorMessage
+                  ? model.errorMessage
+                  : undefined;
                 return (
                   <tr key={model.id}>
                     <td className={tableCellLeftClassName}>
@@ -105,15 +104,14 @@ export function ModelsPage() {
                       </div>
                     </td>
                     <td className={tableCellCenterClassName}>
-                      <div className="grid justify-items-center gap-1.5">
-                        <Badge tone={runtimeToneMap[model.runtimeState]}>
+                      <div className="grid justify-items-center">
+                        <Badge
+                          tone={runtimeToneMap[model.runtimeState]}
+                          title={runtimeErrorTooltip}
+                          className={runtimeErrorTooltip ? "cursor-help" : ""}
+                        >
                           {t(`models.runtime.${model.runtimeState}`)}
                         </Badge>
-                        {model.runtimeState === "error" && model.errorMessage ? (
-                          <p className="max-w-xs rounded-md border border-danger/40 bg-danger/10 px-2 py-1 text-left text-xs leading-5 text-danger-text">
-                            {model.errorMessage}
-                          </p>
-                        ) : null}
                       </div>
                     </td>
                     <td className={tableCellCenterClassName}>
@@ -143,15 +141,17 @@ export function ModelsPage() {
                         >
                           {t("models.list.setDefault")}
                         </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          disabled={loadActionDisabled}
-                          onClick={() => handleLoadOrRetry(model)}
-                        >
-                          {loadActionLabel}
-                        </Button>
+                        {shouldShowLoadAction ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            disabled={isBusy}
+                            onClick={() => handleLoadOrRetry(model)}
+                          >
+                            {loadActionLabel}
+                          </Button>
+                        ) : null}
                       </div>
                     </td>
                   </tr>
