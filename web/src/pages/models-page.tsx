@@ -86,10 +86,6 @@ export function ModelsPage() {
                 </tr>
               ) : models.map((model) => {
                 const isBusy = busyModelId === model.id;
-                const shouldShowLoadAction = model.runtimeState === "not_loaded" || model.runtimeState === "error";
-                const loadActionLabel = model.runtimeState === "error"
-                  ? t("models.list.retry")
-                  : t("models.list.load");
                 const runtimeErrorTooltip = model.runtimeState === "error" && model.errorMessage
                   ? model.errorMessage
                   : undefined;
@@ -141,17 +137,15 @@ export function ModelsPage() {
                         >
                           {t("models.list.setDefault")}
                         </Button>
-                        {shouldShowLoadAction ? (
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            disabled={isBusy}
-                            onClick={() => handleLoadOrRetry(model)}
-                          >
-                            {loadActionLabel}
-                          </Button>
-                        ) : null}
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={isBusy || model.runtimeState === "ready" || model.runtimeState === "loading"}
+                          onClick={() => handleLoadOrRetry(model)}
+                        >
+                          {t("models.list.load")}
+                        </Button>
                       </div>
                     </td>
                   </tr>
