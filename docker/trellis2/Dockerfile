@@ -75,7 +75,10 @@ RUN python -m pip install \
       omegaconf \
       pymeshlab \
       pygltflib \
-      xatlas
+      xatlas \
+      rembg \
+      onnxruntime \
+      scikit-image
 
 RUN git clone https://github.com/Tencent/Hunyuan3D-2 /opt/Hunyuan3D-2 && \
     cd /opt/Hunyuan3D-2 && \
@@ -85,6 +88,16 @@ RUN cd /opt/Hunyuan3D-2/hy3dgen/texgen/custom_rasterizer && \
     python setup.py install
 
 RUN cd /opt/Hunyuan3D-2/hy3dgen/texgen/differentiable_renderer && \
+    python setup.py install
+
+RUN git clone https://github.com/stepfun-ai/Step1X-3D /opt/Step1X-3D && \
+    cd /opt/Step1X-3D && \
+    python -m pip install -e .
+
+RUN cd /opt/Step1X-3D/step1x3d_texture/custom_rasterizer && \
+    python setup.py install
+
+RUN cd /opt/Step1X-3D/step1x3d_texture/differentiable_renderer && \
     python setup.py install
 
 RUN python -m pip install "git+https://github.com/EasternJournalist/utils3d.git@9a4eb15e4021b67b12c460c7057d642626897ec8"
@@ -129,7 +142,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=builder /opt/conda /opt/conda
 COPY --from=builder /opt/TRELLIS.2 /opt/TRELLIS.2
 COPY --from=builder /opt/Hunyuan3D-2 /opt/Hunyuan3D-2
+COPY --from=builder /opt/Step1X-3D /opt/Step1X-3D
 
-ENV PYTHONPATH=/opt/TRELLIS.2:/opt/Hunyuan3D-2 \
+ENV PYTHONPATH=/opt/TRELLIS.2:/opt/Hunyuan3D-2:/opt/Step1X-3D \
     CC=/usr/bin/gcc \
     CXX=/usr/bin/g++
