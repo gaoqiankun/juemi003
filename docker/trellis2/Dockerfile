@@ -67,6 +67,26 @@ RUN python -m pip install \
       packaging \
       timm
 
+RUN python -m pip install \
+      pybind11 \
+      diffusers \
+      einops \
+      accelerate \
+      omegaconf \
+      pymeshlab \
+      pygltflib \
+      xatlas
+
+RUN git clone https://github.com/Tencent/Hunyuan3D-2 /opt/Hunyuan3D-2 && \
+    cd /opt/Hunyuan3D-2 && \
+    python -m pip install -e .
+
+RUN cd /opt/Hunyuan3D-2/hy3dgen/texgen/custom_rasterizer && \
+    python setup.py install
+
+RUN cd /opt/Hunyuan3D-2/hy3dgen/texgen/differentiable_renderer && \
+    python setup.py install
+
 RUN python -m pip install "git+https://github.com/EasternJournalist/utils3d.git@9a4eb15e4021b67b12c460c7057d642626897ec8"
 
 RUN TORCH_CUDA_ARCH_LIST=${TORCH_CUDA_ARCH_LIST} \
@@ -108,7 +128,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY --from=builder /opt/conda /opt/conda
 COPY --from=builder /opt/TRELLIS.2 /opt/TRELLIS.2
+COPY --from=builder /opt/Hunyuan3D-2 /opt/Hunyuan3D-2
 
-ENV PYTHONPATH=/opt/TRELLIS.2 \
+ENV PYTHONPATH=/opt/TRELLIS.2:/opt/Hunyuan3D-2 \
     CC=/usr/bin/gcc \
     CXX=/usr/bin/g++
