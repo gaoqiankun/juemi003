@@ -74,9 +74,9 @@ export function ApiKeysPage() {
   if (error) return <div className="flex items-center justify-center h-full text-red-500">{error}</div>;
 
   return (
-    <div className="grid gap-6">
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.5fr)_22rem]">
-        <Card className="grid gap-5 p-5">
+    <div className="grid gap-4">
+      <section className="grid grid-cols-[minmax(0,1.5fr)_22rem] gap-4">
+        <Card className="grid gap-3 p-4">
           <h2 className="text-lg font-semibold tracking-[-0.03em] text-text-primary">{t("apiKeys.table.title")}</h2>
 
           <div className="overflow-x-auto">
@@ -113,7 +113,7 @@ export function ApiKeysPage() {
                         </div>
                       </td>
                       <td className={tableCellCenterClassName}>
-                        <div className="flex flex-wrap items-center justify-center gap-2">
+                        <div className="flex flex-wrap items-center justify-center gap-1.5">
                           <Button
                             type="button"
                             size="sm"
@@ -142,7 +142,7 @@ export function ApiKeysPage() {
           {actionError ? <p className="text-sm text-danger-text">{actionError}</p> : null}
         </Card>
 
-        <Card tone="low" className="grid content-start gap-4 p-5">
+        <Card tone="low" className="grid content-start gap-3 p-4">
           <h2 className="text-lg font-semibold tracking-[-0.03em] text-text-primary">{t("common.createKey")}</h2>
 
           <label className="grid gap-1.5 text-sm text-text-secondary" htmlFor="admin-key-label">
@@ -166,7 +166,7 @@ export function ApiKeysPage() {
           ) : null}
 
           {createdKey ? (
-            <div className="grid gap-2 rounded-xl border border-outline bg-surface-container px-3 py-3">
+            <div className="grid gap-1.5 rounded-xl border border-outline bg-surface-container px-3 py-3">
               <p className="text-xs text-text-secondary">{t("apiKeys.createPanel.createdNotice")}</p>
               <p className="font-mono text-xs text-text-primary break-all">{createdKey.token}</p>
             </div>

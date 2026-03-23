@@ -243,15 +243,15 @@ export function SettingsPage() {
   if (error || !settings) return <div className="flex items-center justify-center h-full text-red-500">{error || "Failed to load"}</div>;
 
   return (
-    <div className="grid gap-6">
+    <div className="grid gap-4">
       <section className="grid gap-4">
         {settings.sections.map((section) => (
-          <Card key={section.key} className="grid gap-4 p-5">
+          <Card key={section.key} className="grid gap-3 p-4">
             <h2 className="text-lg font-semibold tracking-[-0.02em] text-text-primary">
               {t(section.titleKey)}
             </h2>
 
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            <div className="grid grid-cols-3 gap-3">
               {section.fields.map((field) => {
                 const readonly = isFieldReadonly(field);
                 const fallbackSuffixKey = field.key === "rateLimitPerHour"
@@ -265,8 +265,8 @@ export function SettingsPage() {
                     ? t(fallbackSuffixKey)
                     : field.suffix;
                 const fieldClassName = field.type === "text"
-                  ? "grid gap-2 rounded-lg border border-outline bg-surface-container-low p-3 md:col-span-2 xl:col-span-3"
-                  : "grid gap-2 rounded-lg border border-outline bg-surface-container-low p-3";
+                  ? "grid col-span-3 gap-1.5 rounded-lg border border-outline bg-surface-container-low p-3"
+                  : "grid gap-1.5 rounded-lg border border-outline bg-surface-container-low p-3";
                 return (
                   <div key={field.key} className={fieldClassName}>
                     <div className="flex items-start justify-between gap-4">
@@ -284,7 +284,7 @@ export function SettingsPage() {
                       )}
 
                       {field.type === "toggle" ? (
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1.5">
                           <span className="text-xs font-medium text-text-secondary">
                             {t(Boolean(field.value) ? "common.status.active" : "common.status.paused")}
                           </span>
@@ -340,7 +340,7 @@ export function SettingsPage() {
             </div>
 
             {section.key === "generation" ? (
-              <div className="flex flex-wrap items-center gap-3">
+              <div className="flex flex-wrap items-center gap-1.5">
                 <Button
                   type="button"
                   variant="primary"
@@ -359,7 +359,7 @@ export function SettingsPage() {
       </section>
 
       <section>
-        <Card tone="low" className="grid gap-4 p-5">
+        <Card tone="low" className="grid gap-3 p-4">
           <div className="flex items-center gap-2">
             <h2 className="text-lg font-semibold tracking-[-0.02em] text-text-primary">
               {t("settings.hf.title")}
@@ -367,7 +367,7 @@ export function SettingsPage() {
             <span className={hfStatusBadge.className}>{hfStatusBadge.text}</span>
           </div>
 
-          <div className="grid gap-3 md:grid-cols-2">
+          <div className="grid grid-cols-2 gap-3">
             <label className="grid gap-1.5 text-sm text-text-secondary" htmlFor="settings-hf-endpoint">
               <span className="font-display text-[0.6875rem] font-semibold uppercase tracking-[0.05em] text-text-muted">
                 {t("settings.hf.endpointLabel")}
@@ -399,7 +399,7 @@ export function SettingsPage() {
           </div>
           <p className="text-xs text-text-muted">{t("settings.hf.endpointHint")}</p>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-1.5">
             <Button
               type="button"
               size="sm"

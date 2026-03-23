@@ -207,8 +207,8 @@ export function AdminShell() {
   }
 
   return (
-    <div className="min-h-screen bg-[image:var(--page-gradient)] bg-background text-text-primary lg:grid lg:grid-cols-[280px_minmax(0,1fr)]">
-      <aside className="border-b border-outline bg-surface backdrop-blur-xl lg:sticky lg:top-0 lg:h-screen lg:border-b-0 lg:border-r">
+    <div className="grid min-h-screen grid-cols-[280px_minmax(0,1fr)] bg-[image:var(--page-gradient)] bg-background text-text-primary">
+      <aside className="sticky top-0 h-screen border-r border-outline bg-surface backdrop-blur-xl">
         <div className="flex h-full flex-col gap-6 px-6 py-8">
           <div className="grid gap-4">
             <div className="flex items-center gap-3">
@@ -252,7 +252,7 @@ export function AdminShell() {
 
       <div className="min-w-0">
         <header className="sticky top-0 z-20 border-b border-outline bg-surface backdrop-blur-xl">
-          <div className="mx-auto flex w-full max-w-[1440px] flex-col gap-4 px-6 py-5 xl:flex-row xl:items-center xl:justify-between">
+          <div className="flex w-full flex-row items-center justify-between px-6 py-4">
             <div>
               <h1 className="text-2xl font-semibold tracking-[-0.03em] text-text-primary">
                 {t(`shell.nav.${activeItem.key}`)}
@@ -332,7 +332,7 @@ export function AdminShell() {
           </div>
         </header>
 
-        <main className="mx-auto flex w-full max-w-[1440px] flex-col gap-6 px-6 py-6">
+        <main className="flex w-full flex-col gap-4 px-6 py-4">
           <Outlet />
         </main>
       </div>

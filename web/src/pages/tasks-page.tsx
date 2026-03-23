@@ -71,13 +71,13 @@ export function TasksPage() {
   });
 
   return (
-    <div className="grid gap-6">
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+    <div className="grid gap-4">
+      <section className="grid grid-cols-4 gap-4">
         {statusSummaryKeys.map((key) => {
           const Icon = statusSummaryIconMap[key];
           const value = statusSummary[key];
           return (
-            <Card key={key} className="p-5">
+            <Card key={key} className="p-4">
               <div className="flex items-start justify-between gap-4">
                 <div className="grid gap-2">
                   <div className={eyebrowClassName}>{t(`dashboard.stats.${key}.label`)}</div>
@@ -94,7 +94,7 @@ export function TasksPage() {
         })}
 
         {dedupedOverview.map((item) => (
-          <Card key={item.key} className="p-5">
+          <Card key={item.key} className="p-4">
             <div className="flex items-start justify-between gap-4">
               <div className="grid gap-2">
                 <div className={eyebrowClassName}>{t(`tasks.overview.${item.key}`)}</div>
@@ -114,8 +114,8 @@ export function TasksPage() {
       </section>
 
       <section className="grid gap-4">
-        <Card className="grid gap-5 p-5">
-          <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+        <Card className="grid gap-3 p-4">
+          <div className="flex flex-row items-center justify-between">
             <div className="relative w-full max-w-sm">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
               <TextField

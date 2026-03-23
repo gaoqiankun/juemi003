@@ -52,8 +52,8 @@ export function ModelsPage() {
   if (error) return <div className="flex items-center justify-center h-full text-red-500">{error}</div>;
 
   return (
-    <div className="grid gap-6">
-      <Card className="grid gap-5 p-5">
+    <div className="grid gap-4">
+      <Card className="grid gap-3 p-4">
         <h2 className="text-lg font-semibold tracking-[-0.03em] text-text-primary">{t("models.list.title")}</h2>
 
         <div className="overflow-x-auto">
@@ -82,7 +82,7 @@ export function ModelsPage() {
                 return (
                   <tr key={model.id}>
                     <td className={tableCellLeftClassName}>
-                      <div className="flex flex-wrap items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-1.5">
                         <div className="text-sm font-semibold text-text-primary">{model.displayName}</div>
                         {model.isDefault ? (
                           <Badge tone="accent">{t("models.list.defaultTag")}</Badge>
@@ -102,7 +102,7 @@ export function ModelsPage() {
                       </div>
                     </td>
                     <td className={tableCellCenterClassName}>
-                      <div className="flex items-center justify-center gap-2.5 whitespace-nowrap">
+                      <div className="flex items-center justify-center gap-3 whitespace-nowrap">
                         <div className="inline-flex items-center gap-1.5">
                           <ToggleSwitch
                             checked={model.isEnabled}
@@ -120,7 +120,6 @@ export function ModelsPage() {
                             type="button"
                             size="sm"
                             disabled={isBusy}
-                            className="h-7 px-2.5 text-xs font-medium"
                             onClick={() => handleSetDefault(model)}
                           >
                             {t("models.list.setDefault")}
