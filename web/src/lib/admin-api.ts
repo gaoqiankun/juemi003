@@ -122,7 +122,10 @@ export interface RawAdminModelRecord {
   is_enabled?: boolean;
   is_default?: boolean;
   min_vram_mb?: number;
+  vram_gb?: number | null;
   runtimeState?: string;
+  runtime_state?: string;
+  tasks_processed?: number;
   error_message?: string | null;
   updated_at?: string | null;
   created_at?: string | null;
@@ -139,6 +142,10 @@ export const updateModel = (id: string, data: Record<string, unknown>) =>
   adminFetch<unknown>(`/api/admin/models/${encodeURIComponent(id)}`, {
     method: "PATCH",
     body: JSON.stringify(data),
+  });
+export const loadModel = (id: string) =>
+  adminFetch<unknown>(`/api/admin/models/${encodeURIComponent(id)}/load`, {
+    method: "POST",
   });
 
 // API Keys

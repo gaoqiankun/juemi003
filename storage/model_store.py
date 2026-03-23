@@ -21,6 +21,7 @@ _SEED_MODELS = [
         "is_enabled": 1,
         "is_default": 1,
         "min_vram_mb": 24000,
+        "vram_gb": 24.0,
         "config_json": "{}",
     },
     {
@@ -31,6 +32,7 @@ _SEED_MODELS = [
         "is_enabled": 0,
         "is_default": 0,
         "min_vram_mb": 24000,
+        "vram_gb": 24.0,
         "config_json": "{}",
     },
     {
@@ -41,6 +43,7 @@ _SEED_MODELS = [
         "is_enabled": 0,
         "is_default": 0,
         "min_vram_mb": 27000,
+        "vram_gb": 27.0,
         "config_json": "{}",
     },
 ]
@@ -52,6 +55,7 @@ _UPDATABLE_FIELDS = frozenset(
         "display_name",
         "model_path",
         "min_vram_mb",
+        "vram_gb",
         "config",
     }
 )
@@ -79,12 +83,14 @@ class ModelStore:
                 is_enabled INTEGER NOT NULL DEFAULT 1,
                 is_default INTEGER NOT NULL DEFAULT 0,
                 min_vram_mb INTEGER NOT NULL DEFAULT 24000,
+                vram_gb REAL,
                 config_json TEXT NOT NULL DEFAULT '{}',
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             )
             """
         )
+        await self._ensure_vram_gb_column()
         await self._db.commit()
 
         # Seed defaults if table is empty.
@@ -99,9 +105,9 @@ class ModelStore:
                     """
                     INSERT INTO model_definitions
                         (id, provider_type, display_name, model_path,
-                         is_enabled, is_default, min_vram_mb, config_json,
+                         is_enabled, is_default, min_vram_mb, vram_gb, config_json,
                          created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         seed["id"],
@@ -111,6 +117,7 @@ class ModelStore:
                         seed["is_enabled"],
                         seed["is_default"],
                         seed["min_vram_mb"],
+                        seed["vram_gb"],
                         seed["config_json"],
                         now,
                         now,
@@ -171,20 +178,22 @@ class ModelStore:
         display_name: str,
         model_path: str,
         min_vram_mb: int = 24000,
+        vram_gb: float | None = None,
         config: dict | None = None,
     ) -> dict:
         db = self._require_db()
         now = _utcnow_iso()
         config_json = json.dumps(config or {})
+        normalized_vram_gb = _normalize_vram_gb(vram_gb)
         async with self._lock:
             try:
                 await db.execute(
                     """
                     INSERT INTO model_definitions
                         (id, provider_type, display_name, model_path,
-                         is_enabled, is_default, min_vram_mb, config_json,
+                         is_enabled, is_default, min_vram_mb, vram_gb, config_json,
                          created_at, updated_at)
-                    VALUES (?, ?, ?, ?, 1, 0, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, 1, 0, ?, ?, ?, ?, ?)
                     """,
                     (
                         id,
@@ -192,6 +201,7 @@ class ModelStore:
                         display_name,
                         model_path,
                         min_vram_mb,
+                        normalized_vram_gb,
                         config_json,
                         now,
                         now,
@@ -223,6 +233,9 @@ class ModelStore:
                 if key == "config":
                     set_clauses.append("config_json = ?")
                     params.append(json.dumps(value or {}))
+                elif key == "vram_gb":
+                    set_clauses.append("vram_gb = ?")
+                    params.append(_normalize_vram_gb(value))
                 elif key in ("is_enabled", "is_default"):
                     set_clauses.append(f"{key} = ?")
                     params.append(1 if value else 0)
@@ -256,6 +269,20 @@ class ModelStore:
     # Internal
     # ------------------------------------------------------------------
 
+    async def _ensure_vram_gb_column(self) -> None:
+        db = self._require_db()
+        cursor = await db.execute("PRAGMA table_info(model_definitions)")
+        columns = {str(row["name"]) for row in await cursor.fetchall()}
+        if "vram_gb" not in columns:
+            await db.execute("ALTER TABLE model_definitions ADD COLUMN vram_gb REAL")
+            await db.execute(
+                """
+                UPDATE model_definitions
+                SET vram_gb = ROUND(CAST(min_vram_mb AS REAL) / 1024.0, 3)
+                WHERE vram_gb IS NULL AND min_vram_mb > 0
+                """
+            )
+
     def _require_db(self) -> aiosqlite.Connection:
         if self._db is None:
             raise RuntimeError("ModelStore.initialize() must be called first")
@@ -264,6 +291,7 @@ class ModelStore:
 
 def _row_to_dict(row: aiosqlite.Row) -> dict:
     config = json.loads(row["config_json"]) if row["config_json"] else {}
+    vram_gb = _normalize_vram_gb(row["vram_gb"])
     return {
         "id": str(row["id"]),
         "provider_type": str(row["provider_type"]),
@@ -272,7 +300,20 @@ def _row_to_dict(row: aiosqlite.Row) -> dict:
         "is_enabled": bool(row["is_enabled"]),
         "is_default": bool(row["is_default"]),
         "min_vram_mb": int(row["min_vram_mb"]),
+        "vram_gb": vram_gb,
         "config": config,
         "created_at": str(row["created_at"]),
         "updated_at": str(row["updated_at"]),
     }
+
+
+def _normalize_vram_gb(value: object) -> float | None:
+    if value is None:
+        return None
+    try:
+        normalized = float(value)
+    except (TypeError, ValueError):
+        return None
+    if normalized <= 0:
+        return None
+    return round(normalized, 3)

@@ -28,6 +28,7 @@ export function ModelsPage() {
     busyModelId,
     setModelEnabled,
     setModelDefault,
+    requestModelLoad,
   } = useModelsData();
   const [actionError, setActionError] = useState("");
 
@@ -47,6 +48,10 @@ export function ModelsPage() {
   const handleSetDefault = useCallback((model: AdminModelItem) => {
     runModelAction(() => setModelDefault(model.id));
   }, [runModelAction, setModelDefault]);
+
+  const handleLoadOrRetry = useCallback((model: AdminModelItem) => {
+    runModelAction(() => requestModelLoad(model.id));
+  }, [requestModelLoad, runModelAction]);
 
   if (loading) return <div className="flex items-center justify-center h-full"><span className="text-text-secondary">Loading...</span></div>;
   if (error) return <div className="flex items-center justify-center h-full text-red-500">{error}</div>;
@@ -94,6 +99,9 @@ export function ModelsPage() {
                         <Badge tone={runtimeToneMap[model.runtimeState]}>
                           {t(`models.runtime.${model.runtimeState}`)}
                         </Badge>
+                        <p className="text-xs text-text-muted">
+                          {t("models.list.tasksProcessed", { count: model.tasksProcessed })}
+                        </p>
                         {model.runtimeState === "error" && model.errorMessage ? (
                           <p className="max-w-xs rounded-md border border-danger/40 bg-danger/10 px-2 py-1 text-left text-xs leading-5 text-danger-text">
                             {model.errorMessage}
@@ -103,6 +111,22 @@ export function ModelsPage() {
                     </td>
                     <td className={tableCellCenterClassName}>
                       <div className="flex items-center justify-center gap-3 whitespace-nowrap">
+                        {model.runtimeState === "not_loaded" || model.runtimeState === "error" || model.runtimeState === "loading" ? (
+                          <Button
+                            type="button"
+                            size="xs"
+                            variant="outline"
+                            disabled={isBusy || model.runtimeState === "loading"}
+                            onClick={() => handleLoadOrRetry(model)}
+                          >
+                            {model.runtimeState === "error"
+                              ? t("models.list.retry")
+                              : model.runtimeState === "loading"
+                                ? t("models.list.loading")
+                                : t("models.list.load")}
+                          </Button>
+                        ) : null}
+
                         <div className="inline-flex items-center gap-1.5">
                           <ToggleSwitch
                             checked={model.isEnabled}

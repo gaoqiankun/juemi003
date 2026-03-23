@@ -19,6 +19,8 @@ const DEFAULT_HF_ENDPOINT = "https://huggingface.co";
 const UPDATABLE_SETTING_KEYS = new Set([
   "defaultProvider",
   "queueMaxSize",
+  "maxLoadedModels",
+  "maxTasksPerSlot",
   "rateLimitPerHour",
   "rateLimitConcurrent",
 ]);

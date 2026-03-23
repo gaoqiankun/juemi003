@@ -214,6 +214,10 @@
       "disabled": "Disabled",
       "defaultTag": "Default",
       "setDefault": "Set as default",
+      "load": "Load",
+      "retry": "Retry",
+      "loading": "Loading...",
+      "tasksProcessed": "Processed: {{count}}",
       "saving": "Saving model changes...",
       "empty": "No models found.",
       "toggleLabel": "Toggle access for {{name}}"
@@ -304,6 +308,14 @@
         "label": "Queue capacity",
         "description": "Maximum pending tasks before new submissions are rejected."
       },
+      "maxLoadedModels": {
+        "label": "Max loaded models",
+        "description": "Maximum models allowed to stay loaded in VRAM."
+      },
+      "maxTasksPerSlot": {
+        "label": "Max tasks per slot",
+        "description": "Tasks processed before the loaded model becomes evictable."
+      },
       "rateLimitPerHour": {
         "label": "Rate limit per hour",
         "description": "Maximum requests per API key in one hour."
@@ -355,7 +367,8 @@
     },
     "suffix": {
       "perHour": "req/h",
-      "count": "jobs"
+      "count": "jobs",
+      "tasks": "tasks"
     },
     "hf": {
       "title": "HuggingFace",
@@ -468,6 +481,13 @@
         "modelLoadFailed": "Unable to load models",
         "modelEmpty": "No enabled models",
         "modelNeedsAuth": "Set API key first",
+        "runtime": {
+          "ready": "Ready",
+          "loading": "Loading",
+          "not_loaded": "Not loaded",
+          "error": "Error",
+          "unknown": "Unknown"
+        },
         "generateButton": "Generate",
         "cancelButton": "Cancel",
         "openRecent": "Open recent list",

@@ -156,6 +156,7 @@ export interface UserModelPayload {
   id?: string;
   display_name?: string;
   is_default?: boolean;
+  runtime_state?: string;
 }
 
 export interface UserModelListPayload {

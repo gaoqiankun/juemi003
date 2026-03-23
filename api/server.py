@@ -70,6 +70,7 @@ from gen3d.api.schemas import (
 from gen3d.config import ServingConfig
 from gen3d.engine.async_engine import AsyncGen3DEngine
 from gen3d.engine.model_registry import ModelRegistry, ModelRuntime
+from gen3d.engine.model_scheduler import ModelScheduler
 from gen3d.engine.pipeline import PipelineCoordinator, PipelineQueueFullError
 from gen3d.engine.sequence import TERMINAL_STATUSES, TaskStatus
 from gen3d.model.base import ModelProviderConfigurationError
@@ -104,7 +105,11 @@ from gen3d.storage.api_key_store import (
     USER_KEY_SCOPE,
 )
 from gen3d.storage.model_store import ModelStore
-from gen3d.storage.settings_store import SettingsStore
+from gen3d.storage.settings_store import (
+    MAX_LOADED_MODELS_KEY,
+    MAX_TASKS_PER_SLOT_KEY,
+    SettingsStore,
+)
 from gen3d.storage.task_store import TaskStore
 
 _TASK_STATUS_MAP: dict[str, str] = {
@@ -292,6 +297,7 @@ class AppContainer:
     engine: AsyncGen3DEngine
     model_store: ModelStore
     settings_store: SettingsStore
+    model_scheduler: ModelScheduler
 
 
 class SPAStaticFiles(StaticFiles):
@@ -422,7 +428,7 @@ async def build_model_runtime(
     config: ServingConfig,
     model_name: str,
 ) -> ModelRuntime:
-    normalized_model_name = str(model_name).strip().lower() or "trellis"
+    normalized_model_name = str(model_name).strip().lower()
     model_definition = await model_store.get_model(normalized_model_name)
     if model_definition is None and normalized_model_name == "trellis":
         # Backward compatibility: legacy tasks that still send "trellis"
@@ -694,6 +700,15 @@ def create_app(
         return await build_model_runtime(model_store, config, model_name)
 
     model_registry = ModelRegistry(runtime_loader)
+    model_scheduler = ModelScheduler(
+        model_registry=model_registry,
+        task_store=task_store,
+        model_store=model_store,
+        settings_store=settings_store,
+        enabled=not config.is_mock_provider,
+        vram_detection_enabled=config.vram_detection_enabled,
+    )
+    model_registry.add_model_loaded_listener(model_scheduler.on_model_loaded)
     rate_limiter = TokenRateLimiter(
         max_concurrent=config.rate_limit_concurrent,
         max_requests_per_hour=config.rate_limit_per_hour,
@@ -732,6 +747,7 @@ def create_app(
         task_store=task_store,
         pipeline=pipeline,
         model_registry=model_registry,
+        model_scheduler=model_scheduler,
         artifact_store=artifact_store,
         webhook_sender=webhook_sender,
         webhook_timeout_seconds=config.webhook_timeout_seconds,
@@ -755,6 +771,7 @@ def create_app(
         engine=engine,
         model_store=model_store,
         settings_store=settings_store,
+        model_scheduler=model_scheduler,
     )
     proxy_client: httpx.AsyncClient | None = None
 
@@ -767,6 +784,7 @@ def create_app(
         await container.api_key_store.initialize()
         await container.model_store.initialize()
         await container.settings_store.initialize()
+        await container.model_scheduler.initialize()
         default_models = await container.model_store.list_models()
         default_model_ids = tuple(
             str(model["id"]).strip().lower()
@@ -1075,12 +1093,16 @@ def create_app(
     ) -> UserModelListResponse:
         del key_id
         enabled_models = await app_container.model_store.get_enabled_models()
+        runtime_states = app_container.model_registry.runtime_states()
         return UserModelListResponse(
             models=[
                 UserModelSummary(
                     id=str(model["id"]),
                     display_name=str(model["display_name"]),
                     is_default=bool(model["is_default"]),
+                    runtime_state=str(
+                        runtime_states.get(str(model["id"]).strip().lower(), "not_loaded")
+                    ),
                 )
                 for model in enabled_models
             ]
@@ -1102,7 +1124,20 @@ def create_app(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="input_url must start with upload://",
             )
-        normalized_model = str(payload.model).strip().lower() or "trellis"
+        requested_model = str(payload.model or "").strip().lower()
+        if requested_model:
+            normalized_model = requested_model
+        else:
+            default_model = await app_container.model_store.get_default_model()
+            if default_model is None:
+                all_models = await app_container.model_store.list_models()
+                default_model = all_models[0] if all_models else None
+            normalized_model = str(default_model.get("id") if default_model else "").strip().lower()
+            if not normalized_model:
+                raise HTTPException(
+                    status_code=422,
+                    detail="no default model configured",
+                )
         model_definition = await app_container.model_store.get_model(normalized_model)
         if model_definition is not None and not bool(model_definition.get("is_enabled")):
             raise HTTPException(
@@ -1141,6 +1176,10 @@ def create_app(
             status.HTTP_201_CREATED if created else status.HTTP_200_OK
         )
         asyncio.create_task(_safe_record_usage(app_container.api_key_store, key_id))
+        if created:
+            asyncio.create_task(
+                app_container.model_scheduler.on_task_queued(normalized_model)
+            )
         return TaskCreateResponse.from_sequence(sequence)
 
     @app.get(
@@ -1516,16 +1555,13 @@ def create_app(
         app_container: AppContainer = Depends(get_container),
     ) -> dict:
         models = await app_container.model_store.list_models()
+        runtime_states = app_container.model_registry.runtime_states()
         for model in models:
-            try:
-                state = (
-                    app_container.model_registry.get_state(model["id"])
-                    if hasattr(app_container.model_registry, "get_state")
-                    else "unknown"
-                )
-            except Exception:
-                state = "unknown"
+            model_id = str(model["id"]).strip().lower()
+            state = str(runtime_states.get(model_id, "not_loaded"))
             model["runtimeState"] = state
+            model["runtime_state"] = state
+            model["tasks_processed"] = app_container.model_scheduler.get_tasks_processed(model_id)
             if state == "error":
                 error = None
                 try:
@@ -1547,6 +1583,25 @@ def create_app(
         }
 
     @app.post(
+        "/api/admin/models/{model_id}/load",
+        dependencies=[Depends(require_admin_token)],
+    )
+    async def load_model(
+        model_id: str,
+        app_container: AppContainer = Depends(get_container),
+    ) -> dict:
+        model = await app_container.model_store.get_model(model_id)
+        if model is None:
+            raise HTTPException(status_code=404, detail="model not found")
+        await app_container.model_scheduler.request_load(model_id)
+        runtime_state = app_container.model_registry.get_state(model_id)
+        return {
+            "id": str(model["id"]),
+            "runtime_state": runtime_state,
+            "runtimeState": runtime_state,
+        }
+
+    @app.post(
         "/api/admin/models",
         status_code=status.HTTP_201_CREATED,
         dependencies=[Depends(require_admin_token)],
@@ -1562,6 +1617,7 @@ def create_app(
                 display_name=payload["displayName"],
                 model_path=payload["modelPath"],
                 min_vram_mb=payload.get("minVramMb", 24000),
+                vram_gb=payload.get("vramGb"),
                 config=payload.get("config"),
             )
         except ValueError as exc:
@@ -1596,6 +1652,7 @@ def create_app(
             "displayName": "display_name",
             "modelPath": "model_path",
             "minVramMb": "min_vram_mb",
+            "vramGb": "vram_gb",
             "config": "config",
         }
         updates = {}
@@ -1773,6 +1830,32 @@ def create_app(
                         "value": db_settings.get("queueMaxSize", cfg.queue_max_size),
                     },
                     {
+                        "key": "maxLoadedModels",
+                        "labelKey": "settings.fields.maxLoadedModels.label",
+                        "descriptionKey": "settings.fields.maxLoadedModels.description",
+                        "type": "number",
+                        "value": int(
+                            db_settings.get(
+                                MAX_LOADED_MODELS_KEY,
+                                app_container.model_scheduler.max_loaded_models,
+                            )
+                        ),
+                        "suffix": f"<= {app_container.model_scheduler.max_possible_loaded}",
+                    },
+                    {
+                        "key": "maxTasksPerSlot",
+                        "labelKey": "settings.fields.maxTasksPerSlot.label",
+                        "descriptionKey": "settings.fields.maxTasksPerSlot.description",
+                        "type": "number",
+                        "value": int(
+                            db_settings.get(
+                                MAX_TASKS_PER_SLOT_KEY,
+                                app_container.model_scheduler.max_tasks_per_slot,
+                            )
+                        ),
+                        "suffixKey": "settings.suffix.tasks",
+                    },
+                    {
                         "key": "rateLimitPerHour",
                         "labelKey": "settings.fields.rateLimitPerHour.label",
                         "descriptionKey": "settings.fields.rateLimitPerHour.description",
@@ -1810,6 +1893,8 @@ def create_app(
             "rateLimitConcurrent",
             "queueMaxSize",
             "defaultProvider",
+            "maxLoadedModels",
+            "maxTasksPerSlot",
         }
         updates = {k: v for k, v in payload.items() if k in allowed_keys}
         if not updates:
@@ -1818,6 +1903,7 @@ def create_app(
             )
 
         normalized_updates: dict[str, Any] = {}
+        persisted_updates: dict[str, Any] = {}
 
         if "defaultProvider" in updates:
             default_provider = str(updates["defaultProvider"] or "").strip()
@@ -1827,6 +1913,7 @@ def create_app(
                     detail="defaultProvider must be a non-empty string",
                 )
             normalized_updates["defaultProvider"] = default_provider
+            persisted_updates["defaultProvider"] = default_provider
 
         if "queueMaxSize" in updates:
             try:
@@ -1842,6 +1929,40 @@ def create_app(
                     detail="queueMaxSize must be >= 0",
                 )
             normalized_updates["queueMaxSize"] = queue_max_size
+            persisted_updates["queueMaxSize"] = queue_max_size
+
+        if "maxLoadedModels" in updates:
+            try:
+                max_loaded_models = int(updates["maxLoadedModels"])
+            except (TypeError, ValueError) as exc:
+                raise HTTPException(
+                    status_code=422,
+                    detail="maxLoadedModels must be an integer",
+                ) from exc
+            max_possible_loaded = app_container.model_scheduler.max_possible_loaded
+            if max_loaded_models < 1 or max_loaded_models > max_possible_loaded:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"maxLoadedModels must be between 1 and {max_possible_loaded}",
+                )
+            normalized_updates["maxLoadedModels"] = max_loaded_models
+            persisted_updates[MAX_LOADED_MODELS_KEY] = max_loaded_models
+
+        if "maxTasksPerSlot" in updates:
+            try:
+                max_tasks_per_slot = int(updates["maxTasksPerSlot"])
+            except (TypeError, ValueError) as exc:
+                raise HTTPException(
+                    status_code=422,
+                    detail="maxTasksPerSlot must be an integer",
+                ) from exc
+            if max_tasks_per_slot < 1:
+                raise HTTPException(
+                    status_code=422,
+                    detail="maxTasksPerSlot must be >= 1",
+                )
+            normalized_updates["maxTasksPerSlot"] = max_tasks_per_slot
+            persisted_updates[MAX_TASKS_PER_SLOT_KEY] = max_tasks_per_slot
 
         if "rateLimitPerHour" in updates:
             try:
@@ -1857,6 +1978,7 @@ def create_app(
                     detail="rateLimitPerHour must be >= 1",
                 )
             normalized_updates["rateLimitPerHour"] = rate_limit_per_hour
+            persisted_updates["rateLimitPerHour"] = rate_limit_per_hour
 
         if "rateLimitConcurrent" in updates:
             try:
@@ -1872,8 +1994,9 @@ def create_app(
                     detail="rateLimitConcurrent must be >= 1",
                 )
             normalized_updates["rateLimitConcurrent"] = rate_limit_concurrent
+            persisted_updates["rateLimitConcurrent"] = rate_limit_concurrent
 
-        await app_container.settings_store.set_many(normalized_updates)
+        await app_container.settings_store.set_many(persisted_updates)
 
         if "queueMaxSize" in normalized_updates:
             app_container.engine.update_queue_capacity(normalized_updates["queueMaxSize"])
@@ -1885,6 +2008,12 @@ def create_app(
             await app_container.rate_limiter.update_limits(
                 max_concurrent=normalized_updates.get("rateLimitConcurrent"),
                 max_requests_per_hour=normalized_updates.get("rateLimitPerHour"),
+            )
+
+        if "maxLoadedModels" in normalized_updates or "maxTasksPerSlot" in normalized_updates:
+            await app_container.model_scheduler.update_limits(
+                max_loaded_models=normalized_updates.get("maxLoadedModels"),
+                max_tasks_per_slot=normalized_updates.get("maxTasksPerSlot"),
             )
 
         return {"ok": True, "updated": list(normalized_updates.keys())}

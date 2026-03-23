@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import {
   fetchModels,
+  loadModel,
   updateModel,
   type RawAdminModelRecord,
 } from "@/lib/admin-api";
@@ -14,6 +15,7 @@ export interface AdminModelItem {
   isEnabled: boolean;
   isDefault: boolean;
   runtimeState: AdminModelRuntimeState;
+  tasksProcessed: number;
   errorMessage: string;
 }
 
@@ -47,7 +49,8 @@ function normalizeModels(payload: RawAdminModelRecord[] | undefined): AdminModel
         displayName,
         isEnabled: Boolean(item.is_enabled),
         isDefault: Boolean(item.is_default),
-        runtimeState: normalizeRuntimeState(String(item.runtimeState || "")),
+        runtimeState: normalizeRuntimeState(String(item.runtime_state || item.runtimeState || "")),
+        tasksProcessed: Number(item.tasks_processed || 0),
         errorMessage: String(item.error_message || "").trim(),
       };
     })
@@ -59,6 +62,7 @@ export function useModelsData() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busyModelId, setBusyModelId] = useState("");
+  const pollingIntervalMs = models.some((model) => model.runtimeState === "loading") ? 3_000 : 10_000;
 
   const loadModels = useCallback(async (silent = false) => {
     if (!silent) {
@@ -81,11 +85,11 @@ export function useModelsData() {
     loadModels().catch(() => undefined);
     const timer = window.setInterval(() => {
       loadModels(true).catch(() => undefined);
-    }, 10_000);
+    }, pollingIntervalMs);
     return () => {
       window.clearInterval(timer);
     };
-  }, [loadModels]);
+  }, [loadModels, pollingIntervalMs]);
 
   const setModelEnabled = useCallback(async (modelId: string, enabled: boolean) => {
     setBusyModelId(modelId);
@@ -107,6 +111,16 @@ export function useModelsData() {
     }
   }, [loadModels]);
 
+  const requestModelLoad = useCallback(async (modelId: string) => {
+    setBusyModelId(modelId);
+    try {
+      await loadModel(modelId);
+      await loadModels(true);
+    } finally {
+      setBusyModelId("");
+    }
+  }, [loadModels]);
+
   return {
     models,
     loading,
@@ -115,5 +129,6 @@ export function useModelsData() {
     refresh: loadModels,
     setModelEnabled,
     setModelDefault,
+    requestModelLoad,
   };
 }

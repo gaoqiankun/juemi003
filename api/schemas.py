@@ -240,10 +240,27 @@ class UserModelSummary(BaseModel):
     id: str
     display_name: str
     is_default: bool
+    runtime_state: Literal["not_loaded", "loading", "ready", "error"] = "not_loaded"
 
 
 class UserModelListResponse(BaseModel):
     models: list[UserModelSummary] = Field(default_factory=list)
+
+
+class AdminModelDetail(BaseModel):
+    id: str
+    provider_type: str
+    display_name: str
+    model_path: str
+    is_enabled: bool
+    is_default: bool
+    min_vram_mb: int
+    vram_gb: float | None = None
+    runtime_state: Literal["not_loaded", "loading", "ready", "error", "unknown"] = "unknown"
+    tasks_processed: int = 0
+    error_message: str | None = None
+    created_at: str
+    updated_at: str
 
 
 class AdminApiKeyCreateRequest(BaseModel):

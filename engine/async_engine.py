@@ -10,7 +10,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
-from typing import Any, Awaitable, Callable
+from typing import TYPE_CHECKING, Any, Awaitable, Callable
 from urllib.parse import urlparse
 
 import httpx
@@ -35,6 +35,9 @@ from gen3d.security import (
 )
 from gen3d.storage.artifact_store import ArtifactStore, ArtifactStoreOperationError
 from gen3d.storage.task_store import TaskIdempotencyConflictError, TaskStore
+
+if TYPE_CHECKING:
+    from gen3d.engine.model_scheduler import ModelScheduler
 
 WebhookSender = Callable[[str, dict[str, Any]], Awaitable[None]]
 _STAGE_ORDER = [
@@ -73,6 +76,7 @@ class AsyncGen3DEngine:
         pipeline: PipelineCoordinator,
         model_registry: ModelRegistry,
         artifact_store: ArtifactStore | None = None,
+        model_scheduler: "ModelScheduler | None" = None,
         webhook_sender: WebhookSender | None = None,
         webhook_timeout_seconds: float = 2.0,
         webhook_max_retries: int = 3,
@@ -89,6 +93,7 @@ class AsyncGen3DEngine:
         self._pipeline = pipeline
         self._model_registry = model_registry
         self._artifact_store = artifact_store
+        self._model_scheduler = model_scheduler
         self._started = False
         self._worker_count = max(int(parallel_slots), 1)
         self._queue_capacity = self._worker_count + max(int(queue_max_size), 0)
@@ -445,7 +450,9 @@ class AsyncGen3DEngine:
                 latest = await self._task_store.get_task(sequence.task_id)
                 if latest is None or latest.status in TERMINAL_STATUSES:
                     continue
-                await self._pipeline.run_sequence(latest)
+                completed = await self._pipeline.run_sequence(latest)
+                if self._model_scheduler is not None:
+                    await self._model_scheduler.on_task_completed(completed.model)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # pragma: no cover - defensive guard

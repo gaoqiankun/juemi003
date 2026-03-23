@@ -214,6 +214,10 @@
       "disabled": "禁用",
       "defaultTag": "默认",
       "setDefault": "设为默认",
+      "load": "加载",
+      "retry": "重试",
+      "loading": "加载中...",
+      "tasksProcessed": "已处理：{{count}}",
       "saving": "正在保存模型设置...",
       "empty": "暂无模型。",
       "toggleLabel": "切换 {{name}} 的访问状态"
@@ -304,6 +308,14 @@
         "label": "队列容量",
         "description": "排队任务上限，超过后拒绝新请求。"
       },
+      "maxLoadedModels": {
+        "label": "最大驻留模型数",
+        "description": "允许同时驻留在显存中的模型上限。"
+      },
+      "maxTasksPerSlot": {
+        "label": "单槽处理任务上限",
+        "description": "达到该次数后模型可被调度器驱逐。"
+      },
       "rateLimitPerHour": {
         "label": "每小时限流",
         "description": "单个 API Key 每小时可发起的最大请求数。"
@@ -355,7 +367,8 @@
     },
     "suffix": {
       "perHour": "次/时",
-      "count": "个"
+      "count": "个",
+      "tasks": "任务"
     },
     "hf": {
       "title": "HuggingFace",
@@ -468,6 +481,13 @@
         "modelLoadFailed": "模型列表加载失败",
         "modelEmpty": "暂无可用模型",
         "modelNeedsAuth": "请先配置 API 密钥",
+        "runtime": {
+          "ready": "就绪",
+          "loading": "加载中",
+          "not_loaded": "未加载",
+          "error": "异常",
+          "unknown": "未知"
+        },
         "generateButton": "生成",
         "cancelButton": "取消",
         "openRecent": "打开最近列表",

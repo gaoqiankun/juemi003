@@ -8,6 +8,9 @@ from typing import Any
 
 import aiosqlite
 
+MAX_LOADED_MODELS_KEY = "max_loaded_models"
+MAX_TASKS_PER_SLOT_KEY = "max_tasks_per_slot"
+
 
 def _utcnow_iso() -> str:
     return datetime.now(UTC).isoformat()

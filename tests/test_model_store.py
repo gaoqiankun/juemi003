@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sqlite3
+
 import pytest
 
 from storage.model_store import ModelStore
@@ -26,11 +28,13 @@ async def test_initialize_seeds_defaults(store: ModelStore):
     assert trellis["display_name"] == "TRELLIS2"
     assert trellis["is_enabled"] is True
     assert trellis["is_default"] is True
+    assert trellis["vram_gb"] == 24.0
 
     hunyuan = await store.get_model("hunyuan3d")
     assert hunyuan is not None
     assert hunyuan["is_enabled"] is False
     assert hunyuan["is_default"] is False
+    assert hunyuan["vram_gb"] == 24.0
 
 
 @pytest.mark.anyio
@@ -52,6 +56,7 @@ async def test_create_and_get_model(store: ModelStore):
         display_name="Test Model",
         model_path="org/test-model",
         min_vram_mb=16000,
+        vram_gb=16.0,
         config={"key": "value"},
     )
     assert created["id"] == "test-model"
@@ -59,6 +64,7 @@ async def test_create_and_get_model(store: ModelStore):
     assert created["is_enabled"] is True
     assert created["is_default"] is False
     assert created["min_vram_mb"] == 16000
+    assert created["vram_gb"] == 16.0
     assert created["config"] == {"key": "value"}
 
     fetched = await store.get_model("test-model")
@@ -123,3 +129,64 @@ async def test_create_duplicate_raises(store: ModelStore):
             display_name="Duplicate",
             model_path="dup/path",
         )
+
+
+@pytest.mark.anyio
+async def test_update_model_vram_gb(store: ModelStore):
+    updated = await store.update_model("hunyuan3d", vram_gb=22.5)
+    assert updated is not None
+    assert updated["vram_gb"] == 22.5
+
+
+@pytest.mark.anyio
+async def test_initialize_migrates_vram_gb_using_1024_divisor(tmp_path):
+    db_path = tmp_path / "legacy-models.db"
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(
+            """
+            CREATE TABLE model_definitions (
+                id TEXT PRIMARY KEY,
+                provider_type TEXT NOT NULL,
+                display_name TEXT NOT NULL,
+                model_path TEXT NOT NULL,
+                is_enabled INTEGER NOT NULL DEFAULT 1,
+                is_default INTEGER NOT NULL DEFAULT 0,
+                min_vram_mb INTEGER NOT NULL DEFAULT 24000,
+                config_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO model_definitions
+                (id, provider_type, display_name, model_path, is_enabled, is_default, min_vram_mb, config_json, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "legacy-model",
+                "trellis2",
+                "Legacy",
+                "microsoft/TRELLIS.2-4B",
+                1,
+                1,
+                24000,
+                "{}",
+                "2026-03-23T00:00:00+00:00",
+                "2026-03-23T00:00:00+00:00",
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    store = ModelStore(db_path)
+    await store.initialize()
+    try:
+        migrated = await store.get_model("legacy-model")
+        assert migrated is not None
+        assert migrated["vram_gb"] == pytest.approx(23.438, rel=0, abs=1e-6)
+    finally:
+        await store.close()

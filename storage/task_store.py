@@ -319,6 +319,48 @@ class TaskStore:
         row = await cursor.fetchone()
         return int(row["c"] if row else 0)
 
+    async def count_pending_tasks_by_model(self) -> dict[str, int]:
+        db = self._require_db()
+        cursor = await db.execute(
+            """
+            SELECT model, COUNT(*) AS c
+            FROM tasks
+            WHERE deleted_at IS NULL
+              AND status = ?
+              AND assigned_worker_id IS NULL
+            GROUP BY model
+            """,
+            (TaskStatus.QUEUED.value,),
+        )
+        rows = await cursor.fetchall()
+        return {
+            str(row["model"]).strip().lower() or "trellis": int(row["c"])
+            for row in rows
+        }
+
+    async def count_running_tasks_by_model(self) -> dict[str, int]:
+        db = self._require_db()
+        cursor = await db.execute(
+            """
+            SELECT model, COUNT(*) AS c
+            FROM tasks
+            WHERE deleted_at IS NULL
+              AND assigned_worker_id IS NOT NULL
+              AND status NOT IN (?, ?, ?)
+            GROUP BY model
+            """,
+            (
+                TaskStatus.SUCCEEDED.value,
+                TaskStatus.FAILED.value,
+                TaskStatus.CANCELLED.value,
+            ),
+        )
+        rows = await cursor.fetchall()
+        return {
+            str(row["model"]).strip().lower() or "trellis": int(row["c"])
+            for row in rows
+        }
+
     async def claim_next_queued_task(self, worker_id: str) -> RequestSequence | None:
         db = self._require_db()
         while True:

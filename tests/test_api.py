@@ -928,20 +928,28 @@ def test_list_models_returns_enabled(tmp_path: Path) -> None:
 
     assert enable_hunyuan_response.status_code == 200
     assert response.status_code == 200
-    assert response.json() == {
-        "models": [
-            {
-                "id": "trellis2",
-                "display_name": "TRELLIS2",
-                "is_default": True,
-            },
-            {
-                "id": "hunyuan3d",
-                "display_name": "HunYuan3D-2",
-                "is_default": False,
-            },
-        ]
-    }
+    payload = response.json()
+    assert [model["id"] for model in payload["models"]] == ["trellis2", "hunyuan3d"]
+    assert payload["models"][0]["display_name"] == "TRELLIS2"
+    assert payload["models"][0]["is_default"] is True
+    assert payload["models"][1]["display_name"] == "HunYuan3D-2"
+    assert payload["models"][1]["is_default"] is False
+    assert payload["models"][0]["runtime_state"] in {"not_loaded", "loading", "ready", "error"}
+    assert payload["models"][1]["runtime_state"] in {"not_loaded", "loading", "ready", "error"}
+
+
+def test_admin_model_load_endpoint_returns_runtime_state(tmp_path: Path) -> None:
+    with make_client(tmp_path, admin_token="admin-token") as client:
+        response = client.post(
+            "/api/admin/models/trellis2/load",
+            headers=admin_headers(),
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["id"] == "trellis2"
+    assert payload["runtime_state"] in {"not_loaded", "loading", "ready", "error"}
+    assert payload["runtimeState"] == payload["runtime_state"]
 
 
 def test_create_task_rejects_disabled_model_from_model_store(tmp_path: Path) -> None:
@@ -1012,6 +1020,24 @@ def test_admin_settings_returns_dynamic_provider_options_and_excludes_deploy_fie
     assert {"value": "step1x3d", "label": "Step1X-3D Custom"} in options
     assert all("labelKey" not in option for option in options)
     assert all("Large" not in str(option.get("label", "")) for option in options)
+
+    generation_field_keys = {field["key"] for field in generation_fields}
+    assert "maxLoadedModels" in generation_field_keys
+    assert "maxTasksPerSlot" in generation_field_keys
+
+
+def test_admin_settings_patch_updates_scheduler_limits(
+    tmp_path: Path,
+) -> None:
+    with make_client(tmp_path, admin_token="admin-token") as client:
+        patch_response = client.patch(
+            "/api/admin/settings",
+            headers=admin_headers(),
+            json={"maxLoadedModels": 1, "maxTasksPerSlot": 6},
+        )
+
+    assert patch_response.status_code == 200
+    assert set(patch_response.json()["updated"]) == {"maxLoadedModels", "maxTasksPerSlot"}
 
 
 def test_admin_settings_patch_hot_updates_rate_limit_and_queue_capacity(
@@ -1122,6 +1148,7 @@ def test_admin_models_returns_friendly_error_message_when_runtime_load_fails(
         if model["id"] == "hunyuan3d"
     )
     assert hunyuan_model["runtimeState"] == "error"
+    assert hunyuan_model["runtime_state"] == "error"
     assert hunyuan_model["error_message"] == "GPU 显存不足"
 
 
@@ -2534,6 +2561,29 @@ def test_create_task_persists_selected_model_id(tmp_path: Path) -> None:
 
     assert detail_response.status_code == 200
     assert detail_response.json()["model"] == "trellis2"
+
+
+def test_create_task_with_empty_model_uses_default_model_from_store(tmp_path: Path) -> None:
+    with make_client(tmp_path, admin_token="admin-token") as client:
+        enable_and_set_default_response = client.patch(
+            "/api/admin/models/step1x3d",
+            headers=admin_headers(),
+            json={"isEnabled": True, "isDefault": True},
+        )
+        assert enable_and_set_default_response.status_code == 200
+
+        response = client.post(
+            "/v1/tasks",
+            headers=task_auth_headers(client),
+            json={
+                "input_url": upload_input_url(client),
+                "model": "",
+                "options": {"resolution": 1024},
+            },
+        )
+
+    assert response.status_code == 201
+    assert response.json()["model"] == "step1x3d"
 
 
 def test_task_detail_includes_input_url_and_dynamic_eta_after_stage_history(
