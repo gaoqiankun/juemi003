@@ -45,8 +45,7 @@ RUN chmod +x /app/gen3d/scripts/download_models.sh
 
 WORKDIR /app/gen3d
 
-ENV PYTHONPATH=/opt/TRELLIS.2 \
-    PROVIDER_MODE=real \
+ENV PROVIDER_MODE=real \
     ARTIFACT_STORE_MODE=local \
     DATABASE_PATH=/data/app.sqlite3 \
     ARTIFACTS_DIR=/data/artifacts
