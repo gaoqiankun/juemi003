@@ -12,6 +12,8 @@ from gen3d.model.base import BaseModelProvider
 from gen3d.stages.gpu.scheduler import GPUSlotScheduler
 from gen3d.stages.gpu.worker import GPUWorkerHandle
 
+_ORIGINAL_ASYNCIO_SLEEP = asyncio.sleep
+
 ModelRuntimeLoader = Callable[[str], "ModelRuntime | Awaitable[ModelRuntime]"]
 ModelLoadedListener = Callable[[str], Awaitable[None] | None]
 
@@ -38,6 +40,9 @@ class ModelRegistryLoadError(RuntimeError):
 
 
 class ModelRegistry:
+    _WAIT_READY_POLL_SECONDS = 0.1
+    _WAIT_READY_TIMEOUT_SECONDS = 1800.0
+
     def __init__(self, runtime_loader: ModelRuntimeLoader) -> None:
         self._runtime_loader = runtime_loader
         self._entries: dict[str, _ModelEntry] = {}
@@ -98,19 +103,43 @@ class ModelRegistry:
             name=f"model-load-{normalized}",
         )
 
-    async def wait_ready(self, model_name: str) -> ModelRuntime:
+    async def wait_ready(
+        self,
+        model_name: str,
+        timeout_seconds: float = _WAIT_READY_TIMEOUT_SECONDS,
+    ) -> ModelRuntime:
         normalized = self._normalize_name(model_name)
-        entry = self._entries.get(normalized)
-        if entry is None or entry.state == "not_loaded":
-            raise ModelRegistryLoadError(f"model {normalized} is not loading")
-        if entry.state == "loading":
-            await entry.event.wait()
-        if entry.state != "ready" or entry.runtime is None:
-            message = f"model {normalized} failed to load"
-            if entry.error is not None:
-                message = f"{message}: {entry.error}"
-            raise ModelRegistryLoadError(message)
-        return entry.runtime
+        poll_interval = self._WAIT_READY_POLL_SECONDS
+        timeout = max(float(timeout_seconds), 0.0)
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+
+        while True:
+            entry = self._entries.get(normalized)
+            state = "not_loaded" if entry is None else entry.state
+
+            if state == "ready":
+                if entry is not None and entry.runtime is not None:
+                    return entry.runtime
+                raise ModelRegistryLoadError(f"model {normalized} failed to load")
+
+            if state == "error":
+                message = f"model {normalized} failed to load"
+                if entry is not None and entry.error is not None:
+                    message = f"{message}: {entry.error}"
+                raise ModelRegistryLoadError(message)
+
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                if state == "not_loaded":
+                    raise ModelRegistryLoadError(
+                        f"model {normalized} still not loaded after timeout"
+                    )
+                raise ModelRegistryLoadError(
+                    f"model {normalized} did not become ready before timeout"
+                )
+
+            await _ORIGINAL_ASYNCIO_SLEEP(min(poll_interval, remaining))
 
     def get_runtime(self, model_name: str) -> ModelRuntime:
         normalized = self._normalize_name(model_name)

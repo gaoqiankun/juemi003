@@ -12,7 +12,7 @@ WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
 if str(WORKSPACE_ROOT) not in sys.path:
     sys.path.insert(0, str(WORKSPACE_ROOT))
 
-from gen3d.engine.model_registry import ModelRegistry, ModelRegistryLoadError, ModelRuntime
+from gen3d.engine.model_registry import ModelRegistry, ModelRuntime
 from gen3d.model.base import BaseModelProvider
 from gen3d.stages.gpu.scheduler import GPUSlotScheduler
 from gen3d.stages.gpu.worker import GPUWorkerHandle
@@ -103,13 +103,36 @@ def test_model_registry_normalize_name_keeps_empty_string() -> None:
     assert ModelRegistry._normalize_name("") == ""
 
 
-def test_wait_ready_raises_if_not_loading() -> None:
+def test_wait_ready_waits_for_scheduler_to_load() -> None:
     async def scenario() -> None:
+        worker = FakeWorker()
+        load_started = asyncio.Event()
+        allow_finish = asyncio.Event()
+
         async def runtime_loader(model_name: str) -> ModelRuntime:
-            raise AssertionError(f"runtime_loader should not be called for {model_name}")
+            load_started.set()
+            await allow_finish.wait()
+            return ModelRuntime(
+                model_name=model_name,
+                provider=cast(BaseModelProvider, object()),
+                workers=[cast(GPUWorkerHandle, worker)],
+                scheduler=GPUSlotScheduler([cast(GPUWorkerHandle, worker)]),
+            )
 
         registry = ModelRegistry(runtime_loader)
-        with pytest.raises(ModelRegistryLoadError, match="is not loading"):
-            await registry.wait_ready("trellis2")
+        wait_task = asyncio.create_task(registry.wait_ready("trellis2", timeout_seconds=1.0))
+        await asyncio.sleep(0.05)
+        assert not wait_task.done()
+        assert registry.get_state("trellis2") == "not_loaded"
+
+        registry.load("trellis2")
+        await asyncio.wait_for(load_started.wait(), timeout=0.5)
+        assert registry.get_state("trellis2") == "loading"
+
+        allow_finish.set()
+        runtime = await asyncio.wait_for(wait_task, timeout=0.5)
+        assert runtime.model_name == "trellis2"
+        assert registry.get_state("trellis2") == "ready"
+        await registry.close()
 
     asyncio.run(scenario())
