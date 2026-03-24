@@ -503,6 +503,9 @@
         "title": "上传图片开始创作",
         "description": "几分钟内生成 3D 模型"
       },
+      "uploading": {
+        "title": "上传中"
+      },
       "processing": {
         "title": "生成中"
       },

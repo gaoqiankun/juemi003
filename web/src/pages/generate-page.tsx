@@ -372,7 +372,9 @@ export function GeneratePage() {
             />
             <div className="pointer-events-none absolute inset-x-0 bottom-8 grid justify-items-center gap-1 text-center">
               <div className="text-4xl font-bold tracking-tight text-text-primary">{progress}%</div>
-              <div className="text-xs uppercase tracking-widest text-text-muted">{t("user.generate.processing.title")}</div>
+              <div className="text-xs uppercase tracking-widest text-text-muted">
+                {generateView === "uploading" ? t("user.generate.uploading.title") : t("user.generate.processing.title")}
+              </div>
             </div>
           </div>
         ) : null}

@@ -503,6 +503,9 @@
         "title": "Upload an image to start creating",
         "description": "Generate a 3D model in minutes"
       },
+      "uploading": {
+        "title": "Uploading"
+      },
       "processing": {
         "title": "Generating"
       },
