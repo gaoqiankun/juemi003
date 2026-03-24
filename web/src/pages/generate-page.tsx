@@ -95,7 +95,7 @@ export function GeneratePage() {
   const previewUrl = generate.previewDataUrl || currentTask?.previewDataUrl || "";
   const progress = generateView === "uploading"
     ? Math.max(0, Math.min(100, generate.uploadProgress || 0))
-    : Math.max(0, Math.min(100, currentTask?.progress || 0));
+    : Math.max(0, Math.min(99, currentTask?.progress || 0));
   const isProcessing = generateView === "processing" || generateView === "uploading";
   const canCancel = Boolean(currentTask && !isTerminal(currentTask.status) && !currentTask.pendingCancel);
   const canStart = Boolean(generate.previewDataUrl) && Boolean(selectedModel) && !generate.isSubmitting && !generate.isUploading;
