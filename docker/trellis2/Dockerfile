@@ -92,6 +92,36 @@ RUN cd /opt/Hunyuan3D-2/hy3dgen/texgen/differentiable_renderer && \
 
 RUN git clone https://github.com/stepfun-ai/Step1X-3D /opt/Step1X-3D
 
+RUN python - <<'PY'
+from pathlib import Path
+
+target = Path(
+    "/opt/Step1X-3D/step1x3d_geometry/models/conditional_encoders/"
+    "dinov2_with_registers/modeling_dinov2_with_registers.py"
+)
+content = target.read_text()
+
+if "def initialize_weights(self):" in content:
+    print("Step1X-3D DINOv2 patch already present")
+    raise SystemExit(0)
+
+# Override initialize_weights to no-op: newer transformers added this method
+# which calls _init_weights on all modules including those with weight=None.
+# When loading from pretrained the random init is overwritten anyway.
+old = "    def _init_weights(self, module: Union[nn.Linear, nn.Conv2d, nn.LayerNorm]) -> None:"
+new = (
+    "    def initialize_weights(self):\n"
+    "        pass  # skip random init; weights are loaded from pretrained checkpoint\n"
+    "\n"
+    "    def _init_weights(self, module: Union[nn.Linear, nn.Conv2d, nn.LayerNorm]) -> None:"
+)
+if old not in content:
+    raise SystemExit("Failed to patch Step1X-3D DINOv2: anchor not found")
+
+target.write_text(content.replace(old, new, 1))
+print(f"patched {target}")
+PY
+
 RUN python -m pip install \
     "pytorch-lightning==2.6.1" \
     jaxtyping \
