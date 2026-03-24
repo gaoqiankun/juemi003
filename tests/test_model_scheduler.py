@@ -308,3 +308,95 @@ def test_scheduler_startup_scan_skips_when_disabled() -> None:
         assert registry.load_calls == []
 
     asyncio.run(scenario())
+
+
+def test_scheduler_on_model_loaded_rescans_and_loads_pending_model() -> None:
+    async def scenario() -> None:
+        task_store = FakeTaskStore()
+        task_store.pending_counts = {"modelb": 1}
+        task_store.running_counts = {"modela": 0}
+        task_store.oldest_queued_task_time_by_model = {
+            "modelb": "2026-03-23T10:00:00+00:00",
+        }
+        registry = FakeRegistry(states={"modela": "loading", "modelb": "not_loaded"})
+        scheduler = ModelScheduler(
+            model_registry=registry,
+            task_store=task_store,
+            model_store=FakeModelStore(
+                [
+                    {"id": "modela", "vram_gb": 24.0},
+                    {"id": "modelb", "vram_gb": 24.0},
+                ]
+            ),
+            settings_store=FakeSettingsStore(
+                {
+                    MAX_LOADED_MODELS_KEY: 1,
+                    MAX_TASKS_PER_SLOT_KEY: 8,
+                }
+            ),
+            enabled=True,
+            vram_detection_enabled=False,
+        )
+        await scheduler.initialize()
+        assert registry.load_calls == []
+        assert registry.unload_calls == []
+
+        await scheduler.on_task_queued("modelb")
+        assert registry.load_calls == []
+        assert registry.unload_calls == []
+
+        registry._states["modela"] = "ready"
+        await scheduler.on_model_loaded("modela")
+
+        assert registry.unload_calls == ["modela"]
+        assert registry.load_calls == ["modelb"]
+
+    asyncio.run(scenario())
+
+
+def test_scheduler_on_model_loaded_scan_does_not_evict_just_loaded_model() -> None:
+    async def scenario() -> None:
+        task_store = FakeTaskStore()
+        task_store.pending_counts = {"modela": 0, "modelb": 1, "modelc": 0}
+        task_store.running_counts = {"modela": 0, "modelc": 0}
+        registry = FakeRegistry(
+            states={
+                "modela": "ready",
+                "modelb": "not_loaded",
+                "modelc": "ready",
+            }
+        )
+        scheduler = ModelScheduler(
+            model_registry=registry,
+            task_store=task_store,
+            model_store=FakeModelStore(
+                [
+                    {"id": "modela", "vram_gb": 24.0},
+                    {"id": "modelb", "vram_gb": 24.0},
+                    {"id": "modelc", "vram_gb": 24.0},
+                ]
+            ),
+            settings_store=FakeSettingsStore(
+                {
+                    MAX_LOADED_MODELS_KEY: 2,
+                    MAX_TASKS_PER_SLOT_KEY: 8,
+                }
+            ),
+            enabled=True,
+            vram_detection_enabled=False,
+        )
+        await scheduler.initialize()
+
+        # Initialize LRU so modelc is older than modela.
+        await scheduler.on_model_loaded("modelc")
+        task_store.oldest_queued_task_time_by_model = {
+            "modelb": "2026-03-23T10:00:00+00:00",
+        }
+
+        await scheduler.on_model_loaded("modela")
+
+        assert registry.load_calls == ["modelb"]
+        assert registry.unload_calls == ["modelc"]
+        assert "modela" not in registry.unload_calls
+
+    asyncio.run(scenario())

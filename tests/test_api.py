@@ -4364,7 +4364,7 @@ def test_hunyuan3d_provider_run_single_uses_correct_kwargs() -> None:
     class FakeShapePipeline:
         def __call__(self, **kwargs):
             observed["shape_kwargs"] = kwargs
-            return "raw_mesh"
+            return ["raw_mesh"]
 
     class FakeTexturePipeline:
         def __call__(self, mesh, image):
@@ -4402,7 +4402,7 @@ def test_hunyuan3d_provider_run_single_uses_correct_kwargs() -> None:
 def test_hunyuan3d_provider_run_single_skips_texture_when_none() -> None:
     class FakeShapePipeline:
         def __call__(self, **kwargs):
-            return "shape_mesh"
+            return ["shape_mesh"]
 
     provider = Hunyuan3DProvider(
         shape_pipeline=FakeShapePipeline(),
