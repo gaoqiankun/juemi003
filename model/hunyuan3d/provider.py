@@ -219,15 +219,16 @@ class Hunyuan3DProvider:
         guidance_scale = options.get("guidance_scale", 5.5)
         octree_resolution = options.get("octree_resolution", 256)
 
-        mesh = self._shape_pipeline(
+        out = self._shape_pipeline(
             image=image,
             num_inference_steps=num_steps,
             guidance_scale=guidance_scale,
             octree_resolution=octree_resolution,
         )
+        mesh = out.mesh[0]
 
         if self._texture_pipeline is not None:
-            mesh = self._texture_pipeline(mesh, image=image)
+            mesh = self._texture_pipeline(image, mesh)
 
         return mesh
 
