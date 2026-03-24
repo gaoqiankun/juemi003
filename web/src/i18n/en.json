@@ -514,9 +514,9 @@
         "details": "Details"
       },
       "failed": {
-        "title": "Generation incomplete",
-        "fallback": "Please upload again and retry.",
-        "retry": "Regenerate"
+        "title": "Generation failed",
+        "fallback": "Something went wrong. Please try again later.",
+        "retry": "Try again"
       }
     },
     "gallery": {

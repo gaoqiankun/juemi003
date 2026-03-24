@@ -993,6 +993,7 @@ export function Gen3dProvider({ children }: { children: ReactNode }) {
     setGenerate((previous) => ({
       ...previous,
       isSubmitting: true,
+      uploadProgress: 0,
       statusMessage: "正在开始生成…",
       statusTone: "info",
     }));

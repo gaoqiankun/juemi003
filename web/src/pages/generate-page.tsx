@@ -391,7 +391,7 @@ export function GeneratePage() {
           <div className="flex h-full flex-col items-center justify-center px-8 text-center">
             <div className="text-lg font-semibold tracking-tight text-text-primary">{t("user.generate.failed.title")}</div>
             <div className="mt-1.5 max-w-sm text-sm text-text-muted">
-              {currentTask.error?.message || currentTask.note || t("user.generate.failed.fallback")}
+              {t("user.generate.failed.fallback")}
             </div>
             <button
               type="button"
