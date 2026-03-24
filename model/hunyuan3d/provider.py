@@ -225,10 +225,10 @@ class Hunyuan3DProvider:
             guidance_scale=guidance_scale,
             octree_resolution=octree_resolution,
         )
-        mesh = out.mesh[0]
+        mesh = out[0]
 
         if self._texture_pipeline is not None:
-            mesh = self._texture_pipeline(image, mesh)
+            mesh = self._texture_pipeline(mesh, image)
 
         return mesh
 
