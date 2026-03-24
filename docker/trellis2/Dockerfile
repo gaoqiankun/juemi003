@@ -122,6 +122,24 @@ target.write_text(content.replace(old, new, 1))
 print(f"patched {target}")
 PY
 
+RUN python - <<'PY'
+from pathlib import Path
+
+target = Path("/opt/Step1X-3D/step1x3d_geometry/models/pipelines/pipeline.py")
+content = target.read_text()
+
+# Fix inverted condition in check_inputs: Step1X-3D raises when image IS a valid
+# type (torch.Tensor / PIL.Image), should raise when it is NOT.
+old = "        elif isinstance(image, (torch.Tensor, PIL.Image.Image)):\n            raise ValueError(\n                \"Input image must be a `torch.Tensor` or `PIL.Image.Image`.\"\n            )"
+new = "        elif not isinstance(image, (torch.Tensor, PIL.Image.Image)):\n            raise ValueError(\n                \"Input image must be a `torch.Tensor` or `PIL.Image.Image`.\"\n            )"
+
+if old not in content:
+    raise SystemExit("Failed to patch Step1X-3D check_inputs: anchor not found")
+
+target.write_text(content.replace(old, new, 1))
+print(f"patched {target}")
+PY
+
 RUN python -m pip install \
     "pytorch-lightning==2.6.1" \
     jaxtyping \
