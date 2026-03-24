@@ -135,6 +135,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libjpeg-dev \
     libgl1 \
     libglib2.0-0 \
+    libopengl0 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /opt/conda /opt/conda
