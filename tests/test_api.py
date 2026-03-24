@@ -8,6 +8,7 @@ import sqlite3
 import sys
 import threading
 import time
+import types
 from datetime import timedelta
 from pathlib import Path
 from typing import Awaitable, Callable
@@ -28,6 +29,7 @@ from gen3d.engine import async_engine as async_engine_module
 from gen3d.engine.sequence import RequestSequence, TaskStatus, TaskType, utcnow
 from gen3d.model.base import GenerationResult, ModelProviderConfigurationError, ModelProviderExecutionError
 from gen3d.model.hunyuan3d.provider import Hunyuan3DProvider, MockHunyuan3DProvider
+from gen3d.model.step1x3d import provider as step1x3d_provider_module
 from gen3d.model.step1x3d.provider import MockStep1X3DProvider, Step1X3DProvider
 from gen3d.model.trellis2.provider import MockTrellis2Provider, Trellis2Provider
 from gen3d.stages.export.preview_renderer_service import (
@@ -4506,6 +4508,68 @@ def test_step1x3d_provider_accepts_huggingface_repo_id() -> None:
     )
     assert source_type == "huggingface"
     assert model_reference == "stepfun-ai/Step1X-3D"
+
+
+def test_step1x3d_provider_patches_rembg_bria_alias(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+
+    rembg_module = types.ModuleType("rembg")
+    rembg_bg_module = types.ModuleType("rembg.bg")
+
+    def fake_new_session(*args, **kwargs):
+        if "model_name" in kwargs:
+            requested_model = kwargs["model_name"]
+        elif args:
+            requested_model = args[0]
+        else:
+            requested_model = "u2net"
+        calls.append(str(requested_model))
+        if requested_model == "bria-rmbg":
+            return {"model_name": "bria-rmbg"}
+        raise ValueError(f"No session class found for model '{requested_model}'")
+
+    rembg_module.new_session = fake_new_session
+    rembg_bg_module.new_session = fake_new_session
+    monkeypatch.setitem(sys.modules, "rembg", rembg_module)
+    monkeypatch.setitem(sys.modules, "rembg.bg", rembg_bg_module)
+
+    step1x3d_provider_module._install_rembg_bria_alias_patch()
+
+    session = rembg_module.new_session(model_name="bria", providers=["CUDAExecutionProvider"])
+    assert session == {"model_name": "bria-rmbg"}
+    assert calls == ["bria-rmbg"]
+
+
+def test_step1x3d_provider_rembg_bria_alias_falls_back_to_default_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    rembg_module = types.ModuleType("rembg")
+    rembg_bg_module = types.ModuleType("rembg.bg")
+
+    def fake_new_session(*args, **kwargs):
+        if "model_name" in kwargs:
+            requested_model = kwargs["model_name"]
+        elif args:
+            requested_model = args[0]
+        else:
+            requested_model = "u2net"
+        calls.append(str(requested_model))
+        if requested_model in {"bria", "bria-rmbg"}:
+            raise ValueError(f"No session class found for model '{requested_model}'")
+        return {"model_name": str(requested_model)}
+
+    rembg_module.new_session = fake_new_session
+    rembg_bg_module.new_session = fake_new_session
+    monkeypatch.setitem(sys.modules, "rembg", rembg_module)
+    monkeypatch.setitem(sys.modules, "rembg.bg", rembg_bg_module)
+
+    step1x3d_provider_module._install_rembg_bria_alias_patch()
+
+    session = rembg_module.new_session(model_name="bria", providers=["CUDAExecutionProvider"])
+    assert session == {"model_name": "u2net"}
+    assert calls == ["bria-rmbg", "u2net"]
 
 
 def test_step1x3d_provider_run_single_calls_both_pipelines() -> None:

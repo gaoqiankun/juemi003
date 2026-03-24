@@ -5,6 +5,7 @@ import importlib
 import inspect
 import json
 import struct
+from functools import wraps
 from pathlib import Path
 from typing import Any
 
@@ -214,6 +215,7 @@ class Step1X3DProvider:
             ) from exc
 
     def _run_single(self, image: Any, options: dict[str, Any]) -> Any:
+        _install_rembg_bria_alias_patch()
         num_steps = options.get("num_inference_steps", 50)
         guidance_scale = options.get("guidance_scale", 7.5)
 
@@ -282,6 +284,8 @@ class Step1X3DProvider:
             raise ModelProviderConfigurationError(
                 "real provider mode requires a CUDA-enabled torch runtime and visible GPU"
             )
+
+        _install_rembg_bria_alias_patch()
 
         try:
             geo_pipelines = importlib.import_module(
@@ -466,3 +470,101 @@ def _extract_pil_image(prepared_input: Any) -> Any:
     if isinstance(prepared_input, dict) and "image" in prepared_input:
         return prepared_input["image"]
     return prepared_input
+
+
+def _install_rembg_bria_alias_patch() -> None:
+    """Map legacy Step1X RMBG model name ``bria`` to rembg's ``bria-rmbg``.
+
+    Step1X hardcodes ``model_name="bria"`` in preprocess_image. Newer rembg
+    versions renamed this backend to ``bria-rmbg``, which raises:
+    "No session class found for model 'bria'". This patch keeps compatibility
+    and falls back to rembg's default backend when BRIA is unavailable.
+    """
+
+    try:
+        rembg_module = importlib.import_module("rembg")
+    except ModuleNotFoundError:
+        return
+
+    original_new_session = getattr(rembg_module, "new_session", None)
+    if original_new_session is None:
+        return
+    if getattr(original_new_session, "_cubie3d_bria_alias_patch", False):
+        return
+
+    @wraps(original_new_session)
+    def _patched_new_session(*args, **kwargs):
+        model_name = _extract_requested_session_model_name(args, kwargs)
+        if model_name == "bria":
+            mapped_args, mapped_kwargs = _replace_session_model_name(
+                args,
+                kwargs,
+                "bria-rmbg",
+            )
+            try:
+                return original_new_session(*mapped_args, **mapped_kwargs)
+            except ValueError as exc:
+                if "No session class found for model 'bria-rmbg'" not in str(exc):
+                    raise
+                fallback_args, fallback_kwargs = _drop_session_model_name(
+                    mapped_args,
+                    mapped_kwargs,
+                )
+                return original_new_session(*fallback_args, **fallback_kwargs)
+        return original_new_session(*args, **kwargs)
+
+    setattr(_patched_new_session, "_cubie3d_bria_alias_patch", True)
+    rembg_module.new_session = _patched_new_session
+
+    # Keep module-level aliases in sync for versions where rembg exports
+    # new_session from rembg.bg.
+    try:
+        rembg_bg_module = importlib.import_module("rembg.bg")
+    except ModuleNotFoundError:
+        return
+    if hasattr(rembg_bg_module, "new_session"):
+        rembg_bg_module.new_session = _patched_new_session
+
+
+def _extract_requested_session_model_name(
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+) -> str | None:
+    if "model_name" in kwargs:
+        value = kwargs.get("model_name")
+    elif args:
+        value = args[0]
+    else:
+        return None
+    return str(value).strip().lower() if value is not None else None
+
+
+def _replace_session_model_name(
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    model_name: str,
+) -> tuple[tuple[Any, ...], dict[str, Any]]:
+    if "model_name" in kwargs:
+        rewritten_kwargs = dict(kwargs)
+        rewritten_kwargs["model_name"] = model_name
+        return args, rewritten_kwargs
+
+    if args:
+        rewritten_args = list(args)
+        rewritten_args[0] = model_name
+        return tuple(rewritten_args), dict(kwargs)
+
+    rewritten_kwargs = dict(kwargs)
+    rewritten_kwargs["model_name"] = model_name
+    return args, rewritten_kwargs
+
+
+def _drop_session_model_name(
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+) -> tuple[tuple[Any, ...], dict[str, Any]]:
+    rewritten_kwargs = dict(kwargs)
+    rewritten_kwargs.pop("model_name", None)
+    if args:
+        return tuple(args[1:]), rewritten_kwargs
+    return args, rewritten_kwargs
