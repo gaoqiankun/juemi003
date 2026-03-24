@@ -186,6 +186,7 @@ class ModelScheduler:
             self._tasks_processed[normalized_model] = 0
             self._quota_exceeded.discard(normalized_model)
             self._touch_locked(normalized_model)
+        await self._startup_scan_queued_models()
 
     async def update_limits(
         self,

@@ -92,6 +92,13 @@ RUN cd /opt/Hunyuan3D-2/hy3dgen/texgen/differentiable_renderer && \
 
 RUN git clone https://github.com/stepfun-ai/Step1X-3D /opt/Step1X-3D
 
+RUN python -m pip install \
+    "pytorch-lightning==2.6.1" \
+    jaxtyping \
+    typeguard \
+    mosaicml-streaming \
+    wandb
+
 RUN cd /opt/Step1X-3D/step1x3d_texture/custom_rasterizer && \
     python setup.py install
 
