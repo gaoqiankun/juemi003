@@ -227,8 +227,7 @@ class Hunyuan3DProvider:
         )
 
         if self._texture_pipeline is not None:
-            texture_steps = options.get("texture_steps", 20)
-            mesh = self._texture_pipeline(mesh, image=image, num_inference_steps=texture_steps)
+            mesh = self._texture_pipeline(mesh, image=image)
 
         return mesh
 

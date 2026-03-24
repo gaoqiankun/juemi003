@@ -4367,9 +4367,9 @@ def test_hunyuan3d_provider_run_single_uses_correct_kwargs() -> None:
             return "raw_mesh"
 
     class FakeTexturePipeline:
-        def __call__(self, mesh, **kwargs):
+        def __call__(self, mesh, image):
             observed["texture_mesh_input"] = mesh
-            observed["texture_kwargs"] = kwargs
+            observed["texture_image_input"] = image
             return "textured_mesh"
 
     provider = Hunyuan3DProvider(
@@ -4396,10 +4396,7 @@ def test_hunyuan3d_provider_run_single_uses_correct_kwargs() -> None:
         "octree_resolution": 128,
     }
     assert observed["texture_mesh_input"] == "raw_mesh"
-    assert observed["texture_kwargs"] == {
-        "image": "image-object",
-        "num_inference_steps": 10,
-    }
+    assert observed["texture_image_input"] == "image-object"
 
 
 def test_hunyuan3d_provider_run_single_skips_texture_when_none() -> None:
