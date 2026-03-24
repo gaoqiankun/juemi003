@@ -1,5 +1,6 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
+import { Toaster } from "sonner";
 
 import App from "@/App";
 import { Gen3dProvider } from "@/app/gen3d-provider";
@@ -12,6 +13,7 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <ThemeProvider>
       <Gen3dProvider>
         <App />
+        <Toaster />
       </Gen3dProvider>
     </ThemeProvider>
   </React.StrictMode>,

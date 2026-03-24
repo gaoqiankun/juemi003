@@ -156,6 +156,8 @@ export interface UserModelPayload {
   id?: string;
   display_name?: string;
   is_default?: boolean;
+  enabled?: boolean;
+  is_enabled?: boolean;
   runtime_state?: string;
 }
 

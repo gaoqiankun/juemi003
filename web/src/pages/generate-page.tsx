@@ -24,21 +24,6 @@ interface GenerateModelOption {
   id: string;
   displayName: string;
   isDefault: boolean;
-  runtimeState: "not_loaded" | "loading" | "ready" | "error" | "unknown";
-}
-
-function normalizeRuntimeState(value: string): GenerateModelOption["runtimeState"] {
-  const normalized = String(value || "").trim().toLowerCase();
-  if (
-    normalized === "not_loaded"
-    || normalized === "loading"
-    || normalized === "ready"
-    || normalized === "error"
-    || normalized === "unknown"
-  ) {
-    return normalized;
-  }
-  return "unknown";
 }
 
 function normalizeModelOptions(payload: UserModelPayload[] | undefined): GenerateModelOption[] {
@@ -47,6 +32,10 @@ function normalizeModelOptions(payload: UserModelPayload[] | undefined): Generat
   }
   return payload
     .map((item) => {
+      const enabled = item.enabled ?? item.is_enabled;
+      if (enabled === false) {
+        return null;
+      }
       const id = String(item.id || "").trim();
       const displayName = String(item.display_name || "").trim();
       if (!id || !displayName) {
@@ -56,7 +45,6 @@ function normalizeModelOptions(payload: UserModelPayload[] | undefined): Generat
         id,
         displayName,
         isDefault: Boolean(item.is_default),
-        runtimeState: normalizeRuntimeState(String(item.runtime_state || "")),
       };
     })
     .filter((item): item is GenerateModelOption => item !== null);
@@ -265,15 +253,7 @@ export function GeneratePage() {
             <SelectContent>
               {modelLoadState === "ready"
                 ? availableModels.map((model) => (
-                    <SelectItem
-                      key={model.id}
-                      value={model.id}
-                      className={model.runtimeState === "ready" ? "" : "text-text-muted"}
-                    >
-                      {model.runtimeState === "ready"
-                        ? model.displayName
-                        : `${model.displayName} · ${t(`user.generate.panel.runtime.${model.runtimeState}`)}`}
-                    </SelectItem>
+                    <SelectItem key={model.id} value={model.id}>{model.displayName}</SelectItem>
                   ))
                 : <SelectItem value="__model_fallback__" disabled>{modelPlaceholder}</SelectItem>}
             </SelectContent>

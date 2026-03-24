@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 
 import type { SettingField, SettingsData } from "@/data/admin-mocks";
 import { Button, Card, SelectField, TextField, ToggleSwitch } from "@/components/ui/primitives";
@@ -68,13 +69,60 @@ function isFieldReadonly(field: SettingField) {
   return Boolean((field as { readonly?: boolean }).readonly);
 }
 
+function findSettingField(data: SettingsData | null, fieldKey: string): SettingField | null {
+  if (!data) {
+    return null;
+  }
+  for (const section of data.sections) {
+    for (const field of section.fields) {
+      if (field.key === fieldKey) {
+        return field;
+      }
+    }
+  }
+  return null;
+}
+
+function parseMaxLoadedModelsUpperBound(field: SettingField | null): number | null {
+  const suffix = typeof field?.suffix === "string" ? field.suffix : "";
+  const match = suffix.match(/<=\s*(\d+)/);
+  if (!match) {
+    return null;
+  }
+  const upperBound = Number.parseInt(match[1], 10);
+  return Number.isFinite(upperBound) ? upperBound : null;
+}
+
+function validateMaxLoadedModels(settings: SettingsData | null): string {
+  const field = findSettingField(settings, "maxLoadedModels");
+  if (!field) {
+    return "";
+  }
+  const value = typeof field.value === "number" ? field.value : Number(field.value);
+  if (!Number.isInteger(value)) {
+    return "maxLoadedModels must be an integer";
+  }
+  const upperBound = parseMaxLoadedModelsUpperBound(field);
+  if (upperBound !== null && (value < 1 || value > upperBound)) {
+    return `maxLoadedModels must be between 1 and ${upperBound}`;
+  }
+  if (value < 1) {
+    return "maxLoadedModels must be >= 1";
+  }
+  return "";
+}
+
+function isMaxLoadedModelsError(errorMessage: string): boolean {
+  return errorMessage.includes("maxLoadedModels");
+}
+
 export function SettingsPage() {
   const { t } = useTranslation();
   const { data: source, loading, error } = useSettingsData();
   const [settings, setSettings] = useState<SettingsData | null>(null);
   const [baselineFingerprint, setBaselineFingerprint] = useState("");
   const [isSaving, setIsSaving] = useState(false);
-  const [saveError, setSaveError] = useState("");
+  const [maxLoadedModelsError, setMaxLoadedModelsError] = useState("");
   const [saveSuccess, setSaveSuccess] = useState("");
   const [hfStatus, setHfStatus] = useState<HfStatusResponse | null>(null);
   const [hfLoading, setHfLoading] = useState(true);
@@ -90,10 +138,17 @@ export function SettingsPage() {
       const normalizedSettings = normalizeSettings(source);
       setSettings(normalizedSettings);
       setBaselineFingerprint(payloadFingerprint(extractPayload(normalizedSettings)));
-      setSaveError("");
+      setMaxLoadedModelsError("");
       setSaveSuccess("");
     }
   }, [source]);
+
+  useEffect(() => {
+    if (!maxLoadedModelsError) {
+      return;
+    }
+    setMaxLoadedModelsError(validateMaxLoadedModels(settings));
+  }, [maxLoadedModelsError, settings]);
 
   const refreshHfStatus = useCallback(async () => {
     setHfLoading(true);
@@ -145,15 +200,26 @@ export function SettingsPage() {
     if (!settings || isSaving || !hasChanges) {
       return;
     }
+    const validationError = validateMaxLoadedModels(settings);
+    if (validationError) {
+      setMaxLoadedModelsError(validationError);
+      toast.error(validationError);
+      return;
+    }
+
     setIsSaving(true);
-    setSaveError("");
     setSaveSuccess("");
     try {
       await updateSettings(currentPayload);
       setBaselineFingerprint(currentFingerprint);
+      setMaxLoadedModelsError("");
       setSaveSuccess(t("settings.save.success"));
     } catch (saveRequestError) {
-      setSaveError(saveRequestError instanceof Error ? saveRequestError.message : String(saveRequestError));
+      const message = saveRequestError instanceof Error ? saveRequestError.message : String(saveRequestError);
+      if (isMaxLoadedModelsError(message)) {
+        setMaxLoadedModelsError(message);
+      }
+      toast.error(message);
     } finally {
       setIsSaving(false);
     }
@@ -347,13 +413,12 @@ export function SettingsPage() {
                   type="button"
                   variant="primary"
                   size="xs"
-                  disabled={!hasChanges || isSaving}
+                  disabled={!hasChanges || isSaving || Boolean(maxLoadedModelsError)}
                   onClick={handleSave}
                 >
                   {isSaving ? t("settings.save.saving") : t("common.saveChanges")}
                 </Button>
                 {saveSuccess ? <p className="text-sm text-success-text">{saveSuccess}</p> : null}
-                {saveError ? <p className="text-sm text-danger-text">{saveError}</p> : null}
               </div>
             ) : null}
           </Card>
