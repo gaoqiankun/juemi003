@@ -102,7 +102,10 @@ QUEUED → PREPROCESSING → GPU_QUEUED → GPU_SS → GPU_SHAPE → GPU_MATERIA
 | deploy.sh 缺 ADMIN_TOKEN= | v0.1 发布前 |
 | 取消只支持 gpu_queued，运行中无法取消 | v0.2 |
 | GPU 进度（gpu_ss/shape/material）是语义占位 | v0.2 |
-| api/server.py 1900 行，路由未拆分 | v0.2 |
+| api/server.py 2247 行，路由未拆分（Router 工厂模式方案已设计）| v0.2 |
+| async_engine.py worker loop / cleanup 未拆分（时序敏感，需集成测试覆盖）| v0.2 |
+| no-explicit-any × 15（TypeScript）| v0.2 |
+| C901 复杂度超标 × 8（Python）| v0.2 |
 | 模型 Pipeline 自维护（当前 git clone 外部 repo）| v0.2 |
 
 ---
