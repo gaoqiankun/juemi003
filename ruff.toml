@@ -1,0 +1,11 @@
+exclude = [
+  ".venv",
+  "Hunyuan3D-2",
+]
+
+[lint]
+select = ["E", "W", "F", "I", "C90"]
+ignore = ["E501"]  # 行长度由文件体积检查管控，不在这里重复
+
+[lint.mccabe]
+max-complexity = 10

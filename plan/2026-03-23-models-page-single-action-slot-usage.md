@@ -1,5 +1,5 @@
 # 模型列表操作列回归单列与槽位用量拆分
-Date / Status: 2026-03-23 / planning→done / Commits: N/A（按 AGENTS.md，本轮不执行 commit）
+Date / Status: 2026-03-23 / done / Commits: N/A（按 AGENTS.md，本轮不执行 commit）
 
 ## Goal
 修复 Admin 模型列表两项 UI/数据问题：  

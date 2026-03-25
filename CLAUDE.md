@@ -1,158 +1,163 @@
 # Cubie · Claude 架构师记忆
 
-> 子仓库：`./gen3d/`
-> 最后更新：2026-03-21
-> 产品名：**Cubie**（不带 3D 后缀，3D 仅用于说明领域）
+> 子仓库：`./gen3d/`  最后更新：2026-03-24
+> 产品名：**Cubie**
 
 ---
 
 ## 项目定位
 
-可私有部署的开源 3D 生成服务，对标 Meshy / Tripo3D 商业产品。
-类比 ComfyUI / InvokeAI 在图像生成领域的地位。
+可私有部署的开源 3D 生成服务（图片 → GLB），对标 Meshy / Tripo3D。
+FastAPI 后端 + React 前端，Provider 模式支持多模型切换，SQLite + 文件系统存储。
 
-- 目标用户：专业设计师、独立开发者、企业私有化部署
-- 主平台：Linux / Windows + NVIDIA GPU（CUDA）
-- 部署方式：Portable 安装包（主推）/ Pinokio / Docker
-- 测试环境：https://gen3d.frps.zhifouai.com
+测试环境：https://gen3d.frps.zhifouai.com
 
 ---
 
-## 当前状态（2026-03-22）
+## 当前状态（2026-03-24）
 
-后端测试基线：`python -m pytest tests -q` → **137 passed**
-
-### v0.1 模块进度
+测试基线：**161 passed**
 
 | 模块 | 状态 |
 |------|------|
-| M1 · 品牌 & 开源化基础 | ✅ 完成 |
-| M2 · Admin Panel（4页 双主题 i18n） | ✅ 完成（10 轮打磨，HF 连接面板，待修 3 项见 plan/pending） |
-| M2.5 · 用户侧页面 | ✅ 功能完成，UI 商业级打磨中 |
-| M3 · HunYuan3D Provider | ✅ 完成（mock + real，11 新测试） |
-| M4 · 安装体验（Pinokio + 脚本）| 🔲 待开始 |
-| M5 · 文档完善 | 🔲 待开始 |
-| M6 · 发布前 QA & 清理 | 🔲 待开始 |
+| M1 · 品牌 & 开源化基础 | ✅ |
+| M2 · Admin Panel（11 轮打磨） | ✅ |
+| M2.5 · 用户侧页面（6 轮打磨） | ✅ |
+| M3 · HunYuan3D + Step1X-3D | ✅ mock + real 全实现 |
+| M4 · 安装体验（Pinokio）| 🔲 |
+| M5 · 文档完善 | 🔲 |
+| M6 · 发布前 QA | 🔲 |
 
-### Web UI 打磨进度（M2.5 细化）
-
-已完成 5 轮打磨（3/21），已提交的改进：
-- 全站品牌统一：Cubie，术语统一为 Assets/资产
-- 导航：Logo + Workspace / Assets + 语言切换（Languages 图标，原生语言名）+ 主题 + 设置
-- Generate 页：全屏 canvas + 浮动玻璃面板（配置+最近任务），负边距突破 shell padding
-- Viewer 页：全屏 canvas + 右侧浮动玻璃侧边栏，Task ID 标题，输入图预览，格式下拉，删除确认
-- Gallery 页：卡片直接跳转 Viewer（删除了 TaskSheet），max-w-7xl 居中
-- 模型查看器工具栏：显示模式 / 旋转 / 网格 / 重置 / 灯光 / 背景色
-- 背景色选择器：紧凑圆点预设 + 自定义取色 + 跟随主题
-- 亮色/暗色主题适配：viewer 背景、网格线、线框色
-
-第 6 轮已完成（3/21）：工具栏去嵌套框、Lightbulb 灯光图标、阴影开关、背景选择器紧凑布局、Setup 精简、i18n 文案修正
+未完成小项：`deploy.sh` 中 `ADMIN_TOKEN=` 待补（plan/2026-03-15-e5-compose-admin-upload-env.md）
 
 ---
 
-## Web UI 设计规范
+## 功能全景
 
-### 布局模式
+**用户侧**：Setup（初始配置）→ Generate（上传图/生成/SSE 进度/预览）→ Gallery（历史任务）→ Viewer（3D 查看/下载/删除）
 
-| 类型 | 用法 | 关键 class |
-|------|------|-----------|
-| Canvas 页（Generate/Viewer）| 全屏无边界画布 + 浮动玻璃面板 | `-mx-4 -my-6 md:-mx-6` 突破 shell padding，`absolute inset-0` 画布 |
-| 内容页（Gallery/Setup）| 常规流式布局 | `max-w-7xl mx-auto` 居中 |
-
-### 浮动面板
-
-```
-pointer-events-none（外层禁止事件）
-  → pointer-events-auto（面板恢复事件）
-    → bg-surface-glass backdrop-blur-xl shadow-soft border border-outline rounded-2xl
-```
-
-### 响应式与布局规范
-
-- 最小支持 iPad 横屏（1024px），不做小屏/移动端适配
-- 侧边栏 + 内容区固定双列，不用 `lg:` 条件切换
-- 内容区撑满可用宽度，不设 `max-width`（Canvas 页除外）
-- Header 固定横排，不用 `xl:` 条件做竖排 fallback
-- 不使用 `sm:` / `md:` / `lg:` / `xl:` 响应式前缀（Admin 和用户侧均适用）
-
-### 间距体系（全站统一）
-
-| 层级 | 用途 | 值 |
-|------|------|-----|
-| 页面级 | 卡片/区块之间 | `gap-4` = 16px |
-| 卡片内 | 分组之间、字段网格 | `gap-3` = 12px |
-| 字段内 | label→input、按钮组 | `gap-1.5` = 6px |
-
-- 卡片 padding 统一 `p-4`（16px）
-- 操作按钮统一 `size="sm"`（h-8 = 32px），不允许自定义 `h-*` 覆盖
-
-### 组件约定
-
-- Select / Dialog：使用 Radix UI（`@/components/ui/select`、`react-dialog`）
-- i18n：react-i18next，`en.json` + `zh-CN.json`
-- 图标：lucide-react
-- 语言选项始终显示原生名称（`nativeName` 字段）
-- 圆角层级：面板 `rounded-2xl`，按钮/卡片 `rounded-xl`，小元素 `rounded-lg`
-
-### 3D 查看器
-
-- `ThreeViewer` → `Viewer3D`（viewer.ts），支持 texture/clay/wireframe 模式
-- 背景色：`useViewerColors` hook 提供主题色，用户可手动选预设或自定义
-- studio 灯光：可调光强和角度
-- 阴影：contactShadow + shadowFloor，可开关（第 6 轮新增）
+**Admin**：Tasks（任务监控）/ Models（模型管理：注册/加载/启停）/ API Keys（创建/管理）/ Settings（队列上限/速率/HuggingFace）
 
 ---
 
-## 关键路径
+## 核心架构
 
-| 文件/目录 | 说明 |
-|----------|------|
-| `AGENTS.md` | AI Coder 执行指南 |
-| `docs/PLAN.md` | 架构基线 |
-| `plan/` | 规划日志（79 个文件，最新 3/21） |
-| `config.py` / `serve.py` | 后端入口 |
-| `api/` / `engine/` / `model/` / `stages/` | 后端核心 |
-| `storage/model_store.py` | 模型定义 CRUD（model_definitions 表） |
-| `storage/settings_store.py` | 系统设置持久化（system_settings 表） |
-| `storage/task_store.py` | 任务存储 + 聚合统计 |
-| `storage/api_key_store.py` | API Key CRUD + 使用量追踪 |
-| `web/src/lib/admin-api.ts` | Admin API client |
-| `web/src/pages/` | 前端页面（generate/gallery/viewer/setup + 5 个 admin 页） |
-| `web/src/components/model-viewport.tsx` | 模型查看器+工具栏 |
-| `web/src/lib/viewer.ts` | Three.js 渲染器 |
-| `web/src/styles/tokens.css` | 设计 token（CSS 变量） |
-| `web/src/i18n/` | 多语言文件 |
+### 生成任务链路
+
+```
+POST /v1/upload → 存磁盘 → 返回 upload://uuid
+POST /v1/tasks → 幂等/限流/容量检查 → 写 QUEUED → 触发模型预热
+Worker 轮询认领（乐观锁）→ wait_ready → PipelineCoordinator.run_sequence()
+  PreprocessStage  下载/解码/归一化 → input artifact
+  GPUStage         占 GPU slot → run_batch → progress_cb → SSE 推送
+  ExportStage      export_glb → preview.png → publish_artifact → manifest
+每次状态变化 → UPDATE tasks + INSERT task_events + 推 SSE queue
+任务结束 → webhook（POST，3 次重试）
+```
+
+### 任务状态机
+
+```
+QUEUED → PREPROCESSING → GPU_QUEUED → GPU_SS → GPU_SHAPE → GPU_MATERIAL
+       → EXPORTING → UPLOADING → SUCCEEDED
+任意状态 → FAILED / CANCELLED
+```
+
+### 崩溃恢复
+
+- QUEUED / PREPROCESSING → 重新入队
+- GPU 阶段及之后 → 强制 FAILED（GPU 结果已丢失）
+
+---
+
+## 关键设计决策
+
+| 决策 | 原因 |
+|------|------|
+| Stage 管线而非单函数 | 崩溃恢复粒度不同；stage_stats 独立计时用于估算等待；错误定位 `failed_stage` 返回给客户端 |
+| 所有路由集中在 server.py | AppContainer（11 个对象）闭包捕获，拆文件需依赖注入，复杂度上升；v0.2 重构 |
+| Artifact 用文件系统 + manifest | MinIO presigned URL 有过期须动态生成；删除原子性；URL 依赖服务地址，manifest 重建时自愈 |
+| LRU + max_tasks_per_slot | 大模型无法多个共存，纯 LRU 导致冷门模型饿死；配额机制实现公平时间片调度 |
+| 静态 Bearer token 不用 JWT | 私有部署场景，`secrets.compare_digest` 防时序攻击已够用 |
 
 ---
 
 ## Provider 状态
 
-| Provider | 状态 |
-|---------|------|
-| `mock`（MockTrellis2Provider）| ✅ 可用 |
-| `real`（Trellis2Provider）| ✅ 可用 |
-| `hunyuan3d`（HunYuan3D-2）| ✅ mock + real 可用 |
-| `step1x3d`（Step1X-3D）| ✅ mock + real 可用 |
+| Provider | mock | real |
+|---------|:----:|:----:|
+| Trellis2 | ✅ | ✅ |
+| HunYuan3D-2 | ✅ | ✅ |
+| Step1X-3D | ✅ | ✅ |
 
----
-
-## 暂缓事项
-
-| 事项 | 目标版本 |
-|------|---------|
-| 背景图/HDRI 支持 | v0.2 |
-| Phase D 多机 Worker | v0.2 |
-| Mac Apple Silicon | v0.2 |
-| Launcher GUI | v0.2 |
-| E15-B 外部后端接入示例 | 文档示例 |
+`Hunyuan3D-2/` 目录在 git 中 untracked，属正常状态。
 
 ---
 
 ## 技术债
 
-- IP 白名单校验：已存 IP，校验逻辑待 nginx 路径稳定后开启
-- GPU 细粒度进度 hook：`gpu_ss/gpu_shape/gpu_material` 是语义占位
-- GPU scheduler：简单 FIFO，`max_batch + deadline` 调度未实现
-- 取消运行中任务：仅支持 `gpu_queued` 状态
-- Docker 配置不一致：`MODEL_DIR` 卷挂载无用（模型实际在 `HF_HOME` 缓存）、`MODEL_PATH` 默认值 Dockerfile 与 Compose 冲突、`HF_TOKEN` 未透传导致 Admin HF 面板显示"未连接"
-- **模型 Pipeline 自维护**（v0.2）：当前 HunYuan3D-2 / Step1X-3D 通过 `git clone` 外部 repo + editable install 方式引入，长期应将各模型推理核心代码摘入 `model/<provider>/pipeline/` 自行维护，彻底去掉 build 时的 GitHub 依赖，同时裁掉训练/Demo 无关代码以减小镜像体积
+| 项目 | 优先级 |
+|------|--------|
+| Docker：HF_TOKEN 未透传 / MODEL_DIR 卷无用 / MODEL_PATH 默认值冲突 | v0.1 发布前 |
+| deploy.sh 缺 ADMIN_TOKEN= | v0.1 发布前 |
+| 取消只支持 gpu_queued，运行中无法取消 | v0.2 |
+| GPU 进度（gpu_ss/shape/material）是语义占位 | v0.2 |
+| api/server.py 1900 行，路由未拆分 | v0.2 |
+| 模型 Pipeline 自维护（当前 git clone 外部 repo）| v0.2 |
+
+---
+
+## 暂缓（v0.2）
+
+背景图/HDRI、多机 Worker、Mac Apple Silicon、Launcher GUI
+
+---
+
+## 角色分配速查
+
+写 Prompt 时，根据任务类型指定角色：
+
+| 任务类型 | 角色 | 角色文件 |
+|---------|------|---------|
+| Python 功能开发、API、engine、model | 后端工程师 | `.claude/roles/backend.md` |
+| React/UI、页面、组件、i18n | 前端工程师 | `.claude/roles/frontend.md` |
+| Bug 定位与修复 | 调试工程师 | `.claude/roles/debug.md` |
+| 跨前后端（必须同时改两侧）| 在 Prompt 里同时指定两个角色文件 | `backend.md` + `frontend.md` |
+
+Prompt 标准格式：
+```
+你是[角色名]，工作目录是 gen3d/，先读 AGENTS.md，再读 .claude/roles/[role].md。
+
+【上游产出】（无则省略）
+- 上一个任务完成的内容、新增接口、关键变更
+
+【任务】
+...
+
+【验收标准】
+...
+```
+
+**并行分配前**：查 `plan/` 有无 `Status: planning` 的文件，确认待改文件与新任务无交叉，再同时下发。
+
+**摩擦记录**：写 Prompt 时感到别扭、协调超出预期、AI Coder 汇报有困惑，随手在 `.claude/friction-log.md` 加一行。每积累 10 条或每 2 周回顾一次，决定是否调整工作流。
+
+**代码健康**：超标文件（> 500 行）由 AI Coder 验收时自动输出，出现在 plan 汇报里；同一文件被提到 ≥ 2 次时安排重构。
+
+---
+
+## 关键文件索引
+
+| 文件/目录 | 说明 |
+|----------|------|
+| `AGENTS.md` | AI Coder 核心规则 |
+| `web/AGENTS.md` | 前端专项规则 |
+| `.claude/rules/` | 路径触发规则（frontend / backend） |
+| `.claude/skills/` | 可复用任务模板（new-provider / ui-polish） |
+| `api/server.py` | 全部路由 + AppContainer |
+| `engine/` | 任务引擎（async_engine / pipeline / model_registry / model_scheduler） |
+| `model/` | Provider 实现 |
+| `stages/` | preprocess / gpu / export |
+| `storage/` | 5 个 store |
+| `web/src/` | React SPA |
+| `plan/` | 规划日志（archive/ 存历史） |

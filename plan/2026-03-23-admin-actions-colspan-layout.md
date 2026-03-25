@@ -1,5 +1,5 @@
 # Admin 操作列表格列对齐修复
-Date / Status: 2026-03-23 / planning→done / Commits: N/A（按 AGENTS.md，本轮不执行 commit）
+Date / Status: 2026-03-23 / done / Commits: N/A（按 AGENTS.md，本轮不执行 commit）
 
 ## Goal
 修复 Admin 的模型列表与 API Key 列表中“操作”列的按钮尺寸和列对齐问题：按钮回退为 `size="sm"`，并将操作区改为多列 `<td>` 结构，确保跨行垂直对齐。

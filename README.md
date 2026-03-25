@@ -1,62 +1,75 @@
-# Cubie 3D
+# Cubie
 
-Cubie 3D 是一个可本地部署的开源 3D 生成服务，提供任务队列、Web UI、artifact 管理与 Docker 部署能力。
+可私有部署的开源 3D 生成服务。上传一张图片，生成可下载的 GLB 3D 模型。
 
-## 功能亮点
+对标 Meshy / Tripo3D 等商业产品，定位类似 ComfyUI 在图像生成领域的地位。
 
-- 支持 `mock` / `real` 两种 provider 模式，便于本地联调和 GPU 部署
-- 提供 React Web UI，可直接提交任务、查看进度、浏览结果
-- 内置任务状态流、SSE 事件、artifact 下载与 webhook 回调
-- 支持本地磁盘和 S3 兼容对象存储两种 artifact backend
-- 提供 Docker Compose、部署脚本和最小 Prometheus 指标
+## 功能
+
+- **图片 → 3D**：上传图片，队列调度，GPU 推理，导出 GLB + 预览图
+- **多模型支持**：Trellis2、HunYuan3D-2、Step1X-3D，Admin 面板动态切换
+- **Web UI**：生成进度 SSE 实时推送，Three.js 3D 查看器（texture/clay/wireframe）
+- **Admin 面板**：任务监控、模型管理、API Key 管理、系统设置
+- **灵活部署**：本地磁盘或 S3 兼容对象存储，Docker Compose 一键启动
 
 ## 系统要求
 
-- Linux 主机，建议 Ubuntu 22.04+ 或同级发行版
-- NVIDIA GPU，建议 24GB 及以上显存
-- NVIDIA Driver + CUDA 12.4 兼容运行时
+- Linux，建议 Ubuntu 22.04+
+- NVIDIA GPU，建议 24GB+ 显存（CUDA 12.4）
+- NVIDIA Driver + Container Toolkit
 - Docker Engine + Docker Compose Plugin
-- NVIDIA Container Toolkit
-- Python 3.10+（本地源码运行或测试时）
 
 ## 快速开始
 
-1. 准备模型目录与环境文件：
-
 ```bash
+# 1. 准备配置文件
 cp .env.example .env
-mkdir -p ./models/trellis2 ./data
-```
+# 编辑 .env，至少设置：
+#   ADMIN_TOKEN=your-secret-token
+#   PROVIDER_MODE=real          # 无 GPU 时用 mock
+#   MODEL_PATH=/models/trellis2
 
-2. 编辑 `.env`，至少确认这些配置：
-
-```bash
-ADMIN_TOKEN=change-me
-PROVIDER_MODE=real
-MODEL_PATH=/models/trellis2
-MODEL_DIR=/absolute/path/to/models/trellis2
-```
-
-提示：如果只是快速 smoke test，可以先把 `PROVIDER_MODE=mock`。
-
-3. 启动服务并打开 Web UI：
-
-```bash
+# 2. 启动
 docker compose up --build
+
+# 访问 http://127.0.0.1:18001
 ```
 
-默认访问地址是 `http://127.0.0.1:18001/`。
+## 本地开发
 
-## 截图
+```bash
+# 后端
+pip install -r requirements.txt
+python serve.py
+python -m pytest tests -q       # 161 passed
 
-TODO: add screenshots
+# 前端
+cd web
+npm ci && npm run build         # 构建到 web/dist/
+npm run dev -- --host 127.0.0.1 --port 5173  # 开发服务器
+```
 
-## 开发说明
+## 目录结构
 
-- 本地目录名暂时仍为 `gen3d/`，以避免影响现有模块路径和脚本
-- API 路径保持为 `/v1/...`
-- 默认 Compose 环境变量以功能名为主：`IMAGE`、`DATA_DIR`、`MODEL_DIR`、`MINIO_DIR`
+```
+gen3d/
+├── api/        FastAPI 路由与 Schema
+├── engine/     任务引擎（调度 / 状态机 / 模型管理）
+├── model/      Provider 实现（trellis2 / hunyuan3d / step1x3d）
+├── stages/     任务 Stage（preprocess / gpu / export）
+├── storage/    存储层（SQLite + 文件系统/MinIO）
+├── web/        React 前端 SPA
+├── docker/     Dockerfile
+├── scripts/    烟测脚本、模型下载脚本
+└── docs/       架构文档
+```
+
+## 相关文档
+
+- [架构与设计决策](docs/PLAN.md)
+- [开发规范（AI Coder）](AGENTS.md)
+- [前端开发规范](web/AGENTS.md)
 
 ## License
 
-本项目采用 Apache License 2.0，详见 [LICENSE](./LICENSE)。
+Apache License 2.0，详见 [LICENSE](./LICENSE)。
