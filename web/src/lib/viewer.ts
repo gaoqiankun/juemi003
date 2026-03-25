@@ -543,7 +543,7 @@ function fitCameraToObject(
   controls: OrbitControls | null,
   aspect = 1,
 ) {
-  const { size, center, maxDim } = getObjectBounds(object);
+  const { center, maxDim } = getObjectBounds(object);
   const fov = THREE.MathUtils.degToRad(camera.fov);
   const distance = Math.max(
     (maxDim * 0.85) / Math.tan(fov / 2),

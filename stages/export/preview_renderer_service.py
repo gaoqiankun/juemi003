@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Protocol
 
 import structlog
-
 from gen3d.stages.export.preview_protocol import read_message, write_message
 
 PREVIEW_RENDERER_STARTUP_TIMEOUT_SECONDS = 60

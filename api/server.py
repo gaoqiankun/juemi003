@@ -7,18 +7,23 @@ import secrets
 import uuid
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from datetime import datetime
 from email.parser import BytesParser
 from email.policy import default as default_email_policy
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote, urlsplit, urlunsplit
 
-from datetime import datetime
-
 import httpx
 import structlog
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
-from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import (
+    FileResponse,
+    JSONResponse,
+    PlainTextResponse,
+    RedirectResponse,
+    StreamingResponse,
+)
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
@@ -28,10 +33,20 @@ from starlette.types import Scope
 try:
     from huggingface_hub import (
         constants as _hf_constants,
-        hf_api as _hf_api_module,
+    )
+    from huggingface_hub import (
         get_token as _hf_get_token,
+    )
+    from huggingface_hub import (
+        hf_api as _hf_api_module,
+    )
+    from huggingface_hub import (
         login as _hf_login,
+    )
+    from huggingface_hub import (
         logout as _hf_logout,
+    )
+    from huggingface_hub import (
         whoami as _hf_whoami,
     )
 except Exception:
@@ -56,12 +71,12 @@ from gen3d.api.schemas import (
     PrivilegedApiKeyCreateRequest,
     PrivilegedApiKeyCreateResponse,
     PrivilegedApiKeyListItem,
-    TaskListResponse,
-    TaskSummary,
     TaskArtifactsResponse,
     TaskCreateRequest,
     TaskCreateResponse,
+    TaskListResponse,
     TaskResponse,
+    TaskSummary,
     UploadImageResponse,
     UserModelListResponse,
     UserModelSummary,
@@ -92,17 +107,17 @@ from gen3d.stages.gpu.scheduler import GPUSlotScheduler
 from gen3d.stages.gpu.stage import GPUStage
 from gen3d.stages.gpu.worker import build_gpu_workers
 from gen3d.stages.preprocess.stage import PreprocessStage
-from gen3d.storage.artifact_store import (
-    ArtifactStore,
-    ArtifactStoreConfigurationError,
-    build_boto3_object_storage_client,
-)
 from gen3d.storage.api_key_store import (
-    ApiKeyStore,
     KEY_MANAGER_SCOPE,
     METRICS_SCOPE,
     TASK_VIEWER_SCOPE,
     USER_KEY_SCOPE,
+    ApiKeyStore,
+)
+from gen3d.storage.artifact_store import (
+    ArtifactStore,
+    ArtifactStoreConfigurationError,
+    build_boto3_object_storage_client,
 )
 from gen3d.storage.model_store import ModelStore
 from gen3d.storage.settings_store import (

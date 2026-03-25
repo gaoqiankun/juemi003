@@ -96,19 +96,22 @@ export function GeneratePage() {
   const progress = generateView === "uploading"
     ? Math.max(0, Math.min(100, generate.uploadProgress || 0))
     : Math.max(0, Math.min(99, currentTask?.progress || 0));
+  const effectiveAvailableModels = config.token ? availableModels : [];
+  const effectiveSelectedModel = config.token ? selectedModel : "";
+  const effectiveModelLoadState = config.token ? modelLoadState : "idle";
   const isProcessing = generateView === "processing" || generateView === "uploading";
   const canCancel = Boolean(currentTask && !isTerminal(currentTask.status) && !currentTask.pendingCancel);
-  const canStart = Boolean(generate.previewDataUrl) && Boolean(selectedModel) && !generate.isSubmitting && !generate.isUploading;
+  const canStart = Boolean(generate.previewDataUrl) && Boolean(effectiveSelectedModel) && !generate.isSubmitting && !generate.isUploading;
   const downloadUrl = getTaskArtifactProxyUrl(currentTask, config.baseUrl);
   const viewerColors = useViewerColors();
-  const modelSelectDisabled = modelLoadState !== "ready";
-  const modelPlaceholder = modelLoadState === "loading"
+  const modelSelectDisabled = effectiveModelLoadState !== "ready";
+  const modelPlaceholder = effectiveModelLoadState === "loading"
     ? t("user.generate.panel.modelLoading")
-    : modelLoadState === "error"
+    : effectiveModelLoadState === "error"
       ? t("user.generate.panel.modelLoadFailed")
-      : modelLoadState === "empty"
+      : effectiveModelLoadState === "empty"
         ? t("user.generate.panel.modelEmpty")
-        : modelLoadState === "idle"
+        : effectiveModelLoadState === "idle"
           ? t("user.generate.panel.modelNeedsAuth")
           : t("user.generate.panel.modelPlaceholder");
 
@@ -119,15 +122,16 @@ export function GeneratePage() {
   useEffect(() => {
     let isCancelled = false;
     if (!config.token) {
-      setAvailableModels([]);
-      setSelectedModel("");
-      setModelLoadState("idle");
       return () => {
         isCancelled = true;
       };
     }
 
-    setModelLoadState("loading");
+    queueMicrotask(() => {
+      if (!isCancelled) {
+        setModelLoadState("loading");
+      }
+    });
     fetchModels({
       baseUrl: config.baseUrl,
       token: config.token,
@@ -186,7 +190,7 @@ export function GeneratePage() {
       cancelTask(currentTask.taskId).catch(() => undefined);
       return;
     }
-    submitCurrentFile(selectedModel).catch(() => undefined);
+    submitCurrentFile(effectiveSelectedModel).catch(() => undefined);
   };
 
   const renderGenerateConfigCard = (inputRef: React.RefObject<HTMLInputElement>) => (
@@ -246,13 +250,13 @@ export function GeneratePage() {
 
         <div>
           <div className="mb-2 text-xs font-medium text-text-secondary">{t("user.generate.panel.modelLabel")}</div>
-          <Select value={selectedModel || undefined} onValueChange={setSelectedModel} disabled={modelSelectDisabled}>
+          <Select value={effectiveSelectedModel || undefined} onValueChange={setSelectedModel} disabled={modelSelectDisabled}>
             <SelectTrigger className="h-10 rounded-xl border-outline bg-surface-container-low px-3 text-sm">
               <SelectValue placeholder={modelPlaceholder} />
             </SelectTrigger>
             <SelectContent>
-              {modelLoadState === "ready"
-                ? availableModels.map((model) => (
+              {effectiveModelLoadState === "ready"
+                ? effectiveAvailableModels.map((model) => (
                     <SelectItem key={model.id} value={model.id}>{model.displayName}</SelectItem>
                   ))
                 : <SelectItem value="__model_fallback__" disabled>{modelPlaceholder}</SelectItem>}
@@ -398,7 +402,7 @@ export function GeneratePage() {
             <button
               type="button"
               className="mt-5 inline-flex items-center gap-1.5 rounded-full border border-outline px-4 py-2 text-xs font-medium text-text-secondary transition hover:bg-surface-container-high hover:text-text-primary"
-              onClick={() => retryCurrentTask(selectedModel).catch(() => undefined)}
+              onClick={() => retryCurrentTask(effectiveSelectedModel).catch(() => undefined)}
             >
               <RotateCcw className="h-3.5 w-3.5" />
               {t("user.generate.failed.retry")}

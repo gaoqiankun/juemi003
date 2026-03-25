@@ -5,13 +5,12 @@ import time
 from dataclasses import dataclass
 
 import structlog
-from structlog.contextvars import bound_contextvars
-
 from gen3d.engine.model_registry import ModelRegistry
 from gen3d.engine.sequence import RequestSequence, TaskStatus
 from gen3d.model.base import ModelProviderExecutionError, StageProgress
 from gen3d.observability.metrics import observe_stage_duration
 from gen3d.stages.base import BaseStage, StageExecutionError, StageUpdateHandler
+from structlog.contextvars import bound_contextvars
 
 
 @dataclass(slots=True)

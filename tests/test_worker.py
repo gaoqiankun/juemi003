@@ -11,9 +11,9 @@ if str(WORKSPACE_ROOT) not in sys.path:
 
 from gen3d.model.base import ModelProviderExecutionError
 from gen3d.stages.gpu.worker import (
-    _PendingRequest,
     ProcessGPUWorker,
     WorkerProcessConfig,
+    _PendingRequest,
 )
 
 

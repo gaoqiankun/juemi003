@@ -276,14 +276,6 @@ export function Gen3dProvider({ children }: { children: ReactNode }) {
     }));
   }, []);
 
-  const setGenerateStatus = useCallback((message: string, tone: GenerateState["statusTone"] = "info") => {
-    setGenerate((previous) => ({
-      ...previous,
-      statusMessage: message,
-      statusTone: tone,
-    }));
-  }, []);
-
   const upsertTask = useCallback((taskId: string, patch: Record<string, unknown>) => {
     let nextTask: TaskRecord | null = null;
     updateTasks((previous) => {
@@ -631,48 +623,6 @@ export function Gen3dProvider({ children }: { children: ReactNode }) {
     syncCurrentTaskSelection(nextTasks);
   }, [hydrateArtifact, stopSubscription, syncCurrentTaskSelection, updateTasks]);
 
-  const refreshTaskListAction = useCallback(async ({ append = false, resubscribe = false, silent = false } = {}) => {
-    if (!configRef.current.baseUrl) {
-      throw new Error("请先填写服务地址");
-    }
-    if (!configRef.current.token) {
-      setConnection((previous) => ({
-        ...previous,
-        tone: "empty",
-        label: "等待连接",
-        detail: "请先到设置页填写连接信息",
-      }));
-      resetTaskState();
-      return;
-    }
-
-    updateTaskPage((previous) => ({ ...previous, isLoading: true }));
-    try {
-      const payload = await fetchTaskList(configRef.current, append ? taskPageRef.current.nextCursor : "", taskPageRef.current.limit) as TaskListPayload;
-      await replaceTasksFromServer(Array.isArray(payload.items) ? payload.items : [], append);
-      updateTaskPage((previous) => ({
-        ...previous,
-        nextCursor: String(payload.nextCursor || payload.next_cursor || ""),
-        hasMore: Boolean(payload.hasMore ?? payload.has_more),
-      }));
-      if (resubscribe) {
-        const sorted = Object.values(tasksRef.current).sort(compareTaskRecords);
-        for (const task of sorted) {
-          if (isActiveStatus(task.status)) {
-            await subscribeToTask(task.taskId, true);
-          }
-        }
-      }
-      if (!silent) {
-        toast.success(append ? "更多内容已加载" : "图库已刷新", {
-          description: `当前共有 ${Object.keys(tasksRef.current).length} 条内容。`,
-        });
-      }
-    } finally {
-      updateTaskPage((previous) => ({ ...previous, isLoading: false }));
-    }
-  }, [replaceTasksFromServer, resetTaskState, updateTaskPage]);
-
   const refreshTaskAction = useCallback(async (taskId: string, { silent = true } = {}) => {
     const payload = await fetchTask(configRef.current, taskId);
     await applyTaskSnapshot(taskId, payload, "snapshot");
@@ -824,7 +774,7 @@ export function Gen3dProvider({ children }: { children: ReactNode }) {
       return;
     }
     throw new Error("连接已中断，请稍后刷新");
-  }, [applyEventPayload, parseSseEvent, startPolling, stopSubscription, upsertTask]);
+  }, [applyEventPayload, applyTaskSnapshot, parseSseEvent, startPolling, stopSubscription, upsertTask]);
 
   const subscribeToTask = useCallback(async (taskId: string, force = false) => {
     if (!configRef.current.baseUrl) {
@@ -859,6 +809,48 @@ export function Gen3dProvider({ children }: { children: ReactNode }) {
       startPolling(taskId);
     }
   }, [connectSse, refreshTaskAction, startPolling, stopSubscription, upsertTask]);
+
+  const refreshTaskListAction = useCallback(async ({ append = false, resubscribe = false, silent = false } = {}) => {
+    if (!configRef.current.baseUrl) {
+      throw new Error("请先填写服务地址");
+    }
+    if (!configRef.current.token) {
+      setConnection((previous) => ({
+        ...previous,
+        tone: "empty",
+        label: "等待连接",
+        detail: "请先到设置页填写连接信息",
+      }));
+      resetTaskState();
+      return;
+    }
+
+    updateTaskPage((previous) => ({ ...previous, isLoading: true }));
+    try {
+      const payload = await fetchTaskList(configRef.current, append ? taskPageRef.current.nextCursor : "", taskPageRef.current.limit) as TaskListPayload;
+      await replaceTasksFromServer(Array.isArray(payload.items) ? payload.items : [], append);
+      updateTaskPage((previous) => ({
+        ...previous,
+        nextCursor: String(payload.nextCursor || payload.next_cursor || ""),
+        hasMore: Boolean(payload.hasMore ?? payload.has_more),
+      }));
+      if (resubscribe) {
+        const sorted = Object.values(tasksRef.current).sort(compareTaskRecords);
+        for (const task of sorted) {
+          if (isActiveStatus(task.status)) {
+            await subscribeToTask(task.taskId, true);
+          }
+        }
+      }
+      if (!silent) {
+        toast.success(append ? "更多内容已加载" : "图库已刷新", {
+          description: `当前共有 ${Object.keys(tasksRef.current).length} 条内容。`,
+        });
+      }
+    } finally {
+      updateTaskPage((previous) => ({ ...previous, isLoading: false }));
+    }
+  }, [replaceTasksFromServer, resetTaskState, subscribeToTask, updateTaskPage]);
 
   const pingHealthAction = useCallback(async (silent = false) => {
     try {
@@ -1153,7 +1145,7 @@ export function Gen3dProvider({ children }: { children: ReactNode }) {
         description: "连接验证和内容刷新已完成。",
       });
     })();
-  }, [persistConfig, pingHealthAction, refreshTaskListAction]);
+  }, [persistConfig, pingHealthAction, refreshTaskListAction, resetTaskState]);
 
   useEffect(() => {
     if (config.baseUrl) {
@@ -1166,11 +1158,14 @@ export function Gen3dProvider({ children }: { children: ReactNode }) {
         });
       });
     }
+  }, [config.baseUrl, config.token, pingHealthAction, refreshTaskListAction]);
 
+  useEffect(() => {
+    const activeSubscriptions = subscriptionsRef.current;
     return () => {
-      Array.from(subscriptionsRef.current.keys()).forEach((taskId) => stopSubscription(taskId));
+      Array.from(activeSubscriptions.keys()).forEach((taskId) => stopSubscription(taskId));
     };
-  }, []);
+  }, [stopSubscription]);
 
   const sortedTasks = useMemo(() => Object.values(tasks).sort(compareTaskRecords), [tasks]);
   const currentTask = useMemo(() => (generate.currentTaskId ? tasks[generate.currentTaskId] || null : null), [generate.currentTaskId, tasks]);

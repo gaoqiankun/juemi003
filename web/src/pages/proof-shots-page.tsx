@@ -8,7 +8,6 @@ import { renderModelThumbnail } from "@/lib/viewer";
 import type {
   ApiConfig,
   ConnectionState,
-  GalleryFilter,
   GenerateState,
   GenerateView,
   TaskPageState,
@@ -17,6 +16,11 @@ import type {
 
 const MODEL_URL = "/fixtures/compare-model.glb";
 const INPUT_URL = "/fixtures/compare-input.png";
+const SHOT_BASE_TS = Date.now();
+const SHOT_COMPLETED_CREATED_AT = new Date(SHOT_BASE_TS - 65 * 60 * 1000).toISOString();
+const SHOT_PROCESSING_CREATED_AT = new Date(SHOT_BASE_TS - 14 * 60 * 1000).toISOString();
+const SHOT_FAILED_CREATED_AT = new Date(SHOT_BASE_TS - 5 * 60 * 60 * 1000).toISOString();
+const SHOT_COMPLETED_2_CREATED_AT = new Date(SHOT_BASE_TS - 7 * 60 * 60 * 1000).toISOString();
 
 type ProofMode =
   | "generate-empty"
@@ -130,17 +134,9 @@ function getMode(): ProofMode {
 export function ProofShotsPage() {
   const mode = useMemo(() => getMode(), []);
   const activePath = mode.startsWith("gallery") ? "/gallery" : "/";
-  const needsThumbnail = true;
   const [thumbnailUrl, setThumbnailUrl] = useState("");
 
   useEffect(() => {
-    if (!needsThumbnail) {
-      const timeout = window.setTimeout(() => {
-        (window as Window & { __shotReady?: boolean }).__shotReady = true;
-      }, mode === "generate-completed" ? 900 : 250);
-      return () => window.clearTimeout(timeout);
-    }
-
     let active = true;
     renderModelThumbnail(MODEL_URL, {
       width: 400,
@@ -163,13 +159,13 @@ export function ProofShotsPage() {
     return () => {
       active = false;
     };
-  }, [needsThumbnail]);
+  }, []);
 
   const completedTask = useMemo(
     () => buildTask({
       taskId: "shot-completed",
       status: "succeeded",
-      createdAt: new Date(Date.now() - 65 * 60 * 1000).toISOString(),
+      createdAt: SHOT_COMPLETED_CREATED_AT,
       progress: 100,
       thumbnailUrl,
       thumbnailState: thumbnailUrl ? "ready" : "loading",
@@ -181,7 +177,7 @@ export function ProofShotsPage() {
     () => buildTask({
       taskId: "shot-processing",
       status: "queued",
-      createdAt: new Date(Date.now() - 14 * 60 * 1000).toISOString(),
+      createdAt: SHOT_PROCESSING_CREATED_AT,
       progress: 64,
     }),
     [],
@@ -191,7 +187,7 @@ export function ProofShotsPage() {
     () => buildTask({
       taskId: "shot-failed",
       status: "failed",
-      createdAt: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString(),
+      createdAt: SHOT_FAILED_CREATED_AT,
       progress: 100,
     }),
     [],
@@ -203,7 +199,7 @@ export function ProofShotsPage() {
       buildTask({
         taskId: "shot-completed-2",
         status: "succeeded",
-        createdAt: new Date(Date.now() - 7 * 60 * 60 * 1000).toISOString(),
+        createdAt: SHOT_COMPLETED_2_CREATED_AT,
         progress: 100,
         thumbnailUrl,
         thumbnailState: thumbnailUrl ? "ready" : "loading",
@@ -274,7 +270,7 @@ export function ProofShotsPage() {
       currentTask,
       generateView,
       galleryFilter: "all",
-      setGalleryFilter: (_filter: GalleryFilter) => undefined,
+      setGalleryFilter: () => undefined,
       getFilteredTasks: () => tasks,
       saveConfig: async () => {},
       pingHealth: async () => ({ status: "ready", service: "cubie3d" }),
@@ -302,7 +298,7 @@ export function ProofShotsPage() {
     currentTask: null,
     generateView: "idle",
     galleryFilter: "all",
-    setGalleryFilter: (_filter: GalleryFilter) => undefined,
+    setGalleryFilter: () => undefined,
     getFilteredTasks: (filter = "all") => {
       if (filter === "all") {
         return galleryTasks;
@@ -336,7 +332,7 @@ export function ProofShotsPage() {
         {mode.startsWith("generate") ? (
           <GeneratePage />
         ) : (
-          <GalleryPage initialSelectedTaskId={mode === "gallery-modal" ? completedTask.taskId : ""} />
+          <GalleryPage />
         )}
       </AppShell>
     </Provider>

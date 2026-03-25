@@ -8,7 +8,11 @@
 
 1. 查 `.agent/pending.md`，有待处理的 API Contract 变更则优先同步
 2. 明确本次任务改哪些页面/组件
-3. 开始前 `cd web && npm run build` 确认零错误（基线）
+3. 确认 Node 版本（系统默认版本可能不兼容）：
+   ```bash
+   export PATH="$HOME/.nvm/versions/node/v24.14.0/bin:$PATH"
+   ```
+4. `cd web && npm run build` 确认零错误（基线）
 
 ## 改动范围
 

@@ -8,7 +8,6 @@ import { renderModelThumbnail } from "@/lib/viewer";
 import type {
   ApiConfig,
   ConnectionState,
-  GalleryFilter,
   GenerateState,
   TaskPageState,
   TaskRecord,
@@ -18,6 +17,9 @@ const MODEL_URL = "/fixtures/compare-model.glb";
 const INPUT_URL = "/fixtures/compare-input.png";
 const REFERENCE_GALLERY_URL = "/fixtures/reference-assets-grid.png";
 const REFERENCE_COMPLETED_URL = "/fixtures/reference-model-viewer-completed.png";
+const COMPARE_BASE_TS = Date.now();
+const COMPARE_GALLERY_CREATED_AT = new Date(COMPARE_BASE_TS - 2 * 60 * 60 * 1000).toISOString();
+const COMPARE_COMPLETED_CREATED_AT = new Date(COMPARE_BASE_TS - 35 * 60 * 1000).toISOString();
 
 const baseConfig: ApiConfig = {
   baseUrl: "",
@@ -150,7 +152,6 @@ export function ReferenceComparePage() {
 
   useEffect(() => {
     if (!shouldRenderGallery) {
-      setThumbnailUrl("");
       return undefined;
     }
     let active = true;
@@ -182,7 +183,7 @@ export function ReferenceComparePage() {
     () => buildTask({
       taskId: "compare-gallery-task",
       status: "succeeded",
-      createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+      createdAt: COMPARE_GALLERY_CREATED_AT,
       thumbnailUrl,
       thumbnailState: thumbnailUrl ? "ready" : "loading",
     }),
@@ -193,7 +194,7 @@ export function ReferenceComparePage() {
     () => buildTask({
       taskId: "compare-completed-task",
       status: "succeeded",
-      createdAt: new Date(Date.now() - 35 * 60 * 1000).toISOString(),
+      createdAt: COMPARE_COMPLETED_CREATED_AT,
       thumbnailUrl,
       thumbnailState: thumbnailUrl ? "ready" : "loading",
     }),
@@ -213,7 +214,7 @@ export function ReferenceComparePage() {
     currentTask: null,
     generateView: "idle",
     galleryFilter: "all",
-    setGalleryFilter: (_filter: GalleryFilter) => undefined,
+    setGalleryFilter: () => undefined,
     getFilteredTasks: () => [galleryTask],
     saveConfig: async () => {},
     pingHealth: async () => ({ status: "ready", service: "cubie3d" }),
@@ -243,7 +244,7 @@ export function ReferenceComparePage() {
     currentTask: completedTask,
     generateView: "completed",
     galleryFilter: "all",
-    setGalleryFilter: (_filter: GalleryFilter) => undefined,
+    setGalleryFilter: () => undefined,
     getFilteredTasks: () => [completedTask],
     saveConfig: async () => {},
     pingHealth: async () => ({ status: "ready", service: "cubie3d" }),

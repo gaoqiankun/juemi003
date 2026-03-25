@@ -7,7 +7,6 @@ from dataclasses import dataclass, field
 from typing import Awaitable, Callable
 
 import structlog
-
 from gen3d.model.base import BaseModelProvider
 from gen3d.stages.gpu.scheduler import GPUSlotScheduler
 from gen3d.stages.gpu.worker import GPUWorkerHandle

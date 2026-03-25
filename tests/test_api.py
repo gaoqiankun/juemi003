@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-import io
 import importlib
+import io
 import json
 import sqlite3
 import sys
@@ -11,10 +11,10 @@ import time
 import types
 from datetime import timedelta
 from pathlib import Path
-from typing import Awaitable, Callable
+from typing import Any, Awaitable, Callable
 
-import pytest
 import httpx
+import pytest
 from fastapi.testclient import TestClient
 from prometheus_client.parser import text_string_to_metric_families
 
@@ -27,7 +27,11 @@ from gen3d.api.server import create_app, run_real_mode_preflight
 from gen3d.config import ServingConfig
 from gen3d.engine import async_engine as async_engine_module
 from gen3d.engine.sequence import RequestSequence, TaskStatus, TaskType, utcnow
-from gen3d.model.base import GenerationResult, ModelProviderConfigurationError, ModelProviderExecutionError
+from gen3d.model.base import (
+    GenerationResult,
+    ModelProviderConfigurationError,
+    ModelProviderExecutionError,
+)
 from gen3d.model.hunyuan3d.provider import Hunyuan3DProvider, MockHunyuan3DProvider
 from gen3d.model.step1x3d import provider as step1x3d_provider_module
 from gen3d.model.step1x3d.provider import MockStep1X3DProvider, Step1X3DProvider

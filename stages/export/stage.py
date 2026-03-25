@@ -6,8 +6,6 @@ import time
 from pathlib import Path
 
 import structlog
-from structlog.contextvars import bound_contextvars
-
 from gen3d.engine.model_registry import ModelRegistry
 from gen3d.engine.sequence import RequestSequence, TaskStatus
 from gen3d.model.base import GenerationResult, ModelProviderExecutionError
@@ -15,6 +13,7 @@ from gen3d.observability.metrics import observe_stage_duration
 from gen3d.stages.base import BaseStage, StageExecutionError, StageUpdateHandler
 from gen3d.stages.export.preview_renderer_service import PreviewRendererServiceProtocol
 from gen3d.storage.artifact_store import ArtifactStore, ArtifactStoreOperationError
+from structlog.contextvars import bound_contextvars
 
 
 class ExportStage(BaseStage):

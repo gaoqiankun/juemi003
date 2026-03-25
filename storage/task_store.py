@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any
 
 import aiosqlite
-
 from gen3d.engine.sequence import (
     TERMINAL_STATUSES,
     RequestSequence,

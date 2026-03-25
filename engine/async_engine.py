@@ -15,13 +15,15 @@ from urllib.parse import urlparse
 
 import httpx
 import structlog
-from structlog.contextvars import bound_contextvars
-
 from gen3d.engine.model_registry import ModelRegistry, ModelRegistryLoadError
-from gen3d.engine.pipeline import CancelRequestResult, PipelineCoordinator, PipelineQueueFullError
+from gen3d.engine.pipeline import (
+    CancelRequestResult,
+    PipelineCoordinator,
+    PipelineQueueFullError,
+)
 from gen3d.engine.sequence import (
-    RequestSequence,
     TERMINAL_STATUSES,
+    RequestSequence,
     TaskStatus,
     TaskType,
     utcnow,
@@ -35,6 +37,7 @@ from gen3d.security import (
 )
 from gen3d.storage.artifact_store import ArtifactStore, ArtifactStoreOperationError
 from gen3d.storage.task_store import TaskIdempotencyConflictError, TaskStore
+from structlog.contextvars import bound_contextvars
 
 if TYPE_CHECKING:
     from gen3d.engine.model_scheduler import ModelScheduler

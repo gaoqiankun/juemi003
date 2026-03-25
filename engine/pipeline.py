@@ -5,12 +5,11 @@ from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 
 import structlog
-from structlog.contextvars import bound_contextvars
-
 from gen3d.engine.sequence import RequestSequence, TaskStatus, utcnow
 from gen3d.observability.metrics import increment_task_total, observe_task_duration
 from gen3d.stages.base import BaseStage, StageExecutionError
 from gen3d.storage.task_store import TaskStore
+from structlog.contextvars import bound_contextvars
 
 PipelineListener = Callable[
     [RequestSequence, str, dict[str, Any]],

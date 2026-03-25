@@ -7,7 +7,6 @@ from datetime import UTC, datetime
 from typing import Protocol
 
 import structlog
-
 from gen3d.storage.settings_store import (
     MAX_LOADED_MODELS_KEY,
     MAX_TASKS_PER_SLOT_KEY,

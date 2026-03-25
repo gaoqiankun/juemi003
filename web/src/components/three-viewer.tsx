@@ -77,18 +77,7 @@ export const ThreeViewer = forwardRef<ThreeViewerHandle, {
     if (!container) {
       return;
     }
-    const viewer = new Viewer3D(container, {
-      backgroundCenter,
-      backgroundEdge,
-      shadowFloor: showShadow,
-      autoRotate,
-      showGrid,
-      displayMode,
-      lightIntensity,
-      lightAngle,
-      gridPrimaryColor,
-      gridSecondaryColor,
-    });
+    const viewer = new Viewer3D(container);
     viewerRef.current = viewer;
     return () => {
       viewer.dispose();

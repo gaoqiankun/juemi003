@@ -138,7 +138,7 @@ Prompt 标准格式：
 ...
 ```
 
-**并行分配前**：查 `.agent/plan/` 有无 `Status: planning` 的文件，确认待改文件与新任务无交叉，再同时下发。
+**并行分配前**：查 `.agent/plan/` 有无 `Status: planning` 的文件，确认待改文件与新任务无交叉，再同时下发。每个 agent 开工时会在 `.agent/plan/` 创建自己的 planning 文件，这是预期行为。
 
 **摩擦记录**：写 Prompt 时感到别扭、协调超出预期、AI Coder 汇报有困惑，随手在 `.agent/friction-log.md` 加一行。每积累 10 条或每 2 周回顾一次，决定是否调整工作流。
 

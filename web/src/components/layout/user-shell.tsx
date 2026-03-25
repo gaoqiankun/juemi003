@@ -15,7 +15,8 @@ export function UserShell() {
   const { connection } = useGen3d();
   const location = useLocation();
   const languageMenuRef = useRef<HTMLDivElement | null>(null);
-  const [isLanguageMenuOpen, setIsLanguageMenuOpen] = useState(false);
+  const [languageMenuPathname, setLanguageMenuPathname] = useState<string | null>(null);
+  const isLanguageMenuOpen = languageMenuPathname === location.pathname;
 
   const currentThemeLabel = theme === "dark" ? t("shell.themeDark") : t("shell.themeLight");
   const isGenerateActive = location.pathname.startsWith("/generate");
@@ -42,12 +43,12 @@ export function UserShell() {
     }
     const handlePointerDown = (event: PointerEvent) => {
       if (!languageMenuRef.current?.contains(event.target as Node)) {
-        setIsLanguageMenuOpen(false);
+        setLanguageMenuPathname(null);
       }
     };
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        setIsLanguageMenuOpen(false);
+        setLanguageMenuPathname(null);
       }
     };
     document.addEventListener("pointerdown", handlePointerDown);
@@ -57,10 +58,6 @@ export function UserShell() {
       window.removeEventListener("keydown", handleKeyDown);
     };
   }, [isLanguageMenuOpen]);
-
-  useEffect(() => {
-    setIsLanguageMenuOpen(false);
-  }, [location.pathname]);
 
   return (
     <div className="min-h-screen bg-[image:var(--page-gradient)] bg-background text-text-primary">
@@ -96,7 +93,9 @@ export function UserShell() {
                 )}
                 aria-label={t("shell.languageToggle")}
                 title={t("shell.languageToggle")}
-                onClick={() => setIsLanguageMenuOpen((current) => !current)}
+                onClick={() => {
+                  setLanguageMenuPathname((current) => (current === location.pathname ? null : location.pathname));
+                }}
               >
                 <Languages className="h-4 w-4" />
               </button>
@@ -122,7 +121,7 @@ export function UserShell() {
                         aria-checked={isSelected}
                         onClick={() => {
                           void setLanguage(locale.code);
-                          setIsLanguageMenuOpen(false);
+                          setLanguageMenuPathname(null);
                         }}
                       >
                         <span>{locale.nativeName}</span>

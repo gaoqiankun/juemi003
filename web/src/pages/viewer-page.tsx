@@ -100,7 +100,7 @@ export function ViewerPage() {
       return;
     }
     subscribeToTask(taskId, true).catch(() => undefined);
-  }, [subscribeToTask, task?.status, taskId]);
+  }, [subscribeToTask, task, taskId]);
 
   const glbArtifact = getArtifactForType(task, "glb");
   const objArtifact = getArtifactForType(task, "obj");

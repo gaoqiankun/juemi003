@@ -26,7 +26,7 @@ function getStatusDotClass(status?: string) {
   return "bg-warning-text";
 }
 
-export function GalleryPage({ initialSelectedTaskId: _initialSelectedTaskId = "" }: { initialSelectedTaskId?: string } = {}) {
+export function GalleryPage() {
   const { t, i18n } = useTranslation();
   const {
     taskPage,

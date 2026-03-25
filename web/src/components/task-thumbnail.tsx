@@ -23,13 +23,13 @@ export function TaskThumbnail({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [previewArtifactUrl, setPreviewArtifactUrl] = useState("");
   const [previewArtifactState, setPreviewArtifactState] = useState<"idle" | "loading" | "ready" | "failed">("idle");
-  const [isVisible, setIsVisible] = useState(variant === "default");
+  const [hasIntersected, setHasIntersected] = useState(false);
   const usesArtifactPreview = variant === "gallery" || variant === "recent";
   const canFetchArtifactPreview = usesArtifactPreview && task.status === "succeeded" && Boolean(config.baseUrl) && Boolean(config.token);
+  const isVisible = variant === "default" || hasIntersected;
 
   useEffect(() => {
-    if (variant === "default") {
-      setIsVisible(true);
+    if (variant === "default" || hasIntersected) {
       return;
     }
     const element = containerRef.current;
@@ -39,7 +39,7 @@ export function TaskThumbnail({
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries.some((entry) => entry.isIntersecting)) {
-          setIsVisible(true);
+          setHasIntersected(true);
           observer.disconnect();
         }
       },
@@ -47,10 +47,17 @@ export function TaskThumbnail({
     );
     observer.observe(element);
     return () => observer.disconnect();
-  }, [variant, task.taskId]);
+  }, [hasIntersected, variant, task.taskId]);
 
   useEffect(() => {
-    if (!canFetchArtifactPreview || !isVisible) {
+    if (canFetchArtifactPreview && isVisible) {
+      return;
+    }
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) {
+        return;
+      }
       setPreviewArtifactState("idle");
       setPreviewArtifactUrl((previous) => {
         if (previous) {
@@ -58,19 +65,32 @@ export function TaskThumbnail({
         }
         return "";
       });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [canFetchArtifactPreview, isVisible]);
+
+  useEffect(() => {
+    if (!canFetchArtifactPreview || !isVisible) {
       return;
     }
-
     const controller = new AbortController();
     let objectUrl = "";
 
-    setPreviewArtifactUrl((previous) => {
-      if (previous) {
-        URL.revokeObjectURL(previous);
+    queueMicrotask(() => {
+      if (controller.signal.aborted) {
+        return;
       }
-      return "";
+      setPreviewArtifactUrl((previous) => {
+        if (previous) {
+          URL.revokeObjectURL(previous);
+        }
+        return "";
+      });
+      setPreviewArtifactState("loading");
     });
-    setPreviewArtifactState("loading");
+
     fetchAuthorizedBlobUrl(
       { baseUrl: config.baseUrl, token: config.token },
       `/v1/tasks/${encodeURIComponent(task.taskId)}/artifacts/preview.png`,

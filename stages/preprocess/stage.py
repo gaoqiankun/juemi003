@@ -10,13 +10,12 @@ from urllib.parse import unquote_to_bytes, urlparse
 
 import httpx
 import structlog
-from structlog.contextvars import bound_contextvars
-
 from gen3d.engine.sequence import RequestSequence, TaskStatus
 from gen3d.observability.metrics import observe_stage_duration
 from gen3d.security import TaskSubmissionValidationError, validate_image_url
 from gen3d.stages.base import BaseStage, StageExecutionError, StageUpdateHandler
 from gen3d.storage.artifact_store import ArtifactStore, ArtifactStoreOperationError
+from structlog.contextvars import bound_contextvars
 
 
 class PreprocessStage(BaseStage):

@@ -1,6 +1,4 @@
-import clsx from "clsx";
 import type {
-  ButtonHTMLAttributes,
   ComponentPropsWithoutRef,
   HTMLAttributes,
   InputHTMLAttributes,
