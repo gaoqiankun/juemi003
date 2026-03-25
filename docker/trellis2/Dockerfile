@@ -84,6 +84,10 @@ RUN python -m pip install \
     mosaicml-streaming \
     wandb
 
+RUN python -m pip install \
+    pytorch3d \
+    --extra-index-url https://dl.fbaipublicfiles.com/pytorch3d/packaging/wheels/py311_cu124_pyt260/download.html
+
 RUN python -m pip install "git+https://github.com/EasternJournalist/utils3d.git@9a4eb15e4021b67b12c460c7057d642626897ec8"
 
 WORKDIR /workspace
