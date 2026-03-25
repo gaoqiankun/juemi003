@@ -91,7 +91,8 @@ COPY model/trellis2/ext/o-voxel /workspace/model/trellis2/ext/o-voxel
 COPY model/step1x3d/ext/custom_rasterizer /workspace/model/step1x3d/ext/custom_rasterizer
 COPY model/step1x3d/ext/differentiable_renderer /workspace/model/step1x3d/ext/differentiable_renderer
 
-RUN rm -rf /workspace/model/trellis2/ext/o-voxel/third_party/eigen && \
+RUN mkdir -p /workspace/model/trellis2/ext/o-voxel/third_party && \
+    rm -rf /workspace/model/trellis2/ext/o-voxel/third_party/eigen && \
     ln -s /usr/include/eigen3 /workspace/model/trellis2/ext/o-voxel/third_party/eigen
 
 RUN TORCH_CUDA_ARCH_LIST=${TORCH_CUDA_ARCH_LIST} \
