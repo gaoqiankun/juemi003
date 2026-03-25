@@ -7,7 +7,7 @@
 ## 启动检查
 
 1. 明确本次任务改哪些模块
-2. 查 `.claude/impact-map.md` 确认影响范围和必跑测试
+2. 查 `.agent/impact-map.md` 确认影响范围和必跑测试
 3. 开始前运行一次 `.venv/bin/python -m pytest tests -q` 确认基线
 
 ## 改动范围
@@ -41,7 +41,7 @@
 
 - 变更公共 API 须保持向后兼容（新字段加 Optional + 默认值）
 - 不向 `config.py` / `serve.py` 添加业务逻辑
-- 改动前不确定影响范围时，查 `.claude/impact-map.md`
+- 改动前不确定影响范围时，查 `.agent/impact-map.md`
 
 ## 验收
 
@@ -58,5 +58,5 @@ find . -name "*.py" -not -path "./.venv/*" -not -path "./Hunyuan3D-2/*" \
 
 - 改了哪些文件
 - 测试结果（passed 数）
-- 若有 API Contract 变化：在 `.claude/pending.md` 追加一条，格式：`- [ ] [日期] 描述 —— 影响接口`
+- 若有 API Contract 变化：在 `.agent/pending.md` 追加一条，格式：`- [ ] [日期] 描述 —— 影响接口`
 - **下游交接**（若后续任务依赖本次产出）：列出新增接口路径、字段变化、需前端感知的行为变更；架构师将此内容放入下一个 Prompt 的【上游产出】

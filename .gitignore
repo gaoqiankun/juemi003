@@ -27,3 +27,6 @@ web/tsconfig.tsbuildinfo
 # Test artifacts
 .playwright-cli/
 output/
+Hunyuan3D-2/
+tmp.txt
+agentic_coding.txt

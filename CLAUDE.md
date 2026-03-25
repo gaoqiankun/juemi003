@@ -28,7 +28,7 @@ FastAPI 后端 + React 前端，Provider 模式支持多模型切换，SQLite + 
 | M5 · 文档完善 | 🔲 |
 | M6 · 发布前 QA | 🔲 |
 
-未完成小项：`deploy.sh` 中 `ADMIN_TOKEN=` 待补（plan/2026-03-15-e5-compose-admin-upload-env.md）
+未完成小项：`deploy.sh` 中 `ADMIN_TOKEN=` 待补（.agent/plan/2026-03-15-e5-compose-admin-upload-env.md）
 
 ---
 
@@ -119,14 +119,14 @@ QUEUED → PREPROCESSING → GPU_QUEUED → GPU_SS → GPU_SHAPE → GPU_MATERIA
 
 | 任务类型 | 角色 | 角色文件 |
 |---------|------|---------|
-| Python 功能开发、API、engine、model | 后端工程师 | `.claude/roles/backend.md` |
-| React/UI、页面、组件、i18n | 前端工程师 | `.claude/roles/frontend.md` |
-| Bug 定位与修复 | 调试工程师 | `.claude/roles/debug.md` |
+| Python 功能开发、API、engine、model | 后端工程师 | `.agent/roles/backend.md` |
+| React/UI、页面、组件、i18n | 前端工程师 | `.agent/roles/frontend.md` |
+| Bug 定位与修复 | 调试工程师 | `.agent/roles/debug.md` |
 | 跨前后端（必须同时改两侧）| 在 Prompt 里同时指定两个角色文件 | `backend.md` + `frontend.md` |
 
 Prompt 标准格式：
 ```
-你是[角色名]，工作目录是 gen3d/，先读 AGENTS.md，再读 .claude/roles/[role].md。
+你是[角色名]，工作目录是 gen3d/，先读 AGENTS.md，再读 .agent/roles/[role].md。
 
 【上游产出】（无则省略）
 - 上一个任务完成的内容、新增接口、关键变更
@@ -138,9 +138,9 @@ Prompt 标准格式：
 ...
 ```
 
-**并行分配前**：查 `plan/` 有无 `Status: planning` 的文件，确认待改文件与新任务无交叉，再同时下发。
+**并行分配前**：查 `.agent/plan/` 有无 `Status: planning` 的文件，确认待改文件与新任务无交叉，再同时下发。
 
-**摩擦记录**：写 Prompt 时感到别扭、协调超出预期、AI Coder 汇报有困惑，随手在 `.claude/friction-log.md` 加一行。每积累 10 条或每 2 周回顾一次，决定是否调整工作流。
+**摩擦记录**：写 Prompt 时感到别扭、协调超出预期、AI Coder 汇报有困惑，随手在 `.agent/friction-log.md` 加一行。每积累 10 条或每 2 周回顾一次，决定是否调整工作流。
 
 **代码健康**：超标文件（> 500 行）由 AI Coder 验收时自动输出，出现在 plan 汇报里；同一文件被提到 ≥ 2 次时安排重构。
 
@@ -160,4 +160,4 @@ Prompt 标准格式：
 | `stages/` | preprocess / gpu / export |
 | `storage/` | 5 个 store |
 | `web/src/` | React SPA |
-| `plan/` | 规划日志（archive/ 存历史） |
+| `.agent/plan/` | 规划日志（archive/ 存历史） |

@@ -8,9 +8,9 @@
 
 **先诊断，不急于改**
 1. 复现问题
-2. 先查 `.claude/troubleshooting.md` 的症状索引——能直接命中的优先走 runbook
-3. 查不到时：查 `.claude/decisions.md` 确认近期行为变更 → 看报错堆栈 → 找最近改动（`git log --oneline -20`）→ 查 `.claude/impact-map.md` 确认涉及模块 → 加日志缩小范围
-4. 不确定改动影响范围时查 `.claude/impact-map.md`
+2. 先查 `.agent/troubleshooting.md` 的症状索引——能直接命中的优先走 runbook
+3. 查不到时：查 `.agent/decisions.md` 确认近期行为变更 → 看报错堆栈 → 找最近改动（`git log --oneline -20`）→ 查 `.agent/impact-map.md` 确认涉及模块 → 加日志缩小范围
+4. 不确定改动影响范围时查 `.agent/impact-map.md`
 5. 确认根因后再动代码，最小改动原则
 
 **修复后**

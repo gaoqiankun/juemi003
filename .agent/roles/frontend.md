@@ -6,7 +6,7 @@
 
 ## 启动检查
 
-1. 查 `.claude/pending.md`，有待处理的 API Contract 变更则优先同步
+1. 查 `.agent/pending.md`，有待处理的 API Contract 变更则优先同步
 2. 明确本次任务改哪些页面/组件
 3. 开始前 `cd web && npm run build` 确认零错误（基线）
 
