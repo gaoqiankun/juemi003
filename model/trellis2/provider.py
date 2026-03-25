@@ -4,7 +4,6 @@ import asyncio
 import importlib
 import inspect
 import json
-import os
 import struct
 from pathlib import Path
 from typing import Any
@@ -80,6 +79,7 @@ class MockTrellis2Provider:
 
 class Trellis2Provider:
     _PIPELINE_TYPES = {"512", "1024", "1024_cascade", "1536_cascade"}
+    _PIPELINES_MODULE = "gen3d.model.trellis2.pipeline.pipelines"
 
     def __init__(
         self,
@@ -305,16 +305,19 @@ class Trellis2Provider:
             )
 
         try:
-            pipelines_module = importlib.import_module("trellis2.pipelines")
+            pipelines_module = importlib.import_module(cls._PIPELINES_MODULE)
         except ModuleNotFoundError as exc:
             raise ModelProviderConfigurationError(
-                "real provider mode requires the 'trellis2' package"
+                "real provider mode requires the in-repo TRELLIS2 pipeline package"
             ) from exc
 
         pipeline_cls = getattr(pipelines_module, "Trellis2ImageTo3DPipeline", None)
         if pipeline_cls is None:
             raise ModelProviderConfigurationError(
-                "trellis2.pipelines.Trellis2ImageTo3DPipeline is not available"
+                (
+                    "gen3d.model.trellis2.pipeline.pipelines."
+                    "Trellis2ImageTo3DPipeline is not available"
+                )
             )
         report["pipeline_class"] = (
             f"{pipelines_module.__name__}.{pipeline_cls.__name__}"

@@ -14,9 +14,9 @@ FastAPI 后端 + React 前端，Provider 模式支持多模型切换，SQLite + 
 
 ---
 
-## 当前状态（2026-03-24）
+## 当前状态（2026-03-25）
 
-测试基线：**161 passed**
+测试基线：**163 passed**
 
 | 模块 | 状态 |
 |------|------|
@@ -24,6 +24,7 @@ FastAPI 后端 + React 前端，Provider 模式支持多模型切换，SQLite + 
 | M2 · Admin Panel（11 轮打磨） | ✅ |
 | M2.5 · 用户侧页面（6 轮打磨） | ✅ |
 | M3 · HunYuan3D + Step1X-3D | ✅ mock + real 全实现 |
+| M3.5 · 推理代码内化（自维护）| ✅ 三个模型全部完成 |
 | M4 · 安装体验（Pinokio）| 🔲 |
 | M5 · 文档完善 | 🔲 |
 | M6 · 发布前 QA | 🔲 |
@@ -106,7 +107,7 @@ QUEUED → PREPROCESSING → GPU_QUEUED → GPU_SS → GPU_SHAPE → GPU_MATERIA
 | async_engine.py worker loop / cleanup 未拆分（时序敏感，需集成测试覆盖）| v0.2 |
 | no-explicit-any × 15（TypeScript）| v0.2 |
 | C901 复杂度超标 × 8（Python）| v0.2 |
-| 模型 Pipeline 自维护（当前 git clone 外部 repo）| v0.2 |
+| 模型 Pipeline 自维护 | ✅ 已完成（2026-03-25） |
 
 ---
 

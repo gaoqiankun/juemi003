@@ -10,8 +10,6 @@ set -euo pipefail
 # Optional environment build args:
 #   FLASHATTN_DEVEL_IMAGE
 #   FLASHATTN_RUNTIME_IMAGE
-#   TRELLIS2_REPO_URL
-#   TRELLIS2_REF
 #   TORCH_CUDA_ARCH_LIST
 
 ROOT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -40,8 +38,6 @@ Options:
 Optional environment build args:
   FLASHATTN_DEVEL_IMAGE
   FLASHATTN_RUNTIME_IMAGE
-  TRELLIS2_REPO_URL
-  TRELLIS2_REF
   TORCH_CUDA_ARCH_LIST
 EOF
 }
@@ -79,8 +75,6 @@ fi
 build_args=(
   FLASHATTN_DEVEL_IMAGE
   FLASHATTN_RUNTIME_IMAGE
-  TRELLIS2_REPO_URL
-  TRELLIS2_REF
   TORCH_CUDA_ARCH_LIST
 )
 
@@ -98,7 +92,7 @@ for arg_name in "${build_args[@]}"; do
   fi
 done
 
-docker_build_cmd+=("$ROOT_DIR/docker/trellis2")
+docker_build_cmd+=("$ROOT_DIR")
 
 echo "[INFO] Building image: $IMAGE ($PLATFORM)"
 "${docker_build_cmd[@]}"

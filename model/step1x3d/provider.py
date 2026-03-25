@@ -103,6 +103,17 @@ class Step1X3DProvider:
     canonical stages (ss -> shape -> material) expected by the pipeline.
     """
 
+    _GEOMETRY_PIPELINE_MODULE = (
+        "gen3d.model.step1x3d.pipeline.step1x3d_geometry.models.pipelines.pipeline"
+    )
+    _TEXTURE_PIPELINE_MODULE = (
+        "gen3d.model.step1x3d.pipeline.step1x3d_texture.pipelines."
+        "step1x_3d_texture_synthesis_pipeline"
+    )
+    _PIPELINE_UTILS_MODULE = (
+        "gen3d.model.step1x3d.pipeline.step1x3d_geometry.models.pipelines.pipeline_utils"
+    )
+
     def __init__(
         self,
         *,
@@ -230,9 +241,7 @@ class Step1X3DProvider:
         if self._texture_pipeline is not None:
             # Step1X-3D texture pipeline may need post-processing utils
             try:
-                utils = importlib.import_module(
-                    "step1x3d_geometry.models.pipelines.pipeline_utils"
-                )
+                utils = importlib.import_module(self._PIPELINE_UTILS_MODULE)
                 if hasattr(utils, "remove_degenerate_face"):
                     mesh = utils.remove_degenerate_face(mesh)
                 if hasattr(utils, "reduce_face"):
@@ -246,7 +255,7 @@ class Step1X3DProvider:
         return mesh
 
     @classmethod
-    def _inspect_runtime(
+    def _inspect_runtime(  # noqa: C901
         cls,
         model_path: str,
         *,
@@ -287,20 +296,19 @@ class Step1X3DProvider:
         _install_rembg_bria_alias_patch()
 
         try:
-            geo_pipelines = importlib.import_module(
-                "step1x3d_geometry.models.pipelines.pipeline"
-            )
+            geo_pipelines = importlib.import_module(cls._GEOMETRY_PIPELINE_MODULE)
         except ModuleNotFoundError as exc:
             raise ModelProviderConfigurationError(
-                "real provider mode requires the 'step1x3d_geometry' package "
-                "(install from https://github.com/stepfun-ai/Step1X-3D)"
+                "real provider mode requires the in-repo Step1X-3D geometry pipeline package"
             ) from exc
 
         geometry_cls = getattr(geo_pipelines, "Step1X3DGeometryPipeline", None)
         if geometry_cls is None:
             raise ModelProviderConfigurationError(
-                "step1x3d_geometry.models.pipelines.pipeline.Step1X3DGeometryPipeline "
-                "is not available"
+                (
+                    "gen3d.model.step1x3d.pipeline.step1x3d_geometry.models."
+                    "pipelines.pipeline.Step1X3DGeometryPipeline is not available"
+                )
             )
         report["geometry_pipeline_class"] = (
             f"{geo_pipelines.__name__}.{geometry_cls.__name__}"
@@ -308,9 +316,7 @@ class Step1X3DProvider:
 
         texture_pipeline_cls = None
         try:
-            tex_pipelines = importlib.import_module(
-                "step1x3d_texture.pipelines.step1x_3d_texture_synthesis_pipeline"
-            )
+            tex_pipelines = importlib.import_module(cls._TEXTURE_PIPELINE_MODULE)
             texture_pipeline_cls = getattr(tex_pipelines, "Step1X3DTexturePipeline", None)
         except ModuleNotFoundError:
             pass

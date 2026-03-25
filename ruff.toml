@@ -1,6 +1,9 @@
 exclude = [
   ".venv",
   "Hunyuan3D-2",
+  "model/trellis2/ext/o-voxel",
+  "model/step1x3d/ext/custom_rasterizer",
+  "model/step1x3d/ext/differentiable_renderer",
 ]
 
 [lint]

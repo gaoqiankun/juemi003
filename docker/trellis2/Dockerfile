@@ -20,13 +20,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN python -m pip install --upgrade pip setuptools wheel
 
-ARG TRELLIS2_REPO_URL=https://github.com/microsoft/TRELLIS.2.git
-ARG TRELLIS2_REF=main
 ARG TORCH_CUDA_ARCH_LIST=8.0;8.6;8.9;9.0
-RUN git clone --recursive --branch ${TRELLIS2_REF} ${TRELLIS2_REPO_URL} /opt/TRELLIS.2
 
-ENV PYTHONPATH=/opt/TRELLIS.2 \
-    CUDA_HOME=/usr/local/cuda \
+ENV CUDA_HOME=/usr/local/cuda \
     FORCE_CUDA=1 \
     TORCH_CUDA_ARCH_LIST=${TORCH_CUDA_ARCH_LIST}
 
@@ -80,66 +76,6 @@ RUN python -m pip install \
       onnxruntime \
       scikit-image
 
-RUN git clone https://github.com/Tencent/Hunyuan3D-2 /opt/Hunyuan3D-2 && \
-    cd /opt/Hunyuan3D-2 && \
-    python -m pip install -e .
-
-RUN cd /opt/Hunyuan3D-2/hy3dgen/texgen/custom_rasterizer && \
-    python setup.py install
-
-RUN cd /opt/Hunyuan3D-2/hy3dgen/texgen/differentiable_renderer && \
-    python setup.py install
-
-RUN git clone https://github.com/stepfun-ai/Step1X-3D /opt/Step1X-3D
-
-RUN python - <<'PY'
-from pathlib import Path
-
-target = Path(
-    "/opt/Step1X-3D/step1x3d_geometry/models/conditional_encoders/"
-    "dinov2_with_registers/modeling_dinov2_with_registers.py"
-)
-content = target.read_text()
-
-if "def initialize_weights(self):" in content:
-    print("Step1X-3D DINOv2 patch already present")
-    raise SystemExit(0)
-
-# Override initialize_weights to no-op: newer transformers added this method
-# which calls _init_weights on all modules including those with weight=None.
-# When loading from pretrained the random init is overwritten anyway.
-old = "    def _init_weights(self, module: Union[nn.Linear, nn.Conv2d, nn.LayerNorm]) -> None:"
-new = (
-    "    def initialize_weights(self):\n"
-    "        pass  # skip random init; weights are loaded from pretrained checkpoint\n"
-    "\n"
-    "    def _init_weights(self, module: Union[nn.Linear, nn.Conv2d, nn.LayerNorm]) -> None:"
-)
-if old not in content:
-    raise SystemExit("Failed to patch Step1X-3D DINOv2: anchor not found")
-
-target.write_text(content.replace(old, new, 1))
-print(f"patched {target}")
-PY
-
-RUN python - <<'PY'
-from pathlib import Path
-
-target = Path("/opt/Step1X-3D/step1x3d_geometry/models/pipelines/pipeline.py")
-content = target.read_text()
-
-# Fix inverted condition in check_inputs: Step1X-3D raises when image IS a valid
-# type (torch.Tensor / PIL.Image), should raise when it is NOT.
-old = "        elif isinstance(image, (torch.Tensor, PIL.Image.Image)):\n            raise ValueError(\n                \"Input image must be a `torch.Tensor` or `PIL.Image.Image`.\"\n            )"
-new = "        elif not isinstance(image, (torch.Tensor, PIL.Image.Image)):\n            raise ValueError(\n                \"Input image must be a `torch.Tensor` or `PIL.Image.Image`.\"\n            )"
-
-if old not in content:
-    raise SystemExit("Failed to patch Step1X-3D check_inputs: anchor not found")
-
-target.write_text(content.replace(old, new, 1))
-print(f"patched {target}")
-PY
-
 RUN python -m pip install \
     "pytorch-lightning==2.6.1" \
     jaxtyping \
@@ -147,18 +83,27 @@ RUN python -m pip install \
     mosaicml-streaming \
     wandb
 
-RUN cd /opt/Step1X-3D/step1x3d_texture/custom_rasterizer && \
-    python setup.py install
-
-RUN cd /opt/Step1X-3D/step1x3d_texture/differentiable_renderer && \
-    python setup.py install
-
 RUN python -m pip install "git+https://github.com/EasternJournalist/utils3d.git@9a4eb15e4021b67b12c460c7057d642626897ec8"
+
+WORKDIR /workspace
+COPY model/trellis2/ext/o-voxel /workspace/model/trellis2/ext/o-voxel
+COPY model/step1x3d/ext/custom_rasterizer /workspace/model/step1x3d/ext/custom_rasterizer
+COPY model/step1x3d/ext/differentiable_renderer /workspace/model/step1x3d/ext/differentiable_renderer
 
 RUN TORCH_CUDA_ARCH_LIST=${TORCH_CUDA_ARCH_LIST} \
     FORCE_CUDA=1 \
     CUDA_HOME=/usr/local/cuda \
-    python -m pip install /opt/TRELLIS.2/o-voxel --no-build-isolation
+    python -m pip install model/trellis2/ext/o-voxel --no-build-isolation
+
+RUN TORCH_CUDA_ARCH_LIST=${TORCH_CUDA_ARCH_LIST} \
+    FORCE_CUDA=1 \
+    CUDA_HOME=/usr/local/cuda \
+    python -m pip install model/step1x3d/ext/custom_rasterizer --no-build-isolation
+
+RUN TORCH_CUDA_ARCH_LIST=${TORCH_CUDA_ARCH_LIST} \
+    FORCE_CUDA=1 \
+    CUDA_HOME=/usr/local/cuda \
+    python -m pip install model/step1x3d/ext/differentiable_renderer --no-build-isolation
 
 RUN git clone -b v0.4.0 https://github.com/NVlabs/nvdiffrast.git /tmp/nvdiffrast && \
     python -m pip install /tmp/nvdiffrast --no-build-isolation && \
@@ -194,10 +139,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /opt/conda /opt/conda
-COPY --from=builder /opt/TRELLIS.2 /opt/TRELLIS.2
-COPY --from=builder /opt/Hunyuan3D-2 /opt/Hunyuan3D-2
-COPY --from=builder /opt/Step1X-3D /opt/Step1X-3D
 
-ENV PYTHONPATH=/opt/TRELLIS.2:/opt/Hunyuan3D-2:/opt/Step1X-3D \
-    CC=/usr/bin/gcc \
+ENV CC=/usr/bin/gcc \
     CXX=/usr/bin/g++

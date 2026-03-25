@@ -14,6 +14,8 @@ from gen3d.model.base import (
     ModelProviderExecutionError,
     StageProgress,
 )
+from gen3d.model.hunyuan3d.pipeline.shape import Hunyuan3DDiTFlowMatchingPipeline
+from gen3d.model.hunyuan3d.pipeline.texture import Hunyuan3DPaintPipeline
 
 # ---------------------------------------------------------------------------
 # Mock provider
@@ -93,7 +95,7 @@ class MockHunyuan3DProvider:
 
 
 class Hunyuan3DProvider:
-    """HunYuan3D-2 provider backed by the ``hy3dgen`` package.
+    """HunYuan3D-2 provider backed by in-repo pipeline wrappers.
 
     Internally the model runs two stages (shape generation via
     ``Hunyuan3DDiTFlowMatchingPipeline`` and texture painting via
@@ -270,31 +272,14 @@ class Hunyuan3DProvider:
                 "real provider mode requires a CUDA-enabled torch runtime and visible GPU"
             )
 
-        try:
-            shapegen = importlib.import_module("hy3dgen.shapegen")
-        except ModuleNotFoundError as exc:
-            raise ModelProviderConfigurationError(
-                "real provider mode requires the 'hy3dgen' package "
-                "(install from https://github.com/Tencent/Hunyuan3D-2)"
-            ) from exc
+        shape_pipeline_cls = Hunyuan3DDiTFlowMatchingPipeline
+        report["shape_pipeline_class"] = (
+            f"{shape_pipeline_cls.__module__}.{shape_pipeline_cls.__name__}"
+        )
 
-        shape_pipeline_cls = getattr(shapegen, "Hunyuan3DDiTFlowMatchingPipeline", None)
-        if shape_pipeline_cls is None:
-            raise ModelProviderConfigurationError(
-                "hy3dgen.shapegen.Hunyuan3DDiTFlowMatchingPipeline is not available"
-            )
-        report["shape_pipeline_class"] = f"{shapegen.__name__}.{shape_pipeline_cls.__name__}"
-
-        texture_pipeline_cls = None
-        try:
-            texgen = importlib.import_module("hy3dgen.texgen")
-            texture_pipeline_cls = getattr(texgen, "Hunyuan3DPaintPipeline", None)
-        except ModuleNotFoundError:
-            pass
+        texture_pipeline_cls = Hunyuan3DPaintPipeline
         report["texture_pipeline_class"] = (
-            f"{texgen.__name__}.{texture_pipeline_cls.__name__}"
-            if texture_pipeline_cls is not None
-            else None
+            f"{texture_pipeline_cls.__module__}.{texture_pipeline_cls.__name__}"
         )
 
         shape_pipeline = None
