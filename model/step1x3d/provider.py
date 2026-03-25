@@ -294,7 +294,6 @@ class Step1X3DProvider:
             )
 
         _install_rembg_bria_alias_patch()
-        _install_step1x3d_geometry_alias()
 
         try:
             geo_pipelines = importlib.import_module(cls._GEOMETRY_PIPELINE_MODULE)
@@ -303,6 +302,10 @@ class Step1X3DProvider:
                 f"real provider mode requires the in-repo Step1X-3D geometry pipeline package"
                 f" (ModuleNotFoundError: {exc})"
             ) from exc
+
+        # Must be called AFTER importing the geometry pipeline so that all
+        # submodules are already in sys.modules before we register aliases.
+        _install_step1x3d_geometry_alias()
 
         geometry_cls = getattr(geo_pipelines, "Step1X3DGeometryPipeline", None)
         if geometry_cls is None:
@@ -480,13 +483,17 @@ def _extract_pil_image(prepared_input: Any) -> Any:
 
 
 def _install_step1x3d_geometry_alias() -> None:
-    """Register ``step1x3d_geometry`` as a sys.modules alias for our internal package.
+    """Register ``step1x3d_geometry.*`` as sys.modules aliases for our internal package.
 
     The HuggingFace checkpoint's model_index.json references components by the
     original package name ``step1x3d_geometry.*``. diffusers uses those strings
     verbatim with importlib.import_module. Since we moved the code into
-    ``gen3d.model.step1x3d.pipeline.step1x3d_geometry``, we register the old
-    name as a sys.modules alias so diffusers can still find every component.
+    ``gen3d.model.step1x3d.pipeline.step1x3d_geometry``, we register ALL
+    already-loaded submodules under the old names so diffusers never re-executes
+    module code (which would trigger duplicate @register calls).
+
+    Must be called AFTER importing the geometry pipeline so that all submodules
+    are already present in sys.modules.
     """
     import sys
 
@@ -496,8 +503,10 @@ def _install_step1x3d_geometry_alias() -> None:
     if old_prefix in sys.modules:
         return
 
-    root = importlib.import_module(new_prefix)
-    sys.modules[old_prefix] = root
+    for key, mod in list(sys.modules.items()):
+        if key == new_prefix or key.startswith(new_prefix + "."):
+            alias = old_prefix + key[len(new_prefix):]
+            sys.modules.setdefault(alias, mod)
 
 
 def _install_rembg_bria_alias_patch() -> None:
