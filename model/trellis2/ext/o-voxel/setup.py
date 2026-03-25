@@ -1,6 +1,7 @@
 from setuptools import setup
 from torch.utils.cpp_extension import CUDAExtension, BuildExtension, IS_HIP_EXTENSION
 import os
+import subprocess
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 BUILD_TARGET = os.environ.get("BUILD_TARGET", "auto")
@@ -21,6 +22,37 @@ if not IS_HIP:
 else:
     archs = os.getenv("GPU_ARCHS", "native").split(";")
     cc_flag = [f"--offload-arch={arch}" for arch in archs]
+
+
+def _resolve_eigen_include_dirs():
+    include_dirs = []
+
+    try:
+        cflags = subprocess.check_output(
+            ["pkg-config", "--cflags", "eigen3"],
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        cflags = ""
+
+    for flag in cflags.split():
+        if not flag.startswith("-I"):
+            continue
+        include_dir = flag[2:]
+        if include_dir and os.path.isdir(include_dir):
+            include_dirs.append(include_dir)
+
+    if not include_dirs and os.path.isdir("/usr/include/eigen3"):
+        include_dirs.append("/usr/include/eigen3")
+
+    if not include_dirs:
+        include_dirs.append(os.path.join(ROOT, "third_party/eigen"))
+
+    return include_dirs
+
+
+EIGEN_INCLUDE_DIRS = _resolve_eigen_include_dirs()
 
 setup(
     name="o_voxel",
@@ -53,7 +85,7 @@ setup(
                 "src/ext.cpp",
             ],
             include_dirs=[
-                os.path.join(ROOT, "third_party/eigen"),
+                *EIGEN_INCLUDE_DIRS,
             ],
             extra_compile_args={
                 "cxx": ["-O3", "-std=c++17"],
