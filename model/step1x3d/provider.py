@@ -299,7 +299,8 @@ class Step1X3DProvider:
             geo_pipelines = importlib.import_module(cls._GEOMETRY_PIPELINE_MODULE)
         except ModuleNotFoundError as exc:
             raise ModelProviderConfigurationError(
-                "real provider mode requires the in-repo Step1X-3D geometry pipeline package"
+                f"real provider mode requires the in-repo Step1X-3D geometry pipeline package"
+                f" (ModuleNotFoundError: {exc})"
             ) from exc
 
         geometry_cls = getattr(geo_pipelines, "Step1X3DGeometryPipeline", None)
