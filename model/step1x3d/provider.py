@@ -294,6 +294,7 @@ class Step1X3DProvider:
             )
 
         _install_rembg_bria_alias_patch()
+        _install_step1x3d_geometry_alias()
 
         try:
             geo_pipelines = importlib.import_module(cls._GEOMETRY_PIPELINE_MODULE)
@@ -476,6 +477,27 @@ def _extract_pil_image(prepared_input: Any) -> Any:
     if isinstance(prepared_input, dict) and "image" in prepared_input:
         return prepared_input["image"]
     return prepared_input
+
+
+def _install_step1x3d_geometry_alias() -> None:
+    """Register ``step1x3d_geometry`` as a sys.modules alias for our internal package.
+
+    The HuggingFace checkpoint's model_index.json references components by the
+    original package name ``step1x3d_geometry.*``. diffusers uses those strings
+    verbatim with importlib.import_module. Since we moved the code into
+    ``gen3d.model.step1x3d.pipeline.step1x3d_geometry``, we register the old
+    name as a sys.modules alias so diffusers can still find every component.
+    """
+    import sys
+
+    old_prefix = "step1x3d_geometry"
+    new_prefix = "gen3d.model.step1x3d.pipeline.step1x3d_geometry"
+
+    if old_prefix in sys.modules:
+        return
+
+    root = importlib.import_module(new_prefix)
+    sys.modules[old_prefix] = root
 
 
 def _install_rembg_bria_alias_patch() -> None:
