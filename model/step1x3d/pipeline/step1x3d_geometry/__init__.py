@@ -58,4 +58,6 @@ def warn(*args, **kwargs):
     logger.warn(*args, **kwargs)
 
 
-from . import models
+# Removed eager `from . import models` — that chain pulls in training-only
+# deps (pytorch3d etc.) which are not needed for inference. pipeline.py
+# imports the exact classes it needs directly.
