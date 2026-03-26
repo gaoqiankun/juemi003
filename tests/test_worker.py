@@ -9,11 +9,12 @@ WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
 if str(WORKSPACE_ROOT) not in sys.path:
     sys.path.insert(0, str(WORKSPACE_ROOT))
 
-from gen3d.model.base import ModelProviderExecutionError
+from gen3d.model.base import GenerationResult, ModelProviderExecutionError
 from gen3d.stages.gpu.worker import (
     ProcessGPUWorker,
     WorkerProcessConfig,
     _PendingRequest,
+    _sanitize_generation_results_for_ipc,
 )
 
 
@@ -152,3 +153,43 @@ def test_process_gpu_worker_stop_waits_for_clean_shutdown() -> None:
         assert worker._pending == {}
 
     asyncio.run(scenario())
+
+
+def test_sanitize_generation_results_for_ipc_moves_tensor_like_objects_to_cpu() -> None:
+    class FakeTensor:
+        def __init__(self, device_type: str) -> None:
+            self.device = type("Device", (), {"type": device_type})()
+
+        @property
+        def is_cuda(self) -> bool:
+            return self.device.type == "cuda"
+
+        def detach(self):
+            return self
+
+        def cpu(self):
+            return FakeTensor("cpu")
+
+    class FakeMesh:
+        __slots__ = ("vertices", "faces", "nested")
+
+        def __init__(self) -> None:
+            self.vertices = FakeTensor("cuda")
+            self.faces = FakeTensor("cuda")
+            self.nested = {"coords": FakeTensor("cuda")}
+
+    sanitized = _sanitize_generation_results_for_ipc(
+        [
+            GenerationResult(
+                mesh=FakeMesh(),
+                metadata={"attrs": [FakeTensor("cuda")]},
+            )
+        ]
+    )
+
+    assert len(sanitized) == 1
+    result = sanitized[0]
+    assert result.mesh.vertices.device.type == "cpu"
+    assert result.mesh.faces.device.type == "cpu"
+    assert result.mesh.nested["coords"].device.type == "cpu"
+    assert result.metadata["attrs"][0].device.type == "cpu"
