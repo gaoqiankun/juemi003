@@ -22,6 +22,7 @@ services:
       HF_HOME: /data/huggingface
       XDG_CACHE_HOME: /data/.cache
       TRITON_CACHE_DIR: /data/.triton
+      PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
       ARTIFACT_STORE_MODE: ${ARTIFACT_STORE_MODE:-local}
       DATABASE_PATH: /data/app.sqlite3
       ARTIFACTS_DIR: /data/artifacts

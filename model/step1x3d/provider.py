@@ -251,6 +251,10 @@ class Step1X3DProvider:
 
         # Stage 2: Texture synthesis (optional)
         if self._texture_pipeline is not None:
+            # Free geometry inference activations before texture pipeline runs
+            import torch
+            torch.cuda.empty_cache()
+
             # Step1X-3D texture pipeline may need post-processing utils
             try:
                 utils = importlib.import_module(self._PIPELINE_UTILS_MODULE)
