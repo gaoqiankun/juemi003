@@ -75,7 +75,8 @@ RUN python -m pip install \
       xatlas \
       rembg \
       onnxruntime \
-      scikit-image
+      scikit-image \
+      cupy-cuda12x
 
 RUN python -m pip install \
     "pytorch-lightning==2.6.1" \
