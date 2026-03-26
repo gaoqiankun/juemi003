@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import traceback
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
 
@@ -134,6 +135,7 @@ class PipelineCoordinator:
                         "task.processing_failed",
                         stage=exc.stage_name,
                         error=str(exc),
+                        traceback=traceback.format_exc(),
                     )
                     sequence.transition_to(
                         TaskStatus.FAILED,

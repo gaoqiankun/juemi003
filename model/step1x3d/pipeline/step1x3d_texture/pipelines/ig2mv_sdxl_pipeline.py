@@ -300,6 +300,12 @@ class IG2MVSDXLPipeline(StableDiffusionXLPipeline, CustomAdapterMixin):
 
         return image
 
+    def _decode_latents_with_vae_dtype(self, latents: torch.Tensor):
+        latents = latents.to(
+            next(iter(self.vae.post_quant_conv.parameters())).dtype
+        )
+        return self.vae.decode(latents, return_dict=False)[0]
+
     @torch.no_grad()
     def __call__(
         self,
@@ -980,7 +986,7 @@ class IG2MVSDXLPipeline(StableDiffusionXLPipeline, CustomAdapterMixin):
             else:
                 latents = latents / self.vae.config.scaling_factor
 
-            image = self.vae.decode(latents, return_dict=False)[0]
+            image = self._decode_latents_with_vae_dtype(latents)
 
             # cast back to fp16 if needed
             if needs_upcasting:

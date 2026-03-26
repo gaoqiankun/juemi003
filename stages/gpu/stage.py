@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+import traceback
 from dataclasses import dataclass
 
 import structlog
@@ -116,6 +117,7 @@ class GPUStage(BaseStage):
                     stage=self.name,
                     duration_seconds=round(duration_seconds, 6),
                     error=str(exc),
+                    traceback=traceback.format_exc(),
                 )
                 raise
             finally:
