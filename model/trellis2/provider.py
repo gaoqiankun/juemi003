@@ -128,21 +128,25 @@ class Trellis2Provider:
 
     async def run_batch(self, images, options, progress_cb=None, cancel_flags=None):
         _ = cancel_flags
+        loop = asyncio.get_running_loop()
         results: list[GenerationResult] = []
         for prepared_input in images:
             image = _extract_pil_image(prepared_input)
+
+            def emit_stage(stage_name: str) -> None:
+                if progress_cb is None:
+                    return
+                asyncio.run_coroutine_threadsafe(
+                    _emit_progress(progress_cb, stage_name), loop
+                )
+
             try:
-                mesh = await asyncio.to_thread(self._run_single, image, options)
+                mesh = await asyncio.to_thread(self._run_single, image, options, emit_stage)
             except Exception as exc:  # pragma: no cover - depends on external runtime
                 raise ModelProviderExecutionError(
                     stage_name="gpu_run",
                     message=f"TRELLIS2 inference failed: {exc}",
                 ) from exc
-
-            # Official TRELLIS2 progress hooks are not wired in Phase B round 1.
-            # We still emit the GPU stage sequence so API/event semantics remain stable.
-            for stage_name in ("ss", "shape", "material"):
-                await _emit_progress(progress_cb, stage_name)
 
             results.append(
                 GenerationResult(
@@ -216,9 +220,13 @@ class Trellis2Provider:
                 message=f"TRELLIS2 GLB export failed: {exc}",
             ) from exc
 
-    def _run_single(self, image: Any, options: dict[str, Any]) -> Any:
+    def _run_single(self, image: Any, options: dict[str, Any], emit_stage=None) -> Any:
         pipeline_type = self._resolve_pipeline_type(options)
-        return self._pipeline.run(
+
+        if emit_stage:
+            emit_stage("ss")
+
+        result = self._pipeline.run(
             image,
             pipeline_type=pipeline_type,
             sparse_structure_sampler_params={
@@ -243,7 +251,13 @@ class Trellis2Provider:
                 ),
             },
             max_num_tokens=options.get("max_num_tokens", 49_152),
-        )[0]
+        )
+
+        if emit_stage:
+            emit_stage("shape")
+            emit_stage("material")
+
+        return result[0]
 
     @classmethod
     def _resolve_pipeline_type(cls, options: dict[str, Any]) -> str:

@@ -165,11 +165,20 @@ class Step1X3DProvider:
 
     async def run_batch(self, images, options, progress_cb=None, cancel_flags=None):
         _ = cancel_flags
+        loop = asyncio.get_running_loop()
         results: list[GenerationResult] = []
         for prepared_input in images:
             image = _extract_pil_image(prepared_input)
+
+            def emit_stage(stage_name: str) -> None:
+                if progress_cb is None:
+                    return
+                asyncio.run_coroutine_threadsafe(
+                    _emit_progress(progress_cb, stage_name), loop
+                )
+
             try:
-                mesh = await asyncio.to_thread(self._run_single, image, options)
+                mesh = await asyncio.to_thread(self._run_single, image, options, emit_stage)
             except ModelProviderExecutionError:
                 raise
             except Exception as exc:
@@ -177,9 +186,6 @@ class Step1X3DProvider:
                     stage_name="gpu_run",
                     message=f"Step1X-3D inference failed: {exc}",
                 ) from exc
-
-            for stage_name in ("ss", "shape", "material"):
-                await _emit_progress(progress_cb, stage_name)
 
             results.append(
                 GenerationResult(
@@ -224,10 +230,13 @@ class Step1X3DProvider:
                 message=f"Step1X-3D GLB export failed: {exc}",
             ) from exc
 
-    def _run_single(self, image: Any, options: dict[str, Any]) -> Any:
+    def _run_single(self, image: Any, options: dict[str, Any], emit_stage=None) -> Any:
         _install_rembg_bria_alias_patch()
-        num_steps = options.get("num_inference_steps", 50)
+        num_steps = options.get("num_inference_steps", 25)
         guidance_scale = options.get("guidance_scale", 7.5)
+
+        if emit_stage:
+            emit_stage("ss")
 
         # Stage 1: Geometry generation
         output = self._geometry_pipeline(
@@ -236,6 +245,9 @@ class Step1X3DProvider:
             num_inference_steps=num_steps,
         )
         mesh = output.mesh[0] if hasattr(output, "mesh") else output
+
+        if emit_stage:
+            emit_stage("shape")
 
         # Stage 2: Texture synthesis (optional)
         if self._texture_pipeline is not None:
@@ -251,6 +263,9 @@ class Step1X3DProvider:
 
             texture_steps = options.get("texture_steps", 20)
             mesh = self._texture_pipeline(image, mesh, num_inference_steps=texture_steps)
+
+        if emit_stage:
+            emit_stage("material")
 
         return mesh
 
@@ -353,6 +368,8 @@ class Step1X3DProvider:
                     texture_pipeline = texture_pipeline_cls.from_pretrained(
                         model_reference, subfolder=texture_subfolder,
                     )
+                    if hasattr(texture_pipeline, "to"):
+                        texture_pipeline = texture_pipeline.to("cuda")
                 except Exception as exc:
                     raise ModelProviderConfigurationError(
                         f"failed to load Step1X-3D texture pipeline from "

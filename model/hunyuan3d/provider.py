@@ -154,11 +154,20 @@ class Hunyuan3DProvider:
 
     async def run_batch(self, images, options, progress_cb=None, cancel_flags=None):
         _ = cancel_flags
+        loop = asyncio.get_running_loop()
         results: list[GenerationResult] = []
         for prepared_input in images:
             image = _extract_pil_image(prepared_input)
+
+            def emit_stage(stage_name: str) -> None:
+                if progress_cb is None:
+                    return
+                asyncio.run_coroutine_threadsafe(
+                    _emit_progress(progress_cb, stage_name), loop
+                )
+
             try:
-                mesh = await asyncio.to_thread(self._run_single, image, options)
+                mesh = await asyncio.to_thread(self._run_single, image, options, emit_stage)
             except ModelProviderExecutionError:
                 raise
             except Exception as exc:
@@ -166,9 +175,6 @@ class Hunyuan3DProvider:
                     stage_name="gpu_run",
                     message=f"HunYuan3D-2 inference failed: {exc}",
                 ) from exc
-
-            for stage_name in ("ss", "shape", "material"):
-                await _emit_progress(progress_cb, stage_name)
 
             results.append(
                 GenerationResult(
@@ -215,10 +221,13 @@ class Hunyuan3DProvider:
                 message=f"HunYuan3D-2 GLB export failed: {exc}",
             ) from exc
 
-    def _run_single(self, image: Any, options: dict[str, Any]) -> Any:
-        num_steps = options.get("num_steps", 50)
+    def _run_single(self, image: Any, options: dict[str, Any], emit_stage=None) -> Any:
+        num_steps = options.get("num_steps", 25)
         guidance_scale = options.get("guidance_scale", 5.5)
         octree_resolution = options.get("octree_resolution", 256)
+
+        if emit_stage:
+            emit_stage("ss")
 
         out = self._shape_pipeline(
             image=image,
@@ -228,8 +237,14 @@ class Hunyuan3DProvider:
         )
         mesh = out[0]
 
+        if emit_stage:
+            emit_stage("shape")
+
         if self._texture_pipeline is not None:
             mesh = self._texture_pipeline(mesh, image)
+
+        if emit_stage:
+            emit_stage("material")
 
         return mesh
 
