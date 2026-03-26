@@ -1,13 +1,9 @@
 from __future__ import annotations
 
 import importlib
-import inspect
-import logging
 import os
 from pathlib import Path
 from typing import Any
-
-logger = logging.getLogger(__name__)
 
 _DEFAULT_CACHE_ROOT = "~/.cache/cubie-models"
 _DEFAULT_CACHE_ENV = "CUBIE_MODEL_CACHE"
@@ -15,26 +11,95 @@ _LEGACY_CACHE_ENV = "HY3DGEN_MODELS"
 _DEFAULT_SUBFOLDER = "hunyuan3d-dit-v2-0"
 _DEFAULT_DTYPE = "float16"
 
+_OWN_PKG = "gen3d.model.hunyuan3d.pipeline.shapegen"
+
+
+def _get_shapegen():
+    """Import the shapegen package, applying sys.modules aliases before use."""
+    import sys
+
+    # Register hy3dgen.shapegen → our package so that class paths in config.yaml resolve.
+    _register_alias("hy3dgen.shapegen", _OWN_PKG, sys)
+    _register_alias("hy3dshape", _OWN_PKG, sys)
+
+    return importlib.import_module(_OWN_PKG)
+
+
+def _register_alias(old_prefix: str, new_prefix: str, sys_mod: Any) -> None:
+    """Register sys.modules aliases: old_prefix.* → new_prefix.*"""
+    import sys as _sys
+
+    # Force-load the new package first so submodules are in sys.modules.
+    try:
+        importlib.import_module(new_prefix)
+    except Exception:
+        pass
+
+    if old_prefix in _sys.modules:
+        return
+
+    for key, mod in list(_sys.modules.items()):
+        if key == new_prefix or key.startswith(new_prefix + "."):
+            alias = old_prefix + key[len(new_prefix):]
+            _sys.modules.setdefault(alias, mod)
+
+
+def get_obj_from_str(string: str) -> Any:
+    """Import a class/function by dotted path string, with package prefix remapping."""
+    remapped = _remap_class_path(string)
+    module_path, cls_name = remapped.rsplit(".", 1)
+    module = importlib.import_module(module_path)
+    return getattr(module, cls_name)
+
+
+def _remap_class_path(path: str) -> str:
+    """Rewrite legacy class paths from config.yaml to our internal package."""
+    replacements = [
+        ("hy3dshape.", f"{_OWN_PKG}."),
+        ("hy3dgen.shapegen.", f"{_OWN_PKG}."),
+    ]
+    for old, new in replacements:
+        if path.startswith(old):
+            return new + path[len(old):]
+    return path
+
+
+def instantiate_from_config(config: dict[str, Any], **kwargs: Any) -> Any:
+    """Instantiate a class from a config dict with a ``target`` key."""
+    if "target" not in config:
+        raise KeyError("Expected key `target` to instantiate.")
+
+    target = config["target"]
+    try:
+        cls = get_obj_from_str(target)
+    except Exception as exc:
+        # Try legacy remap as fallback
+        try:
+            remapped = target.replace("hy3dshape", "hy3dgen.shapegen")
+            cls = get_obj_from_str(remapped)
+        except Exception:
+            raise exc
+
+    params = config.get("params", {})
+    kwargs.update(params)
+    return cls(**kwargs)
+
 
 class Hunyuan3DDiTFlowMatchingPipeline:
     """Shape-generation entry for HunYuan3D inference.
 
-    The loader follows checkpoint-style loading (config.yaml + model weights)
-    instead of diffusers directory loading that requires model_index.json.
+    Delegates to ``shapegen.Hunyuan3DDiTFlowMatchingPipeline`` from the
+    in-repo shapegen package (gen3d.model.hunyuan3d.pipeline.shapegen).
+
+    Loading follows the checkpoint-style loading chain (config.yaml + weights)
+    that the original Hunyuan3DDiTPipeline implements:
+      from_pretrained → smart_load_model → resolve config_path + ckpt_path
+      from_single_file → read config.yaml → instantiate_from_config each component
+                       → load state_dict from safetensors / ckpt
     """
 
-    def __init__(
-        self,
-        *,
-        pipeline: Any,
-        model_root: Path,
-        model_dir: Path,
-        subfolder: str,
-    ) -> None:
-        self._pipeline = pipeline
-        self._model_root = model_root
-        self._model_dir = model_dir
-        self._subfolder = subfolder
+    def __init__(self, *, inner: Any) -> None:
+        self._inner = inner
 
     @classmethod
     def from_pretrained(
@@ -48,86 +113,69 @@ class Hunyuan3DDiTFlowMatchingPipeline:
         device: str | None = "cuda",
         **kwargs: Any,
     ) -> "Hunyuan3DDiTFlowMatchingPipeline":
-        resolved_dtype = _resolve_torch_dtype(dtype)
-        model_root = _resolve_model_root(
+        torch = importlib.import_module("torch")
+        resolved_dtype = dtype if dtype is not None else getattr(torch, _DEFAULT_DTYPE)
+
+        shapegen = _get_shapegen()
+        inner_cls = shapegen.Hunyuan3DDiTFlowMatchingPipeline
+
+        config_path, ckpt_path = _smart_load_model(
             model_path=model_path,
             subfolder=subfolder,
-            allow_patterns=[f"{subfolder}/*"],
-        )
-        model_dir = _resolve_subfolder(model_root=model_root, subfolder=subfolder)
-        config_path, ckpt_path = _resolve_checkpoint_assets(
-            model_dir=model_dir,
             use_safetensors=use_safetensors,
             variant=variant,
         )
-        pipeline = _load_checkpoint_pipeline(
-            ckpt_path=ckpt_path,
-            config_path=config_path,
-            model_dir=model_dir,
-            torch_dtype=resolved_dtype,
-            extra_kwargs=kwargs,
-        )
-        instance = cls(
-            pipeline=pipeline,
-            model_root=model_root,
-            model_dir=model_dir,
-            subfolder=subfolder,
-        )
-        if device or dtype is not None:
-            instance.to(device=device, dtype=resolved_dtype)
-        return instance
 
-    def to(self, device: str | None = None, dtype: Any | None = None) -> "Hunyuan3DDiTFlowMatchingPipeline":
-        if hasattr(self._pipeline, "to"):
-            move_kwargs: dict[str, Any] = {}
+        inner = inner_cls.from_single_file(
+            ckpt_path,
+            config_path,
+            device=device,
+            dtype=resolved_dtype,
+            use_safetensors=use_safetensors,
+            **kwargs,
+        )
+        return cls(inner=inner)
+
+    def to(
+        self, device: str | None = None, dtype: Any | None = None
+    ) -> "Hunyuan3DDiTFlowMatchingPipeline":
+        if hasattr(self._inner, "to"):
+            kwargs: dict[str, Any] = {}
             if device is not None:
-                move_kwargs["device"] = device
+                kwargs["device"] = device
             if dtype is not None:
-                move_kwargs["dtype"] = dtype
-            if move_kwargs:
-                maybe_pipeline = self._pipeline.to(**move_kwargs)
-                if maybe_pipeline is not None:
-                    self._pipeline = maybe_pipeline
+                kwargs["dtype"] = dtype
+            if kwargs:
+                self._inner.to(**kwargs)
         return self
 
     def cuda(self) -> "Hunyuan3DDiTFlowMatchingPipeline":
         return self.to(device="cuda")
 
-    def __call__(
-        self,
-        *,
-        image: Any = None,
-        num_inference_steps: int = 50,
-        guidance_scale: float = 5.0,
-        octree_resolution: int = 256,
-        **kwargs: Any,
-    ) -> list[Any]:
-        call_kwargs = {
-            "image": image,
-            "num_inference_steps": num_inference_steps,
-            "guidance_scale": guidance_scale,
-            "octree_resolution": octree_resolution,
-        }
-        call_kwargs.update(kwargs)
-        output = _invoke_pipeline(self._pipeline, call_kwargs, image)
-        return _coerce_mesh_list(output)
+    def __call__(self, **kwargs: Any) -> Any:
+        return self._inner(**kwargs)
 
 
-def _resolve_model_root(
-    *,
+# ---------------------------------------------------------------------------
+# Internal helpers mirroring hy3dgen.shapegen.utils.smart_load_model
+# ---------------------------------------------------------------------------
+
+
+def _smart_load_model(
     model_path: str,
     subfolder: str,
-    allow_patterns: list[str],
-) -> Path:
-    input_path = Path(model_path).expanduser()
-    if input_path.exists():
-        return input_path.resolve()
+    use_safetensors: bool,
+    variant: str | None,
+) -> tuple[str, str]:
+    """Resolve config.yaml and checkpoint paths, downloading from HF if needed."""
+    original_model_path = model_path
 
-    for cache_root in _iter_cache_roots():
-        cache_candidate = cache_root / model_path
-        if cache_candidate.exists():
-            return cache_candidate.resolve()
+    # 1. Try each cache root
+    for candidate in _iter_model_dirs(model_path, subfolder):
+        if candidate.exists():
+            return _build_asset_paths(candidate, use_safetensors, variant)
 
+    # 2. Download from HuggingFace
     try:
         huggingface_hub = importlib.import_module("huggingface_hub")
     except ModuleNotFoundError as exc:
@@ -139,198 +187,60 @@ def _resolve_model_root(
     if snapshot_download is None:
         raise RuntimeError("huggingface_hub.snapshot_download is not available")
 
-    logger.info(
-        "Downloading HunYuan3D-2 shape assets from Hugging Face",
-        extra={"repo_id": model_path, "subfolder": subfolder},
-    )
     downloaded_root = Path(
         snapshot_download(
-            repo_id=model_path,
-            allow_patterns=allow_patterns,
+            repo_id=original_model_path,
+            allow_patterns=[f"{subfolder}/*"],
         )
     )
-    return downloaded_root.resolve()
+    model_dir = downloaded_root / subfolder
+    if not model_dir.exists():
+        raise FileNotFoundError(
+            f"Downloaded HunYuan3D-2 assets but could not find {subfolder}/ under {downloaded_root}"
+        )
+    return _build_asset_paths(model_dir, use_safetensors, variant)
 
 
-def _iter_cache_roots() -> list[Path]:
-    roots: list[Path] = []
+def _iter_model_dirs(model_path: str, subfolder: str):
+    """Yield candidate local directories in priority order."""
+    # Absolute / explicit local paths
+    expanded = Path(model_path).expanduser()
+    if expanded.is_absolute() or model_path.startswith((".", "~", "..")):
+        yield expanded / subfolder
+        yield expanded
+        return
+
+    # Cache roots
+    for cache_root in _iter_cache_roots():
+        yield cache_root / model_path / subfolder
+        yield cache_root / model_path
+
+
+def _iter_cache_roots():
     for env_name in (_DEFAULT_CACHE_ENV, _LEGACY_CACHE_ENV):
         env_value = os.environ.get(env_name)
         if not env_value:
             continue
-        roots.append(Path(env_value).expanduser())
-    roots.append(Path(_DEFAULT_CACHE_ROOT).expanduser())
-    return roots
+        yield Path(env_value).expanduser()
+    yield Path(_DEFAULT_CACHE_ROOT).expanduser()
 
 
-def _resolve_subfolder(*, model_root: Path, subfolder: str) -> Path:
-    candidate = model_root / subfolder
-    if candidate.exists():
-        return candidate
-    return model_root
-
-
-def _resolve_checkpoint_assets(
-    *,
-    model_dir: Path,
-    use_safetensors: bool,
-    variant: str | None,
-) -> tuple[Path, Path]:
+def _build_asset_paths(
+    model_dir: Path, use_safetensors: bool, variant: str | None
+) -> tuple[str, str]:
     config_path = model_dir / "config.yaml"
     if not config_path.exists():
         raise FileNotFoundError(f"Missing config.yaml under {model_dir}")
 
-    ckpt_candidates = _build_checkpoint_candidates(
-        model_dir=model_dir,
-        use_safetensors=use_safetensors,
-        variant=variant,
-    )
-    for candidate in ckpt_candidates:
-        if candidate.exists():
-            return config_path, candidate
-
-    attempted = ", ".join(str(path.name) for path in ckpt_candidates)
-    raise FileNotFoundError(
-        f"Unable to locate checkpoint under {model_dir}; tried: {attempted}"
-    )
-
-
-def _build_checkpoint_candidates(
-    *,
-    model_dir: Path,
-    use_safetensors: bool,
-    variant: str | None,
-) -> list[Path]:
-    preferred_extensions = ["safetensors", "ckpt"]
-    if not use_safetensors:
-        preferred_extensions = ["ckpt", "safetensors"]
-
-    variant_suffixes: list[str] = []
-    if variant:
-        variant_suffixes.append(f".{variant}")
-    variant_suffixes.append("")
-
-    candidates: list[Path] = []
-    for extension in preferred_extensions:
-        for suffix in variant_suffixes:
-            candidates.append(model_dir / f"model{suffix}.{extension}")
-    return candidates
-
-
-def _load_checkpoint_pipeline(
-    *,
-    ckpt_path: Path,
-    config_path: Path,
-    model_dir: Path,
-    torch_dtype: Any,
-    extra_kwargs: dict[str, Any],
-) -> Any:
-    try:
-        diffusers = importlib.import_module("diffusers")
-    except ModuleNotFoundError as exc:
-        raise RuntimeError(
-            "diffusers is required for HunYuan3D shape inference runtime"
-        ) from exc
-
-    pipeline_cls = getattr(diffusers, "DiffusionPipeline", None)
-    if pipeline_cls is None:
-        raise RuntimeError("diffusers.DiffusionPipeline is not available")
-
-    from_single_file = getattr(pipeline_cls, "from_single_file", None)
-    if from_single_file is None:
-        raise RuntimeError(
-            "diffusers.DiffusionPipeline.from_single_file is required for checkpoint loading"
+    extension = "safetensors" if use_safetensors else "ckpt"
+    variant_suffix = f".{variant}" if variant else ""
+    ckpt_name = f"model{variant_suffix}.{extension}"
+    ckpt_path = model_dir / ckpt_name
+    if not ckpt_path.exists():
+        # Fallback: try without variant
+        ckpt_path = model_dir / f"model.{extension}"
+    if not ckpt_path.exists():
+        raise FileNotFoundError(
+            f"Unable to locate checkpoint under {model_dir}; tried {ckpt_name}"
         )
-
-    load_kwargs: dict[str, Any] = {
-        "torch_dtype": torch_dtype,
-        "trust_remote_code": True,
-        "config": str(model_dir),
-        "original_config_file": str(config_path),
-    }
-    load_kwargs.update(extra_kwargs)
-
-    filtered_kwargs = _filter_kwargs(from_single_file, _drop_none_values(load_kwargs))
-    try:
-        return from_single_file(str(ckpt_path), **filtered_kwargs)
-    except Exception as exc:
-        raise RuntimeError(
-            f"failed to load HunYuan3D shape checkpoint from {ckpt_path}: {exc}"
-        ) from exc
-
-
-def _resolve_torch_dtype(dtype: Any | None) -> Any:
-    if dtype is not None:
-        return dtype
-    try:
-        torch = importlib.import_module("torch")
-    except ModuleNotFoundError as exc:
-        raise RuntimeError("torch is required for HunYuan3D-2 shape inference runtime") from exc
-    return getattr(torch, _DEFAULT_DTYPE)
-
-
-def _invoke_pipeline(pipeline: Any, call_kwargs: dict[str, Any], image: Any) -> Any:
-    filtered_kwargs = _filter_kwargs(pipeline, call_kwargs)
-    try:
-        return pipeline(**filtered_kwargs)
-    except TypeError:
-        fallback_kwargs = dict(filtered_kwargs)
-        fallback_kwargs.pop("image", None)
-        return pipeline(image, **fallback_kwargs)
-
-
-def _filter_kwargs(callable_obj: Any, values: dict[str, Any]) -> dict[str, Any]:
-    try:
-        signature = inspect.signature(callable_obj)
-    except (TypeError, ValueError):
-        return dict(values)
-    parameters = signature.parameters.values()
-    if any(param.kind == inspect.Parameter.VAR_KEYWORD for param in parameters):
-        return dict(values)
-    accepted_names = {param.name for param in parameters}
-    return {key: value for key, value in values.items() if key in accepted_names}
-
-
-def _drop_none_values(values: dict[str, Any]) -> dict[str, Any]:
-    return {key: value for key, value in values.items() if value is not None}
-
-
-def _coerce_mesh_list(output: Any) -> list[Any]:
-    if isinstance(output, list):
-        return output
-    if isinstance(output, tuple):
-        if output and isinstance(output[0], list):
-            return output[0]
-        return list(output)
-    if isinstance(output, dict):
-        extracted = _extract_mapping_value(output)
-        if extracted is not None:
-            return extracted
-        return [output]
-    extracted = _extract_object_value(output)
-    if extracted is not None:
-        return extracted
-    return [output]
-
-
-def _extract_mapping_value(output: dict[str, Any]) -> list[Any] | None:
-    for key in ("mesh", "meshes", "result", "results"):
-        value = output.get(key)
-        if value is None:
-            continue
-        if isinstance(value, list):
-            return value
-        return [value]
-    return None
-
-
-def _extract_object_value(output: Any) -> list[Any] | None:
-    for attr in ("mesh", "meshes", "result", "results"):
-        if not hasattr(output, attr):
-            continue
-        value = getattr(output, attr)
-        if isinstance(value, list):
-            return value
-        if value is not None:
-            return [value]
-    return None
+    return str(config_path), str(ckpt_path)

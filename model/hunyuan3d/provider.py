@@ -282,6 +282,11 @@ class Hunyuan3DProvider:
             f"{texture_pipeline_cls.__module__}.{texture_pipeline_cls.__name__}"
         )
 
+        # Register sys.modules aliases so that class paths in config.yaml
+        # (e.g. "hy3dgen.shapegen.models.autoencoders.model.ShapeVAE") resolve
+        # to our internal package after shapegen is imported.
+        _install_hy3dgen_alias()
+
         shape_pipeline = None
         texture_pipeline = None
         if load_pipeline:
@@ -425,3 +430,29 @@ def _extract_pil_image(prepared_input: Any) -> Any:
     if isinstance(prepared_input, dict) and "image" in prepared_input:
         return prepared_input["image"]
     return prepared_input
+
+
+def _install_hy3dgen_alias() -> None:
+    """Register ``hy3dgen.shapegen.*`` and ``hy3dshape.*`` as sys.modules aliases
+    for our internal shapegen package.
+
+    config.yaml class paths (e.g. ``hy3dgen.shapegen.models.autoencoders.model.ShapeVAE``)
+    are resolved via importlib at runtime.  Since we moved the code into
+    ``gen3d.model.hunyuan3d.pipeline.shapegen``, we register all already-loaded
+    submodules under the legacy names so that class resolution never re-executes
+    module code.
+
+    Must be called AFTER the shapegen package has been imported (which happens
+    inside ``Hunyuan3DDiTFlowMatchingPipeline.from_pretrained``).
+    """
+    import sys
+
+    new_prefix = "gen3d.model.hunyuan3d.pipeline.shapegen"
+
+    for old_prefix in ("hy3dgen.shapegen", "hy3dshape"):
+        if old_prefix in sys.modules:
+            continue
+        for key, mod in list(sys.modules.items()):
+            if key == new_prefix or key.startswith(new_prefix + "."):
+                alias = old_prefix + key[len(new_prefix):]
+                sys.modules.setdefault(alias, mod)
