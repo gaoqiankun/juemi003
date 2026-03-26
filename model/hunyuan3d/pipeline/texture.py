@@ -9,15 +9,16 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_CACHE_ROOT = "~/.cache/hy3dgen"
-_DEFAULT_CACHE_ENV = "HY3DGEN_MODELS"
+_DEFAULT_CACHE_ROOT = "~/.cache/cubie-models"
+_DEFAULT_CACHE_ENV = "CUBIE_MODEL_CACHE"
+_LEGACY_CACHE_ENV = "HY3DGEN_MODELS"
 _DEFAULT_SUBFOLDER = "hunyuan3d-paint-v2-0-turbo"
 _DEFAULT_DELIGHT_SUBFOLDER = "hunyuan3d-delight-v2-0"
 _DEFAULT_DTYPE = "float16"
 
 
 class Hunyuan3DPaintPipeline:
-    """Self-maintained texture-generation entry for HunYuan3D-2 inference."""
+    """Texture-generation entry for HunYuan3D inference."""
 
     def __init__(
         self,
@@ -37,6 +38,8 @@ class Hunyuan3DPaintPipeline:
         *,
         subfolder: str = _DEFAULT_SUBFOLDER,
         delight_subfolder: str = _DEFAULT_DELIGHT_SUBFOLDER,
+        use_safetensors: bool = True,
+        variant: str | None = "fp16",
         dtype: Any | None = None,
         device: str | None = "cuda",
         **kwargs: Any,
@@ -50,9 +53,12 @@ class Hunyuan3DPaintPipeline:
                 f"{subfolder}/*",
             ],
         )
-        pipeline = _load_diffusers_pipeline(
+        pipeline = _load_texture_pipeline(
             model_root=model_root,
             subfolder=subfolder,
+            delight_subfolder=delight_subfolder,
+            use_safetensors=use_safetensors,
+            variant=variant,
             torch_dtype=resolved_dtype,
             extra_kwargs=kwargs,
         )
@@ -61,7 +67,7 @@ class Hunyuan3DPaintPipeline:
             model_root=model_root,
             subfolder=subfolder,
         )
-        if device:
+        if device or dtype is not None:
             instance.to(device=device, dtype=resolved_dtype)
         return instance
 
@@ -73,7 +79,9 @@ class Hunyuan3DPaintPipeline:
             if dtype is not None:
                 move_kwargs["dtype"] = dtype
             if move_kwargs:
-                self._pipeline = self._pipeline.to(**move_kwargs)
+                maybe_pipeline = self._pipeline.to(**move_kwargs)
+                if maybe_pipeline is not None:
+                    self._pipeline = maybe_pipeline
         return self
 
     def cuda(self) -> "Hunyuan3DPaintPipeline":
@@ -97,11 +105,11 @@ def _resolve_model_root(
     if input_path.exists():
         return input_path.resolve()
 
-    cache_root = Path(os.environ.get(_DEFAULT_CACHE_ENV, _DEFAULT_CACHE_ROOT)).expanduser()
-    cache_candidate = cache_root / model_path
-    if cache_candidate.exists():
-        if all((cache_candidate / subfolder).exists() for subfolder in required_subfolders):
-            return cache_candidate.resolve()
+    for cache_root in _iter_cache_roots():
+        cache_candidate = cache_root / model_path
+        if cache_candidate.exists():
+            if all((cache_candidate / subfolder).exists() for subfolder in required_subfolders):
+                return cache_candidate.resolve()
 
     try:
         huggingface_hub = importlib.import_module("huggingface_hub")
@@ -127,10 +135,24 @@ def _resolve_model_root(
     return downloaded_root.resolve()
 
 
-def _load_diffusers_pipeline(
+def _iter_cache_roots() -> list[Path]:
+    roots: list[Path] = []
+    for env_name in (_DEFAULT_CACHE_ENV, _LEGACY_CACHE_ENV):
+        env_value = os.environ.get(env_name)
+        if not env_value:
+            continue
+        roots.append(Path(env_value).expanduser())
+    roots.append(Path(_DEFAULT_CACHE_ROOT).expanduser())
+    return roots
+
+
+def _load_texture_pipeline(
     *,
     model_root: Path,
     subfolder: str,
+    delight_subfolder: str,
+    use_safetensors: bool,
+    variant: str | None,
     torch_dtype: Any,
     extra_kwargs: dict[str, Any],
 ) -> Any:
@@ -138,26 +160,116 @@ def _load_diffusers_pipeline(
         diffusers = importlib.import_module("diffusers")
     except ModuleNotFoundError as exc:
         raise RuntimeError(
-            "diffusers is required for HunYuan3D-2 texture inference runtime"
+            "diffusers is required for HunYuan3D texture inference runtime"
         ) from exc
 
     pipeline_cls = getattr(diffusers, "DiffusionPipeline", None)
     if pipeline_cls is None:
         raise RuntimeError("diffusers.DiffusionPipeline is not available")
 
-    load_kwargs: dict[str, Any] = {
+    base_kwargs: dict[str, Any] = {
         "torch_dtype": torch_dtype,
         "trust_remote_code": True,
+        "delight_subfolder": delight_subfolder,
     }
-    load_kwargs.update(extra_kwargs)
-    if not (model_root / subfolder).exists():
-        load_kwargs.pop("subfolder", None)
-        return pipeline_cls.from_pretrained(str(model_root), **load_kwargs)
-    return pipeline_cls.from_pretrained(
-        str(model_root),
-        subfolder=subfolder,
-        **load_kwargs,
+    base_kwargs.update(extra_kwargs)
+
+    from_pretrained = getattr(pipeline_cls, "from_pretrained")
+    pretrain_kwargs = _filter_kwargs(from_pretrained, _drop_none_values({
+        **base_kwargs,
+        "subfolder": subfolder,
+    }))
+    try:
+        return from_pretrained(str(model_root), **pretrain_kwargs)
+    except Exception as from_pretrained_error:
+        model_dir = _resolve_subfolder(model_root=model_root, subfolder=subfolder)
+        config_path, ckpt_path = _resolve_checkpoint_assets(
+            model_dir=model_dir,
+            use_safetensors=use_safetensors,
+            variant=variant,
+        )
+
+        from_single_file = getattr(pipeline_cls, "from_single_file", None)
+        if from_single_file is None:
+            raise RuntimeError(
+                "failed to load texture pipeline from checkpoint and "
+                "diffusers.DiffusionPipeline.from_single_file is unavailable"
+            ) from from_pretrained_error
+
+        single_file_kwargs = _filter_kwargs(
+            from_single_file,
+            _drop_none_values(
+                {
+                    **base_kwargs,
+                    "config": str(model_dir),
+                    "original_config_file": str(config_path),
+                    "subfolder": subfolder,
+                    "delight_subfolder": delight_subfolder,
+                    "delight_model_path": str(model_root / delight_subfolder),
+                }
+            ),
+        )
+        try:
+            return from_single_file(str(ckpt_path), **single_file_kwargs)
+        except Exception as from_single_file_error:
+            raise RuntimeError(
+                "failed to load HunYuan3D texture checkpoint "
+                f"from {ckpt_path}: {from_single_file_error}"
+            ) from from_pretrained_error
+
+
+def _resolve_subfolder(*, model_root: Path, subfolder: str) -> Path:
+    candidate = model_root / subfolder
+    if candidate.exists():
+        return candidate
+    return model_root
+
+
+def _resolve_checkpoint_assets(
+    *,
+    model_dir: Path,
+    use_safetensors: bool,
+    variant: str | None,
+) -> tuple[Path, Path]:
+    config_path = model_dir / "config.yaml"
+    if not config_path.exists():
+        raise FileNotFoundError(f"Missing config.yaml under {model_dir}")
+
+    ckpt_candidates = _build_checkpoint_candidates(
+        model_dir=model_dir,
+        use_safetensors=use_safetensors,
+        variant=variant,
     )
+    for candidate in ckpt_candidates:
+        if candidate.exists():
+            return config_path, candidate
+
+    attempted = ", ".join(str(path.name) for path in ckpt_candidates)
+    raise FileNotFoundError(
+        f"Unable to locate checkpoint under {model_dir}; tried: {attempted}"
+    )
+
+
+def _build_checkpoint_candidates(
+    *,
+    model_dir: Path,
+    use_safetensors: bool,
+    variant: str | None,
+) -> list[Path]:
+    preferred_extensions = ["safetensors", "ckpt"]
+    if not use_safetensors:
+        preferred_extensions = ["ckpt", "safetensors"]
+
+    variant_suffixes: list[str] = []
+    if variant:
+        variant_suffixes.append(f".{variant}")
+    variant_suffixes.append("")
+
+    candidates: list[Path] = []
+    for extension in preferred_extensions:
+        for suffix in variant_suffixes:
+            candidates.append(model_dir / f"model{suffix}.{extension}")
+    return candidates
 
 
 def _resolve_torch_dtype(dtype: Any | None) -> Any:
@@ -200,6 +312,10 @@ def _filter_kwargs(callable_obj: Any, values: dict[str, Any]) -> dict[str, Any]:
         return dict(values)
     accepted_names = {param.name for param in parameters}
     return {key: value for key, value in values.items() if key in accepted_names}
+
+
+def _drop_none_values(values: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in values.items() if value is not None}
 
 
 def _extract_textured_mesh(output: Any) -> Any | None:

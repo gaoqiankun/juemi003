@@ -7,6 +7,10 @@
 
 ## 2026-03-26
 
+- **HunYuan3D pipeline checkpoint 加载去外部目录依赖**：`model/hunyuan3d/pipeline/{shape,texture}.py` 改为在仓库内实现 checkpoint 解析与加载回退（`config.yaml + model(.variant).{safetensors|ckpt}`），不再依赖外部目录代码或 `model_index.json`；provider 调用方式保持不变。（plan: 2026-03-26-hunyuan3d-checkpoint-loading-no-external.md）
+
+- **HunYuan3D pipeline 加载回退到上游 hy3dgen 语义**：`model/hunyuan3d/pipeline/{shape,texture}.py` 不再走 `diffusers.DiffusionPipeline.from_pretrained`（依赖 `model_index.json`），改为委托 `Hunyuan3D-2/hy3dgen/*/pipelines.py` 的 `from_pretrained`，恢复 `config.yaml + model(.fp16).safetensors/.ckpt` 的 checkpoint 加载路径。（plan: 2026-03-26-hunyuan3d-checkpoint-loading-fix.md）
+
 - **Step1X-3D texture pipeline 恢复硬依赖 pytorch3d**：在 `docker/trellis2/Dockerfile` 显式安装 `pytorch3d` wheel，并回退 `model/step1x3d/provider.py` 的缺依赖降级逻辑，恢复 texture pipeline 原始加载语义（`ModuleNotFoundError` 仅在模块导入阶段被忽略，加载阶段失败仍报配置错误）。（plan: 2026-03-26-step1x3d-pytorch3d-docker-explicit-install.md）
 
 ## 2026-03-25
