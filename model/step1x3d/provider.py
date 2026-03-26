@@ -297,11 +297,7 @@ class Step1X3DProvider:
             texture_steps = options.get("texture_steps", 20)
             if hasattr(self._texture_pipeline, "config"):
                 self._texture_pipeline.config.num_inference_steps = texture_steps
-            if torch is not None and hasattr(torch, "autocast"):
-                with torch.autocast("cuda", dtype=torch.float16):
-                    mesh = self._texture_pipeline(image, mesh)
-            else:
-                mesh = self._texture_pipeline(image, mesh)
+            mesh = self._texture_pipeline(image, mesh)
 
         if emit_stage:
             emit_stage("material")

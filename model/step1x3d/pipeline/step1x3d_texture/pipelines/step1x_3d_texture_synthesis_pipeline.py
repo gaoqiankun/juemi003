@@ -163,6 +163,11 @@ class Step1X3DTexturePipeline:
         pipe.load_custom_adapter(adapter_path, "step1x-3d-ig2v.safetensors")
         pipe.to(device=device, dtype=dtype)
         pipe.cond_encoder.to(device=device, dtype=dtype)
+        # diffusers older versions don't register_module for attn processors,
+        # so pipe.to(dtype) misses them; convert explicitly
+        for module in pipe.unet.modules():
+            if hasattr(module, "processor") and isinstance(module.processor, torch.nn.Module):
+                module.processor.to(device=device, dtype=dtype)
 
         # load lora if provided
         if lora_model is not None:
