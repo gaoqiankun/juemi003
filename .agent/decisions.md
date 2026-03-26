@@ -7,8 +7,6 @@
 
 ## 2026-03-26
 
-- **GPU 子进程回传结果统一 CPU 化，避免 CUDA IPC 依赖**：`model/trellis2/provider.py` 在 `GenerationResult` 返回前递归将 tensor-like 值 `detach().cpu()`；`stages/gpu/worker.py` 新增 `_sanitize_generation_results_for_ipc()` 作为跨 provider 传输层兜底，确保 `multiprocessing.Queue` 不再裸传 CUDA tensor，规避容器内 `pidfd_getfd` 限制导致的 `rebuild_cuda_tensor/_new_shared_cuda` 失败。（plan: 2026-03-26-cuda-tensor-ipc-fix.md）
-
 - **real + ProcessGPUWorker 模式主进程改为 metadata-only provider**：`api/server.py` 的 `build_provider()` 在 real 模式不再调用 `from_pretrained()`，改为构造各 provider 的 `metadata_only()` 实例；真实权重加载仅发生在 `stages/gpu/worker.py` 子进程 `_build_process_provider()`。主进程仍保留 `export_glb()`、`stages`、`estimate_vram_mb()` 能力，避免重复占用 GPU 显存。（plan: 2026-03-26-process-worker-main-process-metadata-provider.md）
 
 - **HunYuan3D pipeline checkpoint 加载去外部目录依赖**：`model/hunyuan3d/pipeline/{shape,texture}.py` 改为在仓库内实现 checkpoint 解析与加载回退（`config.yaml + model(.variant).{safetensors|ckpt}`），不再依赖外部目录代码或 `model_index.json`；provider 调用方式保持不变。（plan: 2026-03-26-hunyuan3d-checkpoint-loading-no-external.md）

@@ -170,15 +170,13 @@ class Trellis2Provider:
 
             results.append(
                 GenerationResult(
-                    mesh=_move_tensors_to_cpu(mesh),
-                    metadata=_move_tensors_to_cpu(
-                        {
+                    mesh=mesh,
+                    metadata={
                         "mock": False,
                         "provider": "trellis2",
                         "model_path": self._model_path,
                         "resolution": options.get("resolution", 1024),
-                        }
-                    ),
+                    },
                 )
             )
         return results
@@ -503,84 +501,3 @@ def _extract_pil_image(prepared_input: Any) -> Any:
     if isinstance(prepared_input, dict) and "image" in prepared_input:
         return prepared_input["image"]
     return prepared_input
-
-
-def _move_tensors_to_cpu(value: Any, _visited: set[int] | None = None) -> Any:
-    converted = _detach_tensor_like_to_cpu(value)
-    if converted is not value:
-        return converted
-
-    if value is None or isinstance(value, (str, bytes, int, float, bool)):
-        return value
-
-    if _visited is None:
-        _visited = set()
-    value_id = id(value)
-    if value_id in _visited:
-        return value
-
-    if isinstance(value, dict):
-        _visited.add(value_id)
-        return {
-            key: _move_tensors_to_cpu(item, _visited)
-            for key, item in value.items()
-        }
-    if isinstance(value, list):
-        _visited.add(value_id)
-        return [_move_tensors_to_cpu(item, _visited) for item in value]
-    if isinstance(value, tuple):
-        _visited.add(value_id)
-        converted_items = tuple(_move_tensors_to_cpu(item, _visited) for item in value)
-        if hasattr(value, "_fields"):
-            return type(value)(*converted_items)
-        return converted_items
-    if isinstance(value, set):
-        _visited.add(value_id)
-        return {_move_tensors_to_cpu(item, _visited) for item in value}
-
-    if hasattr(value, "__dict__"):
-        _visited.add(value_id)
-        for attr_name, attr_value in vars(value).items():
-            try:
-                setattr(value, attr_name, _move_tensors_to_cpu(attr_value, _visited))
-            except Exception:
-                continue
-        return value
-
-    slots = getattr(type(value), "__slots__", ())
-    if slots:
-        _visited.add(value_id)
-        for slot_name in slots:
-            if slot_name.startswith("__"):
-                continue
-            if not hasattr(value, slot_name):
-                continue
-            try:
-                slot_value = getattr(value, slot_name)
-                setattr(value, slot_name, _move_tensors_to_cpu(slot_value, _visited))
-            except Exception:
-                continue
-        return value
-
-    return value
-
-
-def _detach_tensor_like_to_cpu(value: Any) -> Any:
-    detach = getattr(value, "detach", None)
-    cpu = getattr(value, "cpu", None)
-    if callable(detach) and callable(cpu):
-        try:
-            return detach().cpu()
-        except Exception:
-            return value
-
-    device = getattr(value, "device", None)
-    device_type = getattr(device, "type", None)
-    is_cuda = getattr(value, "is_cuda", None)
-    if callable(cpu) and (device_type == "cuda" or is_cuda is True):
-        try:
-            return cpu()
-        except Exception:
-            return value
-
-    return value
