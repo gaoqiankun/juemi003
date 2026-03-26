@@ -84,7 +84,7 @@ class Trellis2Provider:
     def __init__(
         self,
         *,
-        pipeline: Any,
+        pipeline: Any | None,
         model_path: str,
     ) -> None:
         self._pipeline = pipeline
@@ -98,6 +98,18 @@ class Trellis2Provider:
                 f"failed to load TRELLIS2 pipeline from {model_path}: unknown error"
             )
         return cls(pipeline=pipeline, model_path=str(report["model_path"]))
+
+    @classmethod
+    def metadata_only(cls, model_path: str) -> "Trellis2Provider":
+        if not model_path:
+            raise ModelProviderConfigurationError(
+                "MODEL_PATH is required for real provider mode"
+            )
+        _, model_reference = cls._resolve_model_reference(model_path)
+        return cls(
+            pipeline=None,
+            model_path=model_reference,
+        )
 
     @classmethod
     def inspect_runtime(
@@ -128,6 +140,14 @@ class Trellis2Provider:
 
     async def run_batch(self, images, options, progress_cb=None, cancel_flags=None):
         _ = cancel_flags
+        if self._pipeline is None:
+            raise ModelProviderExecutionError(
+                stage_name="gpu_run",
+                message=(
+                    "TRELLIS2 metadata-only provider cannot run inference; "
+                    "use ProcessGPUWorker subprocess provider"
+                ),
+            )
         loop = asyncio.get_running_loop()
         results: list[GenerationResult] = []
         for prepared_input in images:

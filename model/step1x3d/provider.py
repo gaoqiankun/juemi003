@@ -117,8 +117,8 @@ class Step1X3DProvider:
     def __init__(
         self,
         *,
-        geometry_pipeline: Any,
-        texture_pipeline: Any,
+        geometry_pipeline: Any | None,
+        texture_pipeline: Any | None,
         model_path: str,
     ) -> None:
         self._geometry_pipeline = geometry_pipeline
@@ -138,6 +138,19 @@ class Step1X3DProvider:
             geometry_pipeline=geometry_pipeline,
             texture_pipeline=texture_pipeline,
             model_path=str(report["model_path"]),
+        )
+
+    @classmethod
+    def metadata_only(cls, model_path: str) -> "Step1X3DProvider":
+        if not model_path:
+            raise ModelProviderConfigurationError(
+                "MODEL_PATH is required for real provider mode"
+            )
+        _, model_reference = cls._resolve_model_reference(model_path)
+        return cls(
+            geometry_pipeline=None,
+            texture_pipeline=None,
+            model_path=model_reference,
         )
 
     @classmethod
@@ -165,6 +178,14 @@ class Step1X3DProvider:
 
     async def run_batch(self, images, options, progress_cb=None, cancel_flags=None):
         _ = cancel_flags
+        if self._geometry_pipeline is None:
+            raise ModelProviderExecutionError(
+                stage_name="gpu_run",
+                message=(
+                    "Step1X-3D metadata-only provider cannot run inference; "
+                    "use ProcessGPUWorker subprocess provider"
+                ),
+            )
         loop = asyncio.get_running_loop()
         results: list[GenerationResult] = []
         for prepared_input in images:
@@ -252,8 +273,16 @@ class Step1X3DProvider:
         # Stage 2: Texture synthesis (optional)
         if self._texture_pipeline is not None:
             # Free geometry inference activations before texture pipeline runs
-            import torch
-            torch.cuda.empty_cache()
+            try:
+                torch = importlib.import_module("torch")
+            except ModuleNotFoundError:
+                torch = None
+            if (
+                torch is not None
+                and hasattr(torch, "cuda")
+                and torch.cuda.is_available()
+            ):
+                torch.cuda.empty_cache()
 
             # Step1X-3D texture pipeline may need post-processing utils
             try:

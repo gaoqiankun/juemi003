@@ -7,6 +7,8 @@
 
 ## 2026-03-26
 
+- **real + ProcessGPUWorker 模式主进程改为 metadata-only provider**：`api/server.py` 的 `build_provider()` 在 real 模式不再调用 `from_pretrained()`，改为构造各 provider 的 `metadata_only()` 实例；真实权重加载仅发生在 `stages/gpu/worker.py` 子进程 `_build_process_provider()`。主进程仍保留 `export_glb()`、`stages`、`estimate_vram_mb()` 能力，避免重复占用 GPU 显存。（plan: 2026-03-26-process-worker-main-process-metadata-provider.md）
+
 - **HunYuan3D pipeline checkpoint 加载去外部目录依赖**：`model/hunyuan3d/pipeline/{shape,texture}.py` 改为在仓库内实现 checkpoint 解析与加载回退（`config.yaml + model(.variant).{safetensors|ckpt}`），不再依赖外部目录代码或 `model_index.json`；provider 调用方式保持不变。（plan: 2026-03-26-hunyuan3d-checkpoint-loading-no-external.md）
 
 - **HunYuan3D pipeline 加载回退到上游 hy3dgen 语义**：`model/hunyuan3d/pipeline/{shape,texture}.py` 不再走 `diffusers.DiffusionPipeline.from_pretrained`（依赖 `model_index.json`），改为委托 `Hunyuan3D-2/hy3dgen/*/pipelines.py` 的 `from_pretrained`，恢复 `config.yaml + model(.fp16).safetensors/.ckpt` 的 checkpoint 加载路径。（plan: 2026-03-26-hunyuan3d-checkpoint-loading-fix.md）

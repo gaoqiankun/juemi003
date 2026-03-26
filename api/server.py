@@ -379,17 +379,17 @@ def build_provider(
         if provider_mode == "mock":
             return MockTrellis2Provider(stage_delay_ms=mock_delay_ms)
         if provider_mode == "real":
-            return Trellis2Provider.from_pretrained(model_path)
+            return Trellis2Provider.metadata_only(model_path)
     elif provider_name == "hunyuan3d":
         if provider_mode == "mock":
             return MockHunyuan3DProvider(stage_delay_ms=mock_delay_ms)
         if provider_mode == "real":
-            return Hunyuan3DProvider.from_pretrained(model_path)
+            return Hunyuan3DProvider.metadata_only(model_path)
     elif provider_name == "step1x3d":
         if provider_mode == "mock":
             return MockStep1X3DProvider(stage_delay_ms=mock_delay_ms)
         if provider_mode == "real":
-            return Step1X3DProvider.from_pretrained(model_path)
+            return Step1X3DProvider.metadata_only(model_path)
     else:
         raise ModelProviderConfigurationError(
             f"unsupported MODEL_PROVIDER: {provider_name}"

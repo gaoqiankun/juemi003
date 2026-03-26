@@ -106,8 +106,8 @@ class Hunyuan3DProvider:
     def __init__(
         self,
         *,
-        shape_pipeline: Any,
-        texture_pipeline: Any,
+        shape_pipeline: Any | None,
+        texture_pipeline: Any | None,
         model_path: str,
     ) -> None:
         self._shape_pipeline = shape_pipeline
@@ -127,6 +127,19 @@ class Hunyuan3DProvider:
             shape_pipeline=shape_pipeline,
             texture_pipeline=texture_pipeline,
             model_path=str(report["model_path"]),
+        )
+
+    @classmethod
+    def metadata_only(cls, model_path: str) -> "Hunyuan3DProvider":
+        if not model_path:
+            raise ModelProviderConfigurationError(
+                "MODEL_PATH is required for real provider mode"
+            )
+        _, model_reference = cls._resolve_model_reference(model_path)
+        return cls(
+            shape_pipeline=None,
+            texture_pipeline=None,
+            model_path=model_reference,
         )
 
     @classmethod
@@ -154,6 +167,14 @@ class Hunyuan3DProvider:
 
     async def run_batch(self, images, options, progress_cb=None, cancel_flags=None):
         _ = cancel_flags
+        if self._shape_pipeline is None:
+            raise ModelProviderExecutionError(
+                stage_name="gpu_run",
+                message=(
+                    "HunYuan3D-2 metadata-only provider cannot run inference; "
+                    "use ProcessGPUWorker subprocess provider"
+                ),
+            )
         loop = asyncio.get_running_loop()
         results: list[GenerationResult] = []
         for prepared_input in images:

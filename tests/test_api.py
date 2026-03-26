@@ -4272,6 +4272,34 @@ def test_trellis2_provider_export_glb_uses_mesh_with_voxel_fields(
     assert observed["extension_webp"] is True
 
 
+def test_build_provider_uses_trellis2_metadata_only_in_real_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: dict[str, object] = {}
+
+    class FakeTrellis2Provider:
+        @classmethod
+        def metadata_only(cls, model_path: str):
+            observed["metadata_only_model_path"] = model_path
+            return {"provider": "trellis2", "mode": "metadata_only"}
+
+        @classmethod
+        def from_pretrained(cls, model_path: str):
+            raise AssertionError(f"from_pretrained should not be called: {model_path}")
+
+    monkeypatch.setattr(server_module, "Trellis2Provider", FakeTrellis2Provider)
+
+    provider = server_module.build_provider(
+        provider_name="trellis2",
+        provider_mode="real",
+        model_path="microsoft/TRELLIS.2-4B",
+        mock_delay_ms=60,
+    )
+
+    assert provider == {"provider": "trellis2", "mode": "metadata_only"}
+    assert observed["metadata_only_model_path"] == "microsoft/TRELLIS.2-4B"
+
+
 def test_real_mode_preflight_requires_provider_mode_real(tmp_path: Path) -> None:
     config = ServingConfig(
         provider_mode="mock",
@@ -4501,6 +4529,34 @@ def test_build_provider_supports_hunyuan3d_mock(tmp_path: Path) -> None:
     assert isinstance(provider, MockHunyuan3DProvider)
 
 
+def test_build_provider_uses_hunyuan3d_metadata_only_in_real_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: dict[str, object] = {}
+
+    class FakeHunyuan3DProvider:
+        @classmethod
+        def metadata_only(cls, model_path: str):
+            observed["metadata_only_model_path"] = model_path
+            return {"provider": "hunyuan3d", "mode": "metadata_only"}
+
+        @classmethod
+        def from_pretrained(cls, model_path: str):
+            raise AssertionError(f"from_pretrained should not be called: {model_path}")
+
+    monkeypatch.setattr(server_module, "Hunyuan3DProvider", FakeHunyuan3DProvider)
+
+    provider = server_module.build_provider(
+        provider_name="hunyuan3d",
+        provider_mode="real",
+        model_path="tencent/Hunyuan3D-2",
+        mock_delay_ms=60,
+    )
+
+    assert provider == {"provider": "hunyuan3d", "mode": "metadata_only"}
+    assert observed["metadata_only_model_path"] == "tencent/Hunyuan3D-2"
+
+
 # ---------------------------------------------------------------------------
 # Step1X-3D provider tests
 # ---------------------------------------------------------------------------
@@ -4702,6 +4758,44 @@ def test_build_provider_supports_step1x3d_mock(tmp_path: Path) -> None:
         mock_delay_ms=60,
     )
     assert isinstance(provider, MockStep1X3DProvider)
+
+
+def test_build_provider_uses_step1x3d_metadata_only_in_real_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: dict[str, object] = {}
+
+    class FakeStep1X3DProvider:
+        @classmethod
+        def metadata_only(cls, model_path: str):
+            observed["metadata_only_model_path"] = model_path
+            return {"provider": "step1x3d", "mode": "metadata_only"}
+
+        @classmethod
+        def from_pretrained(cls, model_path: str):
+            raise AssertionError(f"from_pretrained should not be called: {model_path}")
+
+    monkeypatch.setattr(server_module, "Step1X3DProvider", FakeStep1X3DProvider)
+
+    provider = server_module.build_provider(
+        provider_name="step1x3d",
+        provider_mode="real",
+        model_path="stepfun-ai/Step1X-3D",
+        mock_delay_ms=60,
+    )
+
+    assert provider == {"provider": "step1x3d", "mode": "metadata_only"}
+    assert observed["metadata_only_model_path"] == "stepfun-ai/Step1X-3D"
+
+
+@pytest.mark.anyio
+async def test_step1x3d_metadata_only_provider_rejects_inference_calls() -> None:
+    provider = Step1X3DProvider.metadata_only("stepfun-ai/Step1X-3D")
+    with pytest.raises(
+        ModelProviderExecutionError,
+        match="metadata-only provider cannot run inference",
+    ):
+        await provider.run_batch(images=["img"], options={})
 
 
 def test_build_provider_rejects_unknown_provider(tmp_path: Path) -> None:
