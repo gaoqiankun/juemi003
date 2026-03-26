@@ -262,7 +262,9 @@ class Step1X3DProvider:
                 pass
 
             texture_steps = options.get("texture_steps", 20)
-            mesh = self._texture_pipeline(image, mesh, num_inference_steps=texture_steps)
+            if hasattr(self._texture_pipeline, "config"):
+                self._texture_pipeline.config.num_inference_steps = texture_steps
+            mesh = self._texture_pipeline(image, mesh)
 
         if emit_stage:
             emit_stage("material")
@@ -334,12 +336,20 @@ class Step1X3DProvider:
             f"{geo_pipelines.__name__}.{geometry_cls.__name__}"
         )
 
+        import logging as _logging
+        _log = _logging.getLogger(__name__)
+
         texture_pipeline_cls = None
         try:
             tex_pipelines = importlib.import_module(cls._TEXTURE_PIPELINE_MODULE)
             texture_pipeline_cls = getattr(tex_pipelines, "Step1X3DTexturePipeline", None)
-        except ModuleNotFoundError:
-            pass
+        except Exception as _tex_exc:
+            _log.warning(
+                "Step1X-3D texture pipeline module failed to import — "
+                "texture synthesis will be disabled: %s",
+                _tex_exc,
+                exc_info=True,
+            )
         report["texture_pipeline_class"] = (
             f"{tex_pipelines.__name__}.{texture_pipeline_cls.__name__}"
             if texture_pipeline_cls is not None

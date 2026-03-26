@@ -4585,10 +4585,15 @@ def test_step1x3d_provider_run_single_calls_both_pipelines() -> None:
             from types import SimpleNamespace
             return SimpleNamespace(mesh=["raw_mesh"])
 
+    class FakeTextureConfig:
+        num_inference_steps = 50
+
     class FakeTexturePipeline:
-        def __call__(self, image, mesh, **kwargs):
+        config = FakeTextureConfig()
+
+        def __call__(self, image, mesh):
             observed["tex_mesh_input"] = mesh
-            observed["tex_kwargs"] = kwargs
+            observed["tex_steps"] = self.config.num_inference_steps
             return "textured_mesh"
 
     provider = Step1X3DProvider(
@@ -4608,7 +4613,7 @@ def test_step1x3d_provider_run_single_calls_both_pipelines() -> None:
         "num_inference_steps": 30,
     }
     assert observed["tex_mesh_input"] == "raw_mesh"
-    assert observed["tex_kwargs"] == {"num_inference_steps": 10}
+    assert observed["tex_steps"] == 10
 
 
 def test_step1x3d_provider_run_single_skips_texture_when_none() -> None:
