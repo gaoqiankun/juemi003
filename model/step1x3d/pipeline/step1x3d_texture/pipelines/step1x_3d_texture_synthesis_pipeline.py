@@ -163,11 +163,6 @@ class Step1X3DTexturePipeline:
         pipe.load_custom_adapter(adapter_path, "step1x-3d-ig2v.safetensors")
         pipe.to(device=device, dtype=dtype)
         pipe.cond_encoder.to(device=device, dtype=dtype)
-        # diffusers older versions don't register_module for attn processors,
-        # so pipe.to(dtype) misses them; convert explicitly
-        for module in pipe.unet.modules():
-            if hasattr(module, "processor") and isinstance(module.processor, torch.nn.Module):
-                module.processor.to(device=device, dtype=dtype)
 
         # load lora if provided
         if lora_model is not None:
@@ -178,7 +173,7 @@ class Step1X3DTexturePipeline:
 
     def remove_bg(self, image, net, transform, device):
         image_size = image.size
-        input_images = transform(image).unsqueeze(0).to(device=device, dtype=net.dtype if hasattr(net, "dtype") else next(net.parameters()).dtype)
+        input_images = transform(image).unsqueeze(0).to(device)
         with torch.no_grad():
             preds = net(input_images)[-1].sigmoid().cpu()
         pred = preds[0].squeeze()
@@ -352,7 +347,7 @@ class Step1X3DTexturePipeline:
                 self._birefnet = AutoModelForImageSegmentation.from_pretrained(
                     "ZhengPeng7/BiRefNet", trust_remote_code=True
                 )
-                self._birefnet.to(device=self.config.device, dtype=self.config.dtype)
+                self._birefnet.to(device=self.config.device)
                 self._birefnet_transform = transforms.Compose(
                     [
                         transforms.Resize((1024, 1024)),

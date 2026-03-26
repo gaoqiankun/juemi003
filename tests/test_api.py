@@ -4562,6 +4562,801 @@ def test_build_provider_uses_hunyuan3d_metadata_only_in_real_mode(
 # ---------------------------------------------------------------------------
 
 
+def _import_step1x3d_geometry_pipeline_module_with_test_stubs(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    module_name = (
+        "gen3d.model.step1x3d.pipeline.step1x3d_geometry.models.pipelines.pipeline"
+    )
+    sys.modules.pop(module_name, None)
+
+    def register(module_path: str, module: types.ModuleType) -> None:
+        monkeypatch.setitem(sys.modules, module_path, module)
+
+    def register_package(module_path: str, package_path: Path) -> None:
+        package = types.ModuleType(module_path)
+        package.__path__ = [str(package_path)]
+        register(module_path, package)
+
+    geometry_root = (
+        WORKSPACE_ROOT / "gen3d" / "model" / "step1x3d" / "pipeline" / "step1x3d_geometry"
+    )
+    register_package(
+        "gen3d.model.step1x3d.pipeline.step1x3d_geometry",
+        geometry_root,
+    )
+    register_package(
+        "gen3d.model.step1x3d.pipeline.step1x3d_geometry.models",
+        geometry_root / "models",
+    )
+    register_package(
+        "gen3d.model.step1x3d.pipeline.step1x3d_geometry.models.pipelines",
+        geometry_root / "models" / "pipelines",
+    )
+    register_package(
+        "gen3d.model.step1x3d.pipeline.step1x3d_geometry.models.autoencoders",
+        geometry_root / "models" / "autoencoders",
+    )
+    register_package(
+        "gen3d.model.step1x3d.pipeline.step1x3d_geometry.models.conditional_encoders",
+        geometry_root / "models" / "conditional_encoders",
+    )
+    register_package(
+        "gen3d.model.step1x3d.pipeline.step1x3d_geometry.models.transformers",
+        geometry_root / "models" / "transformers",
+    )
+
+    class _NoGradContext:
+        def __call__(self, fn=None):
+            if fn is None:
+                return self
+            return fn
+
+        def __enter__(self):
+            return None
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    class _FakeTensor:
+        def __init__(
+            self,
+            *,
+            dtype: str = "float16",
+            shape: tuple[int, ...] = (1,),
+            name: str = "tensor",
+        ) -> None:
+            self.dtype = dtype
+            self.shape = shape
+            self.name = name
+
+        def to(self, *args, **kwargs):
+            dtype = kwargs.get("dtype")
+            if dtype is None and args and hasattr(args[0], "dtype"):
+                dtype = getattr(args[0], "dtype")
+            if dtype is None:
+                return self
+            return _FakeTensor(dtype=dtype, shape=self.shape, name=self.name)
+
+        def expand(self, dim0: int):
+            return _FakeTensor(dtype=self.dtype, shape=(dim0,), name=self.name)
+
+        def chunk(self, chunks: int):
+            return tuple(
+                _FakeTensor(dtype=self.dtype, shape=self.shape, name=f"{self.name}_{i}")
+                for i in range(chunks)
+            )
+
+        def __mul__(self, other):
+            _ = other
+            return _FakeTensor(dtype=self.dtype, shape=self.shape, name=self.name)
+
+        def __add__(self, other):
+            _ = other
+            return _FakeTensor(dtype=self.dtype, shape=self.shape, name=self.name)
+
+        def __sub__(self, other):
+            _ = other
+            return _FakeTensor(dtype=self.dtype, shape=self.shape, name=self.name)
+
+    class _FakeTimestep:
+        def expand(self, dim0: int):
+            return _FakeTensor(dtype="int64", shape=(dim0,), name="timestep")
+
+    fake_torch = types.ModuleType("torch")
+    fake_torch.Tensor = _FakeTensor
+    fake_torch.FloatTensor = _FakeTensor
+    fake_torch.no_grad = lambda: _NoGradContext()
+    fake_torch.backends = types.SimpleNamespace(
+        mps=types.SimpleNamespace(is_available=lambda: False)
+    )
+    fake_torch.bfloat16 = "bfloat16"
+    fake_torch.float16 = "float16"
+    fake_torch.cuda = types.SimpleNamespace(is_available=lambda: False)
+
+    def _cat(tensors, dim=0):
+        _ = dim
+        head = tensors[0]
+        first_dim = sum(
+            (tensor.shape[0] if getattr(tensor, "shape", ()) else 1) for tensor in tensors
+        )
+        shape_tail = tuple(head.shape[1:]) if len(head.shape) > 1 else tuple()
+        return _FakeTensor(dtype=head.dtype, shape=(first_dim, *shape_tail), name="cat")
+
+    fake_torch.cat = _cat
+    register("torch", fake_torch)
+
+    fake_pil = types.ModuleType("PIL")
+    fake_pil_image = types.ModuleType("PIL.Image")
+
+    class _PILImage:
+        pass
+
+    fake_pil_image.Image = _PILImage
+    fake_pil_image.open = lambda *args, **kwargs: _PILImage()
+    fake_pil.Image = fake_pil_image
+    register("PIL", fake_pil)
+    register("PIL.Image", fake_pil_image)
+
+    fake_trimesh = types.ModuleType("trimesh")
+    fake_trimesh.Trimesh = object
+    register("trimesh", fake_trimesh)
+    register("rembg", types.ModuleType("rembg"))
+
+    fake_hf_hub = types.ModuleType("huggingface_hub")
+    fake_hf_hub.hf_hub_download = lambda *args, **kwargs: "stub-model"
+    register("huggingface_hub", fake_hf_hub)
+
+    fake_diffusers = types.ModuleType("diffusers")
+    fake_diffusers.__path__ = []
+    register("diffusers", fake_diffusers)
+
+    fake_diffusers_schedulers = types.ModuleType("diffusers.schedulers")
+
+    class _FlowMatchEulerDiscreteScheduler:
+        pass
+
+    fake_diffusers_schedulers.FlowMatchEulerDiscreteScheduler = (
+        _FlowMatchEulerDiscreteScheduler
+    )
+    register("diffusers.schedulers", fake_diffusers_schedulers)
+
+    fake_diffusers_utils = types.ModuleType("diffusers.utils")
+
+    class _BaseOutput:
+        def __init__(self, **kwargs) -> None:
+            self.__dict__.update(kwargs)
+
+    fake_diffusers_utils.BaseOutput = _BaseOutput
+    register("diffusers.utils", fake_diffusers_utils)
+
+    fake_diffusers_torch_utils = types.ModuleType("diffusers.utils.torch_utils")
+    fake_diffusers_torch_utils.randn_tensor = (
+        lambda shape, generator=None, device=None, dtype=None: _FakeTensor(
+            dtype=dtype or "float16",
+            shape=shape,
+            name="randn",
+        )
+    )
+    register("diffusers.utils.torch_utils", fake_diffusers_torch_utils)
+
+    fake_diffusers_pipeline_utils = types.ModuleType("diffusers.pipelines.pipeline_utils")
+
+    class _DiffusionPipeline:
+        def register_modules(self, **kwargs) -> None:
+            for name, value in kwargs.items():
+                setattr(self, name, value)
+
+    fake_diffusers_pipeline_utils.DiffusionPipeline = _DiffusionPipeline
+    register("diffusers.pipelines.pipeline_utils", fake_diffusers_pipeline_utils)
+
+    fake_diffusers_loaders = types.ModuleType("diffusers.loaders")
+
+    class _LoaderMixin:
+        pass
+
+    fake_diffusers_loaders.FluxIPAdapterMixin = _LoaderMixin
+    fake_diffusers_loaders.FluxLoraLoaderMixin = _LoaderMixin
+    fake_diffusers_loaders.FromSingleFileMixin = _LoaderMixin
+    fake_diffusers_loaders.TextualInversionLoaderMixin = _LoaderMixin
+    register("diffusers.loaders", fake_diffusers_loaders)
+
+    fake_pipeline_utils = types.ModuleType(
+        "gen3d.model.step1x3d.pipeline.step1x3d_geometry.models.pipelines.pipeline_utils"
+    )
+
+    class _TransformerDiffusionMixin:
+        pass
+
+    fake_pipeline_utils.TransformerDiffusionMixin = _TransformerDiffusionMixin
+    fake_pipeline_utils.preprocess_image = lambda image, **kwargs: image
+    fake_pipeline_utils.retrieve_timesteps = (
+        lambda scheduler, num_inference_steps, device, timesteps: (
+            timesteps or [_FakeTimestep()],
+            len(timesteps or [_FakeTimestep()]),
+        )
+    )
+    fake_pipeline_utils.remove_floater = lambda mesh: mesh
+    fake_pipeline_utils.remove_degenerate_face = lambda mesh: mesh
+    fake_pipeline_utils.reduce_face = lambda mesh, max_facenum: mesh
+    fake_pipeline_utils.smart_load_model = lambda model_path, subfolder=None: model_path
+    register(fake_pipeline_utils.__name__, fake_pipeline_utils)
+
+    fake_transformers = types.ModuleType("transformers")
+
+    class _BitImageProcessor:
+        pass
+
+    fake_transformers.BitImageProcessor = _BitImageProcessor
+    register("transformers", fake_transformers)
+
+    fake_surface_extractors = types.ModuleType(
+        "gen3d.model.step1x3d.pipeline.step1x3d_geometry.models.autoencoders.surface_extractors"
+    )
+    fake_surface_extractors.MeshExtractResult = object
+    register(fake_surface_extractors.__name__, fake_surface_extractors)
+
+    fake_autoencoder = types.ModuleType(
+        "gen3d.model.step1x3d.pipeline.step1x3d_geometry.models.autoencoders.michelangelo_autoencoder"
+    )
+    fake_autoencoder.MichelangeloAutoencoder = object
+    register(fake_autoencoder.__name__, fake_autoencoder)
+
+    fake_dinov2 = types.ModuleType(
+        "gen3d.model.step1x3d.pipeline.step1x3d_geometry.models.conditional_encoders.dinov2_encoder"
+    )
+    fake_dinov2.Dinov2Encoder = object
+    register(fake_dinov2.__name__, fake_dinov2)
+
+    fake_t5 = types.ModuleType(
+        "gen3d.model.step1x3d.pipeline.step1x3d_geometry.models.conditional_encoders.t5_encoder"
+    )
+    fake_t5.T5Encoder = object
+    register(fake_t5.__name__, fake_t5)
+
+    fake_label = types.ModuleType(
+        "gen3d.model.step1x3d.pipeline.step1x3d_geometry.models.conditional_encoders.label_encoder"
+    )
+    fake_label.LabelEncoder = object
+    register(fake_label.__name__, fake_label)
+
+    fake_flux = types.ModuleType(
+        "gen3d.model.step1x3d.pipeline.step1x3d_geometry.models.transformers.flux_transformer_1d"
+    )
+    fake_flux.FluxDenoiser = object
+    register(fake_flux.__name__, fake_flux)
+
+    fake_config = types.ModuleType(
+        "gen3d.model.step1x3d.pipeline.step1x3d_geometry.utils.config"
+    )
+    fake_config.ExperimentConfig = object
+    fake_config.load_config = lambda *args, **kwargs: None
+    register(fake_config.__name__, fake_config)
+
+    return importlib.import_module(module_name)
+
+
+def _import_step1x3d_texture_pipeline_module_with_test_stubs(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    module_name = (
+        "gen3d.model.step1x3d.pipeline.step1x3d_texture.pipelines."
+        "step1x_3d_texture_synthesis_pipeline"
+    )
+    sys.modules.pop(module_name, None)
+
+    def register(module_path: str, module: types.ModuleType) -> None:
+        monkeypatch.setitem(sys.modules, module_path, module)
+
+    class _NoGradContext:
+        def __call__(self, fn=None):
+            if fn is None:
+                return self
+            return fn
+
+        def __enter__(self):
+            return None
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    fake_torch = types.ModuleType("torch")
+    fake_torch.no_grad = lambda: _NoGradContext()
+    fake_torch.float16 = "float16"
+    fake_torch.cuda = types.SimpleNamespace(is_available=lambda: False)
+    fake_torch_nn = types.ModuleType("torch.nn")
+
+    class _TorchModule:
+        pass
+
+    fake_torch_nn.Module = _TorchModule
+    fake_torch.nn = fake_torch_nn
+    register("torch", fake_torch)
+    register("torch.nn", fake_torch_nn)
+
+    fake_diffusers = types.ModuleType("diffusers")
+
+    class _DiffusersComponent:
+        @classmethod
+        def from_pretrained(cls, *args, **kwargs):
+            _ = args
+            _ = kwargs
+            return cls()
+
+    fake_diffusers.AutoencoderKL = _DiffusersComponent
+    fake_diffusers.DDPMScheduler = _DiffusersComponent
+    fake_diffusers.LCMScheduler = _DiffusersComponent
+    fake_diffusers.UNet2DConditionModel = _DiffusersComponent
+    register("diffusers", fake_diffusers)
+
+    fake_torchvision = types.ModuleType("torchvision")
+    fake_transforms = types.ModuleType("torchvision.transforms")
+
+    class _Compose:
+        def __init__(self, ops):
+            self.ops = ops
+
+        def __call__(self, value):
+            current = value
+            for op in self.ops:
+                if callable(op):
+                    current = op(current)
+            return current
+
+    class _Resize:
+        def __init__(self, *args, **kwargs):
+            _ = args
+            _ = kwargs
+
+        def __call__(self, value):
+            return value
+
+    class _ToTensor:
+        def __call__(self, value):
+            return value
+
+    class _Normalize:
+        def __init__(self, *args, **kwargs):
+            _ = args
+            _ = kwargs
+
+        def __call__(self, value):
+            return value
+
+    class _ToPILImage:
+        def __call__(self, value):
+            _ = value
+            return types.SimpleNamespace(resize=lambda size: ("mask", size))
+
+    fake_transforms.Compose = _Compose
+    fake_transforms.Resize = _Resize
+    fake_transforms.ToTensor = _ToTensor
+    fake_transforms.Normalize = _Normalize
+    fake_transforms.ToPILImage = _ToPILImage
+    fake_torchvision.transforms = fake_transforms
+    register("torchvision", fake_torchvision)
+    register("torchvision.transforms", fake_transforms)
+
+    fake_tqdm = types.ModuleType("tqdm")
+    fake_tqdm.tqdm = lambda iterable, *args, **kwargs: iterable
+    register("tqdm", fake_tqdm)
+
+    fake_transformers = types.ModuleType("transformers")
+
+    class _AutoModelForImageSegmentation:
+        @classmethod
+        def from_pretrained(cls, *args, **kwargs):
+            _ = args
+            _ = kwargs
+            return cls()
+
+        def to(self, *args, **kwargs):
+            _ = args
+            _ = kwargs
+            return self
+
+    fake_transformers.AutoModelForImageSegmentation = _AutoModelForImageSegmentation
+    register("transformers", fake_transformers)
+
+    fake_trimesh = types.ModuleType("trimesh")
+
+    class _Scene:
+        def to_geometry(self):
+            return self
+
+    fake_trimesh.Scene = _Scene
+    register("trimesh", fake_trimesh)
+    register("xatlas", types.ModuleType("xatlas"))
+
+    fake_scipy = types.ModuleType("scipy")
+    fake_scipy_sparse = types.ModuleType("scipy.sparse")
+    fake_scipy_sparse_linalg = types.ModuleType("scipy.sparse.linalg")
+    fake_scipy_sparse_linalg.spsolve = lambda *args, **kwargs: None
+    fake_scipy.sparse = fake_scipy_sparse
+    register("scipy", fake_scipy)
+    register("scipy.sparse", fake_scipy_sparse)
+    register("scipy.sparse.linalg", fake_scipy_sparse_linalg)
+
+    fake_attn = types.ModuleType(
+        "gen3d.model.step1x3d.pipeline.step1x3d_texture.models.attention_processor"
+    )
+    fake_attn.DecoupledMVRowColSelfAttnProcessor2_0 = object
+    register(fake_attn.__name__, fake_attn)
+
+    fake_ig2mv = types.ModuleType(
+        "gen3d.model.step1x3d.pipeline.step1x3d_texture.pipelines.ig2mv_sdxl_pipeline"
+    )
+
+    class _StubIG2MVPipe:
+        cond_encoder = types.SimpleNamespace(to=lambda *args, **kwargs: None)
+        unet = types.SimpleNamespace(modules=lambda: [])
+        scheduler = object()
+
+        @classmethod
+        def from_pretrained(cls, *args, **kwargs):
+            _ = args
+            _ = kwargs
+            return cls()
+
+        def init_custom_adapter(self, *args, **kwargs):
+            _ = args
+            _ = kwargs
+
+        def load_custom_adapter(self, *args, **kwargs):
+            _ = args
+            _ = kwargs
+
+        def to(self, *args, **kwargs):
+            _ = args
+            _ = kwargs
+            return self
+
+    fake_ig2mv.IG2MVSDXLPipeline = _StubIG2MVPipe
+    register(fake_ig2mv.__name__, fake_ig2mv)
+
+    fake_scheduler = types.ModuleType(
+        "gen3d.model.step1x3d.pipeline.step1x3d_texture.schedulers.scheduling_shift_snr"
+    )
+
+    class _ShiftSNRScheduler:
+        @classmethod
+        def from_scheduler(cls, *args, **kwargs):
+            _ = args
+            _ = kwargs
+            return object()
+
+    fake_scheduler.ShiftSNRScheduler = _ShiftSNRScheduler
+    register(fake_scheduler.__name__, fake_scheduler)
+
+    fake_utils = types.ModuleType(
+        "gen3d.model.step1x3d.pipeline.step1x3d_texture.utils"
+    )
+    fake_utils.get_orthogonal_camera = lambda *args, **kwargs: None
+    fake_utils.make_image_grid = lambda *args, **kwargs: None
+    fake_utils.tensor_to_image = lambda *args, **kwargs: None
+    register(fake_utils.__name__, fake_utils)
+
+    fake_render = types.ModuleType(
+        "gen3d.model.step1x3d.pipeline.step1x3d_texture.utils.render"
+    )
+    fake_render.NVDiffRastContextWrapper = object
+    fake_render.load_mesh = lambda *args, **kwargs: (None, None)
+    fake_render.render = lambda *args, **kwargs: None
+    register(fake_render.__name__, fake_render)
+
+    fake_diff_renderer = types.ModuleType("differentiable_renderer.mesh_render")
+
+    class _MeshRender:
+        def __init__(self, *args, **kwargs):
+            _ = args
+            _ = kwargs
+
+    fake_diff_renderer.MeshRender = _MeshRender
+    register(fake_diff_renderer.__name__, fake_diff_renderer)
+
+    fake_pipeline_utils = types.ModuleType(
+        "gen3d.model.step1x3d.pipeline.step1x3d_geometry.models.pipelines.pipeline_utils"
+    )
+    fake_pipeline_utils.smart_load_model = (
+        lambda model_path, subfolder=None: model_path
+    )
+    register(fake_pipeline_utils.__name__, fake_pipeline_utils)
+
+    return importlib.import_module(module_name)
+
+
+def test_step1x3d_texture_remove_bg_path_does_not_force_dtype(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    texture_module = _import_step1x3d_texture_pipeline_module_with_test_stubs(
+        monkeypatch
+    )
+    pipeline_cls = texture_module.Step1X3DTexturePipeline
+    pipeline = pipeline_cls.__new__(pipeline_cls)
+
+    class _Pred:
+        def sigmoid(self):
+            return self
+
+        def cpu(self):
+            class _PredBatch:
+                def __getitem__(self, index):
+                    _ = index
+                    return types.SimpleNamespace(squeeze=lambda: "pred")
+
+            return _PredBatch()
+
+    observed_input_to: dict[str, object] = {}
+
+    class _InputTensor:
+        def unsqueeze(self, dim: int):
+            observed_input_to["unsqueeze_dim"] = dim
+            return self
+
+        def to(self, *args, **kwargs):
+            observed_input_to["args"] = args
+            observed_input_to["kwargs"] = kwargs
+            return self
+
+    class _FakeNet:
+        dtype = "float16"
+
+        def __call__(self, input_images):
+            observed_input_to["net_input"] = input_images
+            return [_Pred()]
+
+    class _FakeImage:
+        size = (8, 8)
+
+        def __init__(self) -> None:
+            self.alpha = None
+
+        def putalpha(self, value) -> None:
+            self.alpha = value
+
+    input_image = _FakeImage()
+    returned_image = pipeline.remove_bg(
+        input_image,
+        _FakeNet(),
+        transform=lambda image: _InputTensor(),
+        device="cpu",
+    )
+    assert returned_image is input_image
+    assert observed_input_to["args"] == ("cpu",)
+    assert observed_input_to["kwargs"] == {}
+
+    birefnet_to_calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+
+    class _FakeBiRefNet:
+        def to(self, *args, **kwargs):
+            birefnet_to_calls.append((args, kwargs))
+            return self
+
+    class _FakeSegModelFactory:
+        @classmethod
+        def from_pretrained(cls, *args, **kwargs):
+            _ = args
+            _ = kwargs
+            return _FakeBiRefNet()
+
+    monkeypatch.setattr(
+        texture_module,
+        "AutoModelForImageSegmentation",
+        _FakeSegModelFactory,
+    )
+
+    class _StopRun(RuntimeError):
+        pass
+
+    pipeline.config = types.SimpleNamespace(
+        device="cpu",
+        dtype="float16",
+        num_views=1,
+        text="high quality",
+        num_inference_steps=1,
+        guidance_scale=1.0,
+        seed=1,
+        lora_scale=1.0,
+        reference_conditioning_scale=1.0,
+        negative_prompt="",
+    )
+    pipeline._birefnet = None
+    pipeline._birefnet_transform = None
+    pipeline.ig2mv_pipe = object()
+    pipeline.run_ig2mv_pipeline = lambda *args, **kwargs: (_ for _ in ()).throw(
+        _StopRun()
+    )
+
+    with pytest.raises(_StopRun):
+        pipeline.__call__(image="stub-image", mesh=object(), remove_bg=True, seed=1)
+
+    assert len(birefnet_to_calls) == 1
+    _, birefnet_to_kwargs = birefnet_to_calls[0]
+    assert birefnet_to_kwargs == {"device": "cpu"}
+    assert "dtype" not in birefnet_to_kwargs
+
+
+def test_step1x3d_geometry_casts_transformer_inputs_to_transformer_dtype(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    geometry_module = _import_step1x3d_geometry_pipeline_module_with_test_stubs(
+        monkeypatch
+    )
+    pipeline_cls = geometry_module.Step1X3DGeometryPipeline
+    pipeline = pipeline_cls.__new__(pipeline_cls)
+
+    observed_dtypes: dict[str, str | None] = {}
+
+    class _FakeTransformer:
+        cfg = types.SimpleNamespace(
+            use_label_condition=True,
+            use_caption_condition=True,
+            input_channels=4,
+        )
+
+        def parameters(self):
+            yield types.SimpleNamespace(dtype="float32")
+
+        def __call__(
+            self,
+            latent_model_input,
+            timestep,
+            visual_condition,
+            label_condition,
+            caption_condition,
+            return_dict=False,
+        ):
+            _ = timestep
+            _ = return_dict
+            observed_dtypes["latent_model_input"] = latent_model_input.dtype
+            observed_dtypes["visual_condition"] = (
+                None if visual_condition is None else visual_condition.dtype
+            )
+            observed_dtypes["label_condition"] = (
+                None if label_condition is None else label_condition.dtype
+            )
+            observed_dtypes["caption_condition"] = (
+                None if caption_condition is None else caption_condition.dtype
+            )
+            return [geometry_module.torch.Tensor(dtype="float32", shape=(1, 2, 4))]
+
+    class _FakeScheduler:
+        order = 1
+
+        def step(self, noise_pred, t, latents, return_dict=False):
+            _ = noise_pred
+            _ = t
+            _ = return_dict
+            return [latents]
+
+    class _ProgressBar:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def update(self):
+            return None
+
+    pipeline._execution_device = "cpu"
+    pipeline.transformer = _FakeTransformer()
+    pipeline.scheduler = _FakeScheduler()
+    pipeline.vae = types.SimpleNamespace(cfg=types.SimpleNamespace(num_latents=2))
+    pipeline.progress_bar = lambda total: _ProgressBar()
+    pipeline.encode_image = (
+        lambda image, device, num_meshes_per_prompt: (
+            geometry_module.torch.Tensor(dtype="float16", shape=(1, 2, 4)),
+            geometry_module.torch.Tensor(dtype="float16", shape=(1, 2, 4)),
+        )
+    )
+    pipeline.encode_label = (
+        lambda label, device, num_meshes_per_prompt: (
+            geometry_module.torch.Tensor(dtype="float16", shape=(1, 2, 4)),
+            geometry_module.torch.Tensor(dtype="float16", shape=(1, 2, 4)),
+        )
+    )
+    pipeline.encode_caption = (
+        lambda caption, device, num_meshes_per_prompt: (
+            geometry_module.torch.Tensor(dtype="float16", shape=(1, 2, 4)),
+            geometry_module.torch.Tensor(dtype="float16", shape=(1, 2, 4)),
+        )
+    )
+    pipeline.prepare_latents = (
+        lambda *args, **kwargs: geometry_module.torch.Tensor(
+            dtype="float16", shape=(1, 2, 4)
+        )
+    )
+
+    pipeline.__call__(
+        image=geometry_module.PIL.Image.Image(),
+        label="demo-label",
+        caption="demo-caption",
+        num_inference_steps=1,
+        guidance_scale=1.0,
+        output_type="latent",
+        use_zero_init=False,
+    )
+
+    assert observed_dtypes == {
+        "latent_model_input": "float32",
+        "visual_condition": "float32",
+        "label_condition": "float32",
+        "caption_condition": "float32",
+    }
+
+
+def test_step1x3d_texture_load_ig2mv_pipeline_does_not_cast_processor_dtype(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    texture_module = _import_step1x3d_texture_pipeline_module_with_test_stubs(
+        monkeypatch
+    )
+    pipeline_cls = texture_module.Step1X3DTexturePipeline
+    pipeline = pipeline_cls.__new__(pipeline_cls)
+
+    pipe_to_calls: list[dict[str, object]] = []
+    cond_encoder_to_calls: list[dict[str, object]] = []
+    processor_to_calls: list[dict[str, object]] = []
+
+    class _FakeProcessor(texture_module.torch.nn.Module):
+        def to(self, *args, **kwargs):
+            processor_to_calls.append({"args": args, "kwargs": kwargs})
+            return self
+
+    class _FakeUnetModule:
+        def __init__(self) -> None:
+            self.processor = _FakeProcessor()
+
+    class _FakeIG2MVPipe:
+        def __init__(self) -> None:
+            self.scheduler = object()
+            self.unet = types.SimpleNamespace(modules=lambda: [_FakeUnetModule()])
+            self.cond_encoder = types.SimpleNamespace(to=self._cond_encoder_to)
+
+        @classmethod
+        def from_pretrained(cls, *args, **kwargs):
+            _ = args
+            _ = kwargs
+            return cls()
+
+        def _cond_encoder_to(self, *args, **kwargs):
+            cond_encoder_to_calls.append({"args": args, "kwargs": kwargs})
+            return self
+
+        def init_custom_adapter(self, *args, **kwargs):
+            _ = args
+            _ = kwargs
+
+        def load_custom_adapter(self, *args, **kwargs):
+            _ = args
+            _ = kwargs
+
+        def to(self, *args, **kwargs):
+            pipe_to_calls.append({"args": args, "kwargs": kwargs})
+            return self
+
+    monkeypatch.setattr(texture_module, "IG2MVSDXLPipeline", _FakeIG2MVPipe)
+
+    pipeline.prepare_ig2mv_pipeline(
+        base_model="stub-base",
+        vae_model=None,
+        unet_model=None,
+        lora_model=None,
+        adapter_path="stub-adapter",
+        scheduler="ddpm",
+        num_views=6,
+        device="cpu",
+        dtype="float16",
+    )
+
+    assert pipe_to_calls == [{"args": (), "kwargs": {"device": "cpu", "dtype": "float16"}}]
+    assert cond_encoder_to_calls == [
+        {"args": (), "kwargs": {"device": "cpu", "dtype": "float16"}}
+    ]
+    assert processor_to_calls == []
+
+
 def test_step1x3d_provider_accepts_huggingface_repo_id() -> None:
     source_type, model_reference = Step1X3DProvider._resolve_model_reference(
         "stepfun-ai/Step1X-3D"

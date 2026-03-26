@@ -382,6 +382,7 @@ class Step1X3DGeometryPipeline(
             generator,
             latents,
         )
+        transformer_dtype = next(self.transformer.parameters()).dtype
 
         # 6. Denoising loop
         with self.progress_bar(total=num_inference_steps) as progress_bar:
@@ -392,15 +393,35 @@ class Step1X3DGeometryPipeline(
                     if self.do_classifier_free_guidance
                     else latents
                 )
+                if latent_model_input.dtype != transformer_dtype:
+                    latent_model_input = latent_model_input.to(dtype=transformer_dtype)
+                visual_condition = image_embeds
+                if (
+                    visual_condition is not None
+                    and visual_condition.dtype != transformer_dtype
+                ):
+                    visual_condition = visual_condition.to(dtype=transformer_dtype)
+                label_condition = label_embeds
+                if (
+                    label_condition is not None
+                    and label_condition.dtype != transformer_dtype
+                ):
+                    label_condition = label_condition.to(dtype=transformer_dtype)
+                caption_condition = caption_embeds
+                if (
+                    caption_condition is not None
+                    and caption_condition.dtype != transformer_dtype
+                ):
+                    caption_condition = caption_condition.to(dtype=transformer_dtype)
                 # broadcast to batch dimension in a way that's compatible with ONNX/Core ML
                 timestep = t.expand(latent_model_input.shape[0])
 
                 noise_pred = self.transformer(
                     latent_model_input,
                     timestep,
-                    visual_condition=image_embeds,
-                    label_condition=label_embeds,
-                    caption_condition=caption_embeds,
+                    visual_condition=visual_condition,
+                    label_condition=label_condition,
+                    caption_condition=caption_condition,
                     return_dict=False,
                 )[0]
 
