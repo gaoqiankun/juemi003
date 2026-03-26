@@ -88,6 +88,9 @@ class Step1X3DTexturePipeline:
             camera_distance=self.config.camera_distance,
         )
 
+        self._birefnet = None
+        self._birefnet_transform = None
+
         self.ig2mv_pipe = self.prepare_ig2mv_pipeline(
             base_model=self.config.base_model,
             vae_model=self.config.vae_model,
@@ -340,19 +343,20 @@ class Step1X3DTexturePipeline:
     @torch.no_grad()
     def __call__(self, image, mesh, remove_bg=True, seed=2025):
         if remove_bg:
-            birefnet = AutoModelForImageSegmentation.from_pretrained(
-                "ZhengPeng7/BiRefNet", trust_remote_code=True
-            )
-            birefnet.to(self.config.device)
-            transform_image = transforms.Compose(
-                [
-                    transforms.Resize((1024, 1024)),
-                    transforms.ToTensor(),
-                    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
-                ]
-            )
+            if self._birefnet is None:
+                self._birefnet = AutoModelForImageSegmentation.from_pretrained(
+                    "ZhengPeng7/BiRefNet", trust_remote_code=True
+                )
+                self._birefnet.to(device=self.config.device, dtype=self.config.dtype)
+                self._birefnet_transform = transforms.Compose(
+                    [
+                        transforms.Resize((1024, 1024)),
+                        transforms.ToTensor(),
+                        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+                    ]
+                )
             remove_bg_fn = lambda x: self.remove_bg(
-                x, birefnet, transform_image, self.config.device
+                x, self._birefnet, self._birefnet_transform, self.config.device
             )
         else:
             remove_bg_fn = None
