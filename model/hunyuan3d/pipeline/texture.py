@@ -1,15 +1,8 @@
 from __future__ import annotations
 
-import logging
-import os
 from pathlib import Path
 from typing import Any
 
-logger = logging.getLogger(__name__)
-
-_DEFAULT_CACHE_ROOT = "~/.cache/cubie-models"
-_DEFAULT_CACHE_ENV = "CUBIE_MODEL_CACHE"
-_LEGACY_CACHE_ENV = "HY3DGEN_MODELS"
 _DEFAULT_SUBFOLDER = "hunyuan3d-paint-v2-0-turbo"
 _DEFAULT_DELIGHT_SUBFOLDER = "hunyuan3d-delight-v2-0"
 
@@ -37,10 +30,6 @@ class Hunyuan3DPaintPipeline:
         resolved_path = _resolve_model_root(
             model_path=model_path,
             required_subfolders=[delight_subfolder, subfolder],
-            allow_patterns=[
-                f"{delight_subfolder}/*",
-                f"{subfolder}/*",
-            ],
         )
         from gen3d.model.hunyuan3d.pipeline.texgen.pipelines import (
             Hunyuan3DPaintPipeline as _InnerPipeline,
@@ -77,48 +66,21 @@ def _resolve_model_root(
     *,
     model_path: str,
     required_subfolders: list[str],
-    allow_patterns: list[str],
 ) -> Path:
-    input_path = Path(model_path).expanduser()
-    if input_path.exists():
-        return input_path.resolve()
-
-    for cache_root in _iter_cache_roots():
-        candidate = cache_root / model_path
-        if candidate.exists():
-            if all((candidate / sub).exists() for sub in required_subfolders):
-                return candidate.resolve()
-
-    try:
-        import huggingface_hub
-    except ModuleNotFoundError as exc:
-        raise RuntimeError(
-            "huggingface_hub is required to download HunYuan3D-2 model assets"
-        ) from exc
-
-    snapshot_download = getattr(huggingface_hub, "snapshot_download", None)
-    if snapshot_download is None:
-        raise RuntimeError("huggingface_hub.snapshot_download is not available")
-
-    logger.info(
-        "Downloading HunYuan3D-2 texture assets from Hugging Face",
-        extra={"repo_id": model_path, "subfolders": required_subfolders},
-    )
-    downloaded_root = Path(
-        snapshot_download(
-            repo_id=model_path,
-            allow_patterns=allow_patterns,
+    model_root = Path(model_path).expanduser().resolve()
+    if not model_root.exists():
+        raise FileNotFoundError(
+            f"HunYuan3D-2 texture weights not found at {model_root}. "
+            "Use Admin to download model weights first."
         )
-    )
-    return downloaded_root.resolve()
-
-
-def _iter_cache_roots() -> list[Path]:
-    roots: list[Path] = []
-    for env_name in (_DEFAULT_CACHE_ENV, _LEGACY_CACHE_ENV):
-        env_value = os.environ.get(env_name)
-        if not env_value:
-            continue
-        roots.append(Path(env_value).expanduser())
-    roots.append(Path(_DEFAULT_CACHE_ROOT).expanduser())
-    return roots
+    missing_subfolders = [
+        subfolder for subfolder in required_subfolders
+        if not (model_root / subfolder).exists()
+    ]
+    if missing_subfolders:
+        raise FileNotFoundError(
+            f"HunYuan3D-2 texture assets missing under {model_root}: "
+            + ", ".join(missing_subfolders)
+            + ". Use Admin to download model weights first."
+        )
+    return model_root

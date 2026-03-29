@@ -205,6 +205,7 @@
     },
     "list": {
       "title": "Models",
+      "addModel": "Add Model",
       "columns": {
         "name": "Model",
         "runtime": "Runtime",
@@ -230,6 +231,43 @@
       "not_loaded": "Not loaded",
       "error": "Error",
       "unknown": "Unknown"
+    },
+    "addModel": {
+      "title": "Add Model",
+      "fields": {
+        "displayName": "Display Name",
+        "id": "ID",
+        "provider": "Provider",
+        "minVram": "Min VRAM (MB)",
+        "weightSource": "Weight Source"
+      },
+      "sources": {
+        "huggingface": "HuggingFace",
+        "local": "Local Path",
+        "url": "URL"
+      },
+      "placeholders": {
+        "huggingface": "owner/repo",
+        "local": "/data/models/my-model",
+        "url": "https://...model.tar.gz"
+      },
+      "submit": "Add Model",
+      "submitting": "Adding...",
+      "cancel": "Cancel",
+      "errors": {
+        "displayNameRequired": "Display name is required.",
+        "idRequired": "Model ID is required.",
+        "hfInvalid": "HuggingFace repo must be in format owner/repo.",
+        "localRequired": "Local path is required.",
+        "urlInvalid": "URL must start with http:// or https://."
+      }
+    },
+    "pending": {
+      "title": "Downloading",
+      "cancel": "Cancel",
+      "retry": "Retry",
+      "remove": "Remove",
+      "unknownError": "Download failed."
     }
   },
   "apiKeys": {

@@ -1036,6 +1036,140 @@ def test_admin_model_load_endpoint_returns_runtime_state(tmp_path: Path) -> None
     assert payload["runtimeState"] == payload["runtime_state"]
 
 
+def test_admin_create_model_requires_weight_source(tmp_path: Path) -> None:
+    with make_client(tmp_path, admin_token="admin-token") as client:
+        response = client.post(
+            "/api/admin/models",
+            headers=admin_headers(),
+            json={
+                "id": "new-model",
+                "providerType": "trellis2",
+                "displayName": "New Model",
+                "modelPath": "owner/new-model",
+            },
+        )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "weightSource must be one of: huggingface, url, local"
+
+
+def test_admin_create_model_local_weight_source_resolves_synchronously(
+    tmp_path: Path,
+) -> None:
+    local_weights_dir = tmp_path / "local-weights"
+    local_weights_dir.mkdir(parents=True, exist_ok=True)
+    (local_weights_dir / "weights.bin").write_bytes(b"ok")
+
+    with make_client(tmp_path, admin_token="admin-token") as client:
+        response = client.post(
+            "/api/admin/models",
+            headers=admin_headers(),
+            json={
+                "id": "local-model",
+                "providerType": "trellis2",
+                "displayName": "Local Model",
+                "modelPath": str(local_weights_dir),
+                "weightSource": "local",
+            },
+        )
+        models_response = client.get(
+            "/api/admin/models",
+            headers=admin_headers(),
+        )
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["id"] == "local-model"
+    assert payload["weight_source"] == "local"
+    assert payload["download_status"] == "done"
+    assert payload["download_progress"] == 100
+    assert payload["resolved_path"] == str(local_weights_dir.resolve())
+
+    assert models_response.status_code == 200
+    model_ids = {model["id"] for model in models_response.json()["models"]}
+    assert "local-model" in model_ids
+
+
+def test_admin_models_include_pending_query_and_delete_cancels_download_task(
+    tmp_path: Path,
+) -> None:
+    started = threading.Event()
+    cancelled = threading.Event()
+
+    with make_client(tmp_path, admin_token="admin-token") as client:
+        container = client.app.state.container
+
+        async def blocking_download(model_id: str, weight_source: str, model_path: str) -> str:
+            del model_id, weight_source, model_path
+            started.set()
+            try:
+                while True:
+                    await asyncio.sleep(0.05)
+            except asyncio.CancelledError:
+                cancelled.set()
+                raise
+
+        container.weight_manager.download = blocking_download
+
+        create_response = client.post(
+            "/api/admin/models",
+            headers=admin_headers(),
+            json={
+                "id": "pending-hf",
+                "providerType": "trellis2",
+                "displayName": "Pending HF",
+                "modelPath": "owner/repo",
+                "weightSource": "huggingface",
+            },
+        )
+        assert create_response.status_code == 201
+        wait_for_condition(started.is_set, timeout_seconds=2.0)
+
+        default_list_response = client.get(
+            "/api/admin/models",
+            headers=admin_headers(),
+        )
+        pending_list_response = client.get(
+            "/api/admin/models?include_pending=true",
+            headers=admin_headers(),
+        )
+        delete_response = client.delete(
+            "/api/admin/models/pending-hf",
+            headers=admin_headers(),
+        )
+
+    assert default_list_response.status_code == 200
+    assert "pending-hf" not in {model["id"] for model in default_list_response.json()["models"]}
+
+    assert pending_list_response.status_code == 200
+    pending_model = next(
+        model for model in pending_list_response.json()["models"] if model["id"] == "pending-hf"
+    )
+    assert pending_model["download_status"] == "downloading"
+    assert pending_model["weight_source"] == "huggingface"
+
+    assert delete_response.status_code == 200
+    wait_for_condition(cancelled.is_set, timeout_seconds=2.0)
+
+
+def test_admin_create_model_url_rejects_non_archive_suffix(tmp_path: Path) -> None:
+    with make_client(tmp_path, admin_token="admin-token") as client:
+        response = client.post(
+            "/api/admin/models",
+            headers=admin_headers(),
+            json={
+                "id": "url-model",
+                "providerType": "trellis2",
+                "displayName": "URL Model",
+                "modelPath": "https://example.com/weights.bin",
+                "weightSource": "url",
+            },
+        )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "url source only supports .zip and .tar.gz archives"
+
+
 def test_create_task_rejects_disabled_model_from_model_store(tmp_path: Path) -> None:
     with make_client(tmp_path, admin_token="admin-token") as client:
         managed_key = create_managed_api_key(client, label="Model Tester")
@@ -4146,13 +4280,22 @@ def test_real_mode_model_load_failure_marks_task_failed_without_blocking_startup
     assert "failed to load" in failed_payload["error"]["message"]
 
 
-def test_trellis2_provider_accepts_huggingface_repo_id_model_path() -> None:
+def test_trellis2_provider_resolves_existing_local_model_path(tmp_path: Path) -> None:
+    model_dir = tmp_path / "trellis2-model"
+    model_dir.mkdir(parents=True)
     source_type, model_reference = Trellis2Provider._resolve_model_reference(
-        "microsoft/TRELLIS.2-4B"
+        str(model_dir)
     )
+    assert source_type == "local"
+    assert model_reference == str(model_dir.resolve())
 
-    assert source_type == "huggingface"
-    assert model_reference == "microsoft/TRELLIS.2-4B"
+
+def test_trellis2_provider_rejects_missing_non_local_model_path() -> None:
+    with pytest.raises(
+        ModelProviderConfigurationError,
+        match="Use Admin to download first",
+    ):
+        Trellis2Provider._resolve_model_reference("microsoft/TRELLIS.2-4B")
 
 
 def test_trellis2_provider_run_single_uses_official_pipeline_kwargs() -> None:
@@ -4429,13 +4572,23 @@ def test_real_mode_preflight_reports_runtime_and_artifact_backend(
 # ---------------------------------------------------------------------------
 
 
-def test_hunyuan3d_provider_accepts_huggingface_repo_id_model_path() -> None:
+def test_hunyuan3d_provider_resolves_existing_local_model_path(tmp_path: Path) -> None:
+    model_dir = tmp_path / "hunyuan3d-model"
+    model_dir.mkdir(parents=True)
     source_type, model_reference = Hunyuan3DProvider._resolve_model_reference(
-        "tencent/Hunyuan3D-2"
+        str(model_dir)
     )
 
-    assert source_type == "huggingface"
-    assert model_reference == "tencent/Hunyuan3D-2"
+    assert source_type == "local"
+    assert model_reference == str(model_dir.resolve())
+
+
+def test_hunyuan3d_provider_rejects_missing_non_local_model_path() -> None:
+    with pytest.raises(
+        ModelProviderConfigurationError,
+        match="Use Admin to download first",
+    ):
+        Hunyuan3DProvider._resolve_model_reference("tencent/Hunyuan3D-2")
 
 
 def test_hunyuan3d_provider_run_single_uses_correct_kwargs() -> None:
@@ -5653,12 +5806,22 @@ def test_step1x3d_ig2mv_decode_casts_latents_to_vae_dtype(
     assert observed == {"decode_input_dtype": "float32", "return_dict": False}
 
 
-def test_step1x3d_provider_accepts_huggingface_repo_id() -> None:
+def test_step1x3d_provider_resolves_existing_local_model_path(tmp_path: Path) -> None:
+    model_dir = tmp_path / "step1x3d-model"
+    model_dir.mkdir(parents=True)
     source_type, model_reference = Step1X3DProvider._resolve_model_reference(
-        "stepfun-ai/Step1X-3D"
+        str(model_dir)
     )
-    assert source_type == "huggingface"
-    assert model_reference == "stepfun-ai/Step1X-3D"
+    assert source_type == "local"
+    assert model_reference == str(model_dir.resolve())
+
+
+def test_step1x3d_provider_rejects_missing_non_local_model_path() -> None:
+    with pytest.raises(
+        ModelProviderConfigurationError,
+        match="Use Admin to download first",
+    ):
+        Step1X3DProvider._resolve_model_reference("stepfun-ai/Step1X-3D")
 
 
 def test_step1x3d_provider_patches_rembg_bria_alias(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -5880,8 +6043,12 @@ def test_build_provider_uses_step1x3d_metadata_only_in_real_mode(
 
 
 @pytest.mark.anyio
-async def test_step1x3d_metadata_only_provider_rejects_inference_calls() -> None:
-    provider = Step1X3DProvider.metadata_only("stepfun-ai/Step1X-3D")
+async def test_step1x3d_metadata_only_provider_rejects_inference_calls(
+    tmp_path: Path,
+) -> None:
+    model_dir = tmp_path / "step1x3d-model"
+    model_dir.mkdir(parents=True)
+    provider = Step1X3DProvider.metadata_only(str(model_dir))
     with pytest.raises(
         ModelProviderExecutionError,
         match="metadata-only provider cannot run inference",

@@ -66,6 +66,11 @@ async def test_create_and_get_model(store: ModelStore):
     assert created["min_vram_mb"] == 16000
     assert created["vram_gb"] == 16.0
     assert created["config"] == {"key": "value"}
+    assert created["weight_source"] == "huggingface"
+    assert created["download_status"] == "done"
+    assert created["download_progress"] == 100
+    assert created["download_speed_bps"] == 0
+    assert created["resolved_path"] is None
 
     fetched = await store.get_model("test-model")
     assert fetched is not None
@@ -188,5 +193,63 @@ async def test_initialize_migrates_vram_gb_using_1024_divisor(tmp_path):
         migrated = await store.get_model("legacy-model")
         assert migrated is not None
         assert migrated["vram_gb"] == pytest.approx(23.438, rel=0, abs=1e-6)
+        assert migrated["weight_source"] == "huggingface"
+        assert migrated["download_status"] == "done"
+        assert migrated["download_progress"] == 100
+        assert migrated["download_speed_bps"] == 0
+        assert migrated["resolved_path"] is None
     finally:
         await store.close()
+
+
+@pytest.mark.anyio
+async def test_list_models_excludes_pending_by_default(store: ModelStore):
+    await store.create_model(
+        id="pending-model",
+        provider_type="trellis2",
+        display_name="Pending",
+        model_path="owner/repo",
+        weight_source="huggingface",
+        download_status="downloading",
+        download_progress=20,
+    )
+    default_models = await store.list_models()
+    pending_models = await store.list_models(include_pending=True)
+    assert "pending-model" not in {model["id"] for model in default_models}
+    assert "pending-model" in {model["id"] for model in pending_models}
+
+
+@pytest.mark.anyio
+async def test_download_status_helpers_update_record(store: ModelStore):
+    await store.create_model(
+        id="download-model",
+        provider_type="trellis2",
+        display_name="Download Model",
+        model_path="owner/repo",
+        weight_source="huggingface",
+        download_status="downloading",
+        download_progress=0,
+    )
+    progress_model = await store.update_download_progress("download-model", 38, 2048)
+    assert progress_model is not None
+    assert progress_model["download_status"] == "downloading"
+    assert progress_model["download_progress"] == 38
+    assert progress_model["download_speed_bps"] == 2048
+
+    done_model = await store.update_download_done(
+        "download-model",
+        "/tmp/download-model",
+    )
+    assert done_model is not None
+    assert done_model["download_status"] == "done"
+    assert done_model["download_progress"] == 100
+    assert done_model["download_speed_bps"] == 0
+    assert done_model["resolved_path"] == "/tmp/download-model"
+    assert done_model["download_error"] is None
+
+    await store.update_download_progress("download-model", 50, 4096)
+    error_model = await store.update_download_error("download-model", "network timeout")
+    assert error_model is not None
+    assert error_model["download_status"] == "error"
+    assert error_model["download_error"] == "network timeout"
+    assert error_model["download_speed_bps"] == 0

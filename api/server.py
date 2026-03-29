@@ -87,6 +87,7 @@ from gen3d.engine.async_engine import AsyncGen3DEngine
 from gen3d.engine.model_registry import ModelRegistry, ModelRuntime
 from gen3d.engine.model_scheduler import ModelScheduler
 from gen3d.engine.pipeline import PipelineCoordinator, PipelineQueueFullError
+from gen3d.engine.weight_manager import WeightManager
 from gen3d.engine.sequence import TERMINAL_STATUSES, TaskStatus
 from gen3d.model.base import ModelProviderConfigurationError
 from gen3d.model.hunyuan3d.provider import Hunyuan3DProvider, MockHunyuan3DProvider
@@ -313,6 +314,8 @@ class AppContainer:
     model_store: ModelStore
     settings_store: SettingsStore
     model_scheduler: ModelScheduler
+    weight_manager: WeightManager
+    model_download_tasks: dict[str, asyncio.Task[None]]
 
 
 class SPAStaticFiles(StaticFiles):
@@ -460,8 +463,26 @@ async def build_model_runtime(
             f"model definition is missing provider_type: {normalized_model_name}"
         )
 
+    download_status = str(model_definition.get("download_status") or "done").strip().lower()
+    if download_status != "done":
+        raise ModelProviderConfigurationError(
+            f"model {normalized_model_name} weights are {download_status}; download must complete first"
+        )
+
     model_path = str(model_definition.get("model_path") or "").strip()
-    if not model_path:
+    resolved_path = str(model_definition.get("resolved_path") or "").strip()
+    if resolved_path:
+        resolved_candidate = Path(resolved_path).expanduser()
+        if not resolved_candidate.exists():
+            raise ModelProviderConfigurationError(
+                f"resolved model path does not exist: {resolved_path}. Download weights first."
+            )
+        provider_model_path = str(resolved_candidate.resolve())
+    else:
+        # Backward compatibility for legacy rows: resolved_path may be null.
+        provider_model_path = model_path
+
+    if not provider_model_path:
         raise ModelProviderConfigurationError(
             f"model definition is missing model_path: {normalized_model_name}"
         )
@@ -470,14 +491,14 @@ async def build_model_runtime(
         build_provider,
         provider_name=provider_name,
         provider_mode=config.provider_mode,
-        model_path=model_path,
+        model_path=provider_model_path,
         mock_delay_ms=config.mock_gpu_stage_delay_ms,
     )
     workers = build_gpu_workers(
         provider=provider,
         provider_mode=config.provider_mode,
         provider_name=provider_name,
-        model_path=model_path,
+        model_path=provider_model_path,
         device_ids=config.gpu_device_ids,
     )
     return ModelRuntime(
@@ -723,6 +744,10 @@ def create_app(
         enabled=not config.is_mock_provider,
         vram_detection_enabled=config.vram_detection_enabled,
     )
+    weight_manager = WeightManager(
+        model_store=model_store,
+        cache_dir=config.model_cache_dir,
+    )
     model_registry.add_model_loaded_listener(model_scheduler.on_model_loaded)
     rate_limiter = TokenRateLimiter(
         max_concurrent=config.rate_limit_concurrent,
@@ -787,8 +812,46 @@ def create_app(
         model_store=model_store,
         settings_store=settings_store,
         model_scheduler=model_scheduler,
+        weight_manager=weight_manager,
+        model_download_tasks={},
     )
     proxy_client: httpx.AsyncClient | None = None
+
+    async def _run_model_weight_download(
+        model_id: str,
+        weight_source: str,
+        model_path: str,
+    ) -> None:
+        try:
+            await container.weight_manager.download(
+                model_id=model_id,
+                weight_source=weight_source,
+                model_path=model_path,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            _logger.warning(
+                "model.weight_download_failed",
+                model_id=model_id,
+                weight_source=weight_source,
+                error=str(exc),
+            )
+        finally:
+            current_task = asyncio.current_task()
+            if (
+                current_task is not None
+                and container.model_download_tasks.get(model_id) is current_task
+            ):
+                container.model_download_tasks.pop(model_id, None)
+
+    async def _cancel_model_download_task(model_id: str) -> None:
+        task = container.model_download_tasks.pop(model_id, None)
+        if task is None:
+            return
+        if not task.done():
+            task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -824,6 +887,9 @@ def create_app(
         await preview_renderer_service.stop()
         if proxy_client is not None:
             await proxy_client.aclose()
+        download_task_ids = tuple(container.model_download_tasks.keys())
+        for model_id in download_task_ids:
+            await _cancel_model_download_task(model_id)
         await container.settings_store.close()
         await container.model_store.close()
         await container.api_key_store.close()
@@ -1567,9 +1633,12 @@ def create_app(
         dependencies=[Depends(require_admin_token)],
     )
     async def list_models(
+        include_pending: bool = Query(default=False),
         app_container: AppContainer = Depends(get_container),
     ) -> dict:
-        models = await app_container.model_store.list_models()
+        models = await app_container.model_store.list_models(
+            include_pending=include_pending,
+        )
         runtime_states = app_container.model_registry.runtime_states()
         max_tasks_per_slot = app_container.model_scheduler.max_tasks_per_slot
         for model in models:
@@ -1628,18 +1697,97 @@ def create_app(
         payload: dict,
         app_container: AppContainer = Depends(get_container),
     ) -> dict:
+        model_id = str(payload.get("id") or "").strip()
+        provider_type = str(payload.get("providerType") or "").strip()
+        display_name = str(payload.get("displayName") or "").strip()
+        model_path = str(payload.get("modelPath") or "").strip()
+        weight_source = str(
+            payload.get("weightSource", payload.get("weight_source")) or ""
+        ).strip().lower()
+        if not model_id:
+            raise HTTPException(status_code=422, detail="id is required")
+        if not provider_type:
+            raise HTTPException(status_code=422, detail="providerType is required")
+        if not display_name:
+            raise HTTPException(status_code=422, detail="displayName is required")
+        if not model_path:
+            raise HTTPException(status_code=422, detail="modelPath is required")
+        if weight_source not in {"huggingface", "url", "local"}:
+            raise HTTPException(
+                status_code=422,
+                detail="weightSource must be one of: huggingface, url, local",
+            )
+        if weight_source == "url":
+            parsed_url = urlsplit(model_path)
+            if parsed_url.scheme not in {"http", "https"}:
+                raise HTTPException(
+                    status_code=422,
+                    detail="url weightSource requires an http(s) modelPath",
+                )
+            normalized_url_path = parsed_url.path.strip().lower()
+            if not (
+                normalized_url_path.endswith(".zip")
+                or normalized_url_path.endswith(".tar.gz")
+            ):
+                raise HTTPException(
+                    status_code=422,
+                    detail="url source only supports .zip and .tar.gz archives",
+                )
+        if weight_source == "local":
+            local_candidate = Path(model_path).expanduser()
+            if not local_candidate.exists():
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"local model path does not exist: {model_path}",
+                )
+
         try:
             model = await app_container.model_store.create_model(
-                id=payload["id"],
-                provider_type=payload["providerType"],
-                display_name=payload["displayName"],
-                model_path=payload["modelPath"],
+                id=model_id,
+                provider_type=provider_type,
+                display_name=display_name,
+                model_path=model_path,
+                weight_source=weight_source,
+                download_status="downloading",
+                download_progress=0,
+                download_speed_bps=0,
+                resolved_path=None,
                 min_vram_mb=payload.get("minVramMb", 24000),
                 vram_gb=payload.get("vramGb"),
                 config=payload.get("config"),
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+        if weight_source == "local":
+            try:
+                await app_container.weight_manager.download(
+                    model_id=model_id,
+                    weight_source=weight_source,
+                    model_path=model_path,
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+            except Exception as exc:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"failed to resolve local model path: {exc}",
+                ) from exc
+            refreshed_model = await app_container.model_store.get_model(model_id)
+            if refreshed_model is not None:
+                model = refreshed_model
+            return model
+
+        existing_task = app_container.model_download_tasks.get(model_id)
+        if existing_task is not None and not existing_task.done():
+            await _cancel_model_download_task(model_id)
+        app_container.model_download_tasks[model_id] = asyncio.create_task(
+            _run_model_weight_download(
+                model_id=model_id,
+                weight_source=weight_source,
+                model_path=model_path,
+            ),
+            name=f"model-download-{model_id}",
+        )
         return model
 
     @app.get(
@@ -1693,6 +1841,11 @@ def create_app(
         model_id: str,
         app_container: AppContainer = Depends(get_container),
     ) -> dict:
+        model = await app_container.model_store.get_model(model_id)
+        if model is None:
+            raise HTTPException(status_code=404, detail="model not found")
+        if str(model.get("download_status") or "").strip().lower() == "downloading":
+            await _cancel_model_download_task(model_id)
         deleted = await app_container.model_store.delete_model(model_id)
         if not deleted:
             raise HTTPException(status_code=404, detail="model not found")

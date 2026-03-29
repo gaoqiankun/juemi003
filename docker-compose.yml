@@ -27,6 +27,7 @@ services:
       DATABASE_PATH: /data/app.sqlite3
       ARTIFACTS_DIR: /data/artifacts
       UPLOADS_DIR: /data/uploads
+      MODEL_CACHE_DIR: ${MODEL_CACHE_DIR:-/data/models}
       OBJECT_STORE_ENDPOINT: ${OBJECT_STORE_ENDPOINT:-}
       OBJECT_STORE_EXTERNAL_ENDPOINT: ${OBJECT_STORE_EXTERNAL_ENDPOINT:-}
       OBJECT_STORE_BUCKET: ${OBJECT_STORE_BUCKET:-artifacts}

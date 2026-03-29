@@ -9,7 +9,6 @@ import trimesh
 import rembg
 import torch
 import numpy as np
-from huggingface_hub import hf_hub_download
 
 from diffusers.schedulers import FlowMatchEulerDiscreteScheduler
 from diffusers.utils import BaseOutput

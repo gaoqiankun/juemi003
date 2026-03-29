@@ -33,6 +33,10 @@ class ServingConfig(BaseSettings):
         default=Path("./data/uploads"),
         alias="UPLOADS_DIR",
     )
+    model_cache_dir: Path = Field(
+        default=Path("/data/models"),
+        alias="MODEL_CACHE_DIR",
+    )
     dev_proxy_target: str | None = Field(
         default=None,
         alias="DEV_PROXY_TARGET",

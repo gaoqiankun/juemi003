@@ -1,13 +1,9 @@
 from __future__ import annotations
 
 import importlib
-import os
 from pathlib import Path
 from typing import Any
 
-_DEFAULT_CACHE_ROOT = "~/.cache/cubie-models"
-_DEFAULT_CACHE_ENV = "CUBIE_MODEL_CACHE"
-_LEGACY_CACHE_ENV = "HY3DGEN_MODELS"
 _DEFAULT_SUBFOLDER = "hunyuan3d-dit-v2-0"
 _DEFAULT_DTYPE = "float16"
 
@@ -167,62 +163,15 @@ def _smart_load_model(
     use_safetensors: bool,
     variant: str | None,
 ) -> tuple[str, str]:
-    """Resolve config.yaml and checkpoint paths, downloading from HF if needed."""
-    original_model_path = model_path
-
-    # 1. Try each cache root
-    for candidate in _iter_model_dirs(model_path, subfolder):
-        if candidate.exists():
-            return _build_asset_paths(candidate, use_safetensors, variant)
-
-    # 2. Download from HuggingFace
-    try:
-        huggingface_hub = importlib.import_module("huggingface_hub")
-    except ModuleNotFoundError as exc:
-        raise RuntimeError(
-            "huggingface_hub is required to download HunYuan3D-2 model assets"
-        ) from exc
-
-    snapshot_download = getattr(huggingface_hub, "snapshot_download", None)
-    if snapshot_download is None:
-        raise RuntimeError("huggingface_hub.snapshot_download is not available")
-
-    downloaded_root = Path(
-        snapshot_download(
-            repo_id=original_model_path,
-            allow_patterns=[f"{subfolder}/*"],
-        )
-    )
-    model_dir = downloaded_root / subfolder
+    """Resolve config.yaml and checkpoint paths from a local model path."""
+    model_root = Path(model_path).expanduser().resolve()
+    model_dir = model_root / subfolder
     if not model_dir.exists():
         raise FileNotFoundError(
-            f"Downloaded HunYuan3D-2 assets but could not find {subfolder}/ under {downloaded_root}"
+            f"HunYuan3D-2 shape weights not found at {model_dir}. "
+            "Use Admin to download model weights first."
         )
     return _build_asset_paths(model_dir, use_safetensors, variant)
-
-
-def _iter_model_dirs(model_path: str, subfolder: str):
-    """Yield candidate local directories in priority order."""
-    # Absolute / explicit local paths
-    expanded = Path(model_path).expanduser()
-    if expanded.is_absolute() or model_path.startswith((".", "~", "..")):
-        yield expanded / subfolder
-        yield expanded
-        return
-
-    # Cache roots
-    for cache_root in _iter_cache_roots():
-        yield cache_root / model_path / subfolder
-        yield cache_root / model_path
-
-
-def _iter_cache_roots():
-    for env_name in (_DEFAULT_CACHE_ENV, _LEGACY_CACHE_ENV):
-        env_value = os.environ.get(env_name)
-        if not env_value:
-            continue
-        yield Path(env_value).expanduser()
-    yield Path(_DEFAULT_CACHE_ROOT).expanduser()
 
 
 def _build_asset_paths(

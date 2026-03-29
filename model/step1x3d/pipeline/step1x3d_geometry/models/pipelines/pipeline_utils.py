@@ -1,6 +1,6 @@
 # ruff: noqa
 from typing import Callable, List, Optional, Union, Dict, Any
-import os
+from pathlib import Path
 from diffusers.utils import logging
 import PIL.Image
 import torch
@@ -374,32 +374,20 @@ class TransformerDiffusionMixin:
                 self.vae.unfuse_qkv_projections()
                 self.fusing_vae = False
 
-def try_download(model_id, subfolder):
-    try:
-        from huggingface_hub import snapshot_download
-
-        path = snapshot_download(
-            repo_id=model_id,
-            allow_patterns=[f"{subfolder}/*"],
+def smart_load_model(model_path, subfolder=""):
+    model_root = Path(str(model_path)).expanduser().resolve()
+    if not model_root.exists():
+        raise FileNotFoundError(
+            f"Step1X-3D model path not found at {model_root}. "
+            "Use Admin to download model weights first."
         )
-        print(path)
-        model_path = os.path.join(path, subfolder)
-        return model_path
-    except Exception as e:
-        raise e
-
-
-def smart_load_model(model_path, subfolder = ""):
     if subfolder == "":
-        if os.path.exists(model_path):
-            return model_path
-        else:
-            return try_download(model_path, '.')
-    else:
-        if os.path.exists(os.path.join(model_path, subfolder)):
-            return os.path.join(model_path, subfolder)
-        else:
-            return try_download(model_path, subfolder)
-
-
+        return str(model_root)
+    target_path = model_root / subfolder
+    if not target_path.exists():
+        raise FileNotFoundError(
+            f"Step1X-3D subfolder not found at {target_path}. "
+            "Use Admin to download model weights first."
+        )
+    return str(target_path)
 

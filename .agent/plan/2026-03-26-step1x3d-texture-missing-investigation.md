@@ -1,5 +1,5 @@
 # Step1X-3D 纹理缺失链路调查
-Date / Status: 2026-03-26 / planning / Commits: N/A（按仓库规范本次不执行提交）
+Date / Status: 2026-03-26 / done / Commits: N/A（按仓库规范本次不执行提交）
 
 ## Goal
 定位 Step1X-3D 任务在前端仅显示 shape 无纹理的问题，确认是生成、阶段传递、导出还是前端渲染环节丢失。

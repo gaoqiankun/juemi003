@@ -26,20 +26,19 @@ def __getattr__(name):
 
 def from_pretrained(path: str):
     """
-    Load a pipeline from a model folder or a Hugging Face model hub.
+    Load a pipeline from a local model folder.
 
     Args:
-        path: The path to the model. Can be either local path or a Hugging Face model name.
+        path: The local model folder path.
     """
     import os
     import json
-    is_local = os.path.exists(f"{path}/pipeline.json")
-
-    if is_local:
-        config_file = f"{path}/pipeline.json"
-    else:
-        from huggingface_hub import hf_hub_download
-        config_file = hf_hub_download(path, "pipeline.json")
+    config_file = f"{path}/pipeline.json"
+    if not os.path.exists(config_file):
+        raise FileNotFoundError(
+            f"pipeline config not found at {config_file}. "
+            "Use Admin to download model weights first."
+        )
 
     with open(config_file, 'r') as f:
         config = json.load(f)

@@ -430,21 +430,12 @@ class Step1X3DProvider:
     @staticmethod
     def _resolve_model_reference(model_path: str) -> tuple[str, str]:
         raw_value = model_path.strip()
-        expanded_path = Path(raw_value).expanduser()
-        has_local_path_hint = (
-            raw_value.startswith(("/", ".", "~"))
-            or raw_value.startswith("..")
-        )
-
-        if expanded_path.exists():
-            return "local", str(expanded_path.resolve())
-
-        if has_local_path_hint:
+        resolved_path = Path(raw_value).expanduser().resolve()
+        if not resolved_path.exists():
             raise ModelProviderConfigurationError(
-                f"Step1X-3D model path does not exist: {model_path}"
+                f"weights not found at {resolved_path}. Use Admin to download first."
             )
-
-        return "huggingface", raw_value
+        return "local", str(resolved_path)
 
 
 # ---------------------------------------------------------------------------

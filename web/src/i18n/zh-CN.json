@@ -205,6 +205,7 @@
     },
     "list": {
       "title": "模型列表",
+      "addModel": "添加模型",
       "columns": {
         "name": "模型名称",
         "runtime": "运行状态",
@@ -230,6 +231,43 @@
       "not_loaded": "未加载",
       "error": "异常",
       "unknown": "未知"
+    },
+    "addModel": {
+      "title": "添加模型",
+      "fields": {
+        "displayName": "显示名称",
+        "id": "模型 ID",
+        "provider": "提供方",
+        "minVram": "最低显存 (MB)",
+        "weightSource": "权重来源"
+      },
+      "sources": {
+        "huggingface": "HuggingFace",
+        "local": "本地路径",
+        "url": "URL"
+      },
+      "placeholders": {
+        "huggingface": "owner/repo",
+        "local": "/data/models/my-model",
+        "url": "https://...model.tar.gz"
+      },
+      "submit": "添加模型",
+      "submitting": "添加中...",
+      "cancel": "取消",
+      "errors": {
+        "displayNameRequired": "请输入显示名称。",
+        "idRequired": "请输入模型 ID。",
+        "hfInvalid": "HuggingFace 仓库格式应为 owner/repo。",
+        "localRequired": "请输入本地路径。",
+        "urlInvalid": "URL 须以 http:// 或 https:// 开头。"
+      }
+    },
+    "pending": {
+      "title": "下载中",
+      "cancel": "取消",
+      "retry": "重试",
+      "remove": "移除",
+      "unknownError": "下载失败。"
     }
   },
   "apiKeys": {

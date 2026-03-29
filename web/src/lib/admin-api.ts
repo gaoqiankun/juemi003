@@ -116,6 +116,7 @@ export const fetchTasksStats = () => adminFetch<TasksStatsResponse>("/api/admin/
 // Models
 export interface RawAdminModelRecord {
   id?: string;
+  providerType?: string;
   provider_type?: string;
   display_name?: string;
   model_path?: string;
@@ -131,13 +132,23 @@ export interface RawAdminModelRecord {
   error_message?: string | null;
   updated_at?: string | null;
   created_at?: string | null;
+  // Weight manager fields
+  weight_source?: string;
+  download_status?: string;
+  download_progress?: number;
+  download_speed_bps?: number;
+  download_error?: string | null;
+  resolved_path?: string | null;
 }
 
 export interface RawAdminModelsResponse {
   models?: RawAdminModelRecord[];
 }
 
-export const fetchModels = () => adminFetch<RawAdminModelsResponse>("/api/admin/models");
+export const fetchModels = (includePending = false) =>
+  adminFetch<RawAdminModelsResponse>(
+    includePending ? "/api/admin/models?include_pending=true" : "/api/admin/models",
+  );
 export const createModel = (data: Record<string, unknown>) =>
   adminFetch<unknown>("/api/admin/models", { method: "POST", body: JSON.stringify(data) });
 export const updateModel = (id: string, data: Record<string, unknown>) =>
@@ -148,6 +159,10 @@ export const updateModel = (id: string, data: Record<string, unknown>) =>
 export const loadModel = (id: string) =>
   adminFetch<unknown>(`/api/admin/models/${encodeURIComponent(id)}/load`, {
     method: "POST",
+  });
+export const deleteModel = (id: string) =>
+  adminFetch<unknown>(`/api/admin/models/${encodeURIComponent(id)}`, {
+    method: "DELETE",
   });
 
 // API Keys
