@@ -5,7 +5,13 @@ import { useTranslation } from "react-i18next";
 import { AddModelDialog } from "@/components/add-model-dialog";
 import { Progress } from "@/components/ui/progress";
 import { Badge, Button, Card, ToggleSwitch } from "@/components/ui/primitives";
-import { useModelsData, type AdminModelItem, type AdminModelRuntimeState, type AdminPendingItem } from "@/hooks/use-models-data";
+import {
+  useModelsData,
+  type AdminModelItem,
+  type AdminModelProviderType,
+  type AdminModelRuntimeState,
+  type AdminPendingItem,
+} from "@/hooks/use-models-data";
 
 const tableHeadBaseClassName = "px-4 pb-2 font-display text-[11px] font-semibold uppercase tracking-[0.05em] text-text-muted";
 const tableHeadLeftClassName = `${tableHeadBaseClassName} text-left`;
@@ -25,7 +31,12 @@ const runtimeToneMap: Record<AdminModelRuntimeState, "success" | "warning" | "da
 const sourceLabelMap: Record<string, string> = {
   huggingface: "HF",
   local: "Local",
-  url: "URL",
+  url: "链接",
+};
+const providerTypeLabelMap: Record<AdminModelProviderType, string> = {
+  trellis2: "TRELLIS2",
+  hunyuan3d: "HunYuan3D-2",
+  step1x3d: "Step1X-3D",
 };
 
 function formatSpeedBps(bps: number): string {
@@ -232,7 +243,9 @@ export function ModelsPage() {
                   ? model.errorMessage
                   : undefined;
                 const sourceLabel = sourceLabelMap[model.weightSource] ?? model.weightSource;
-                const truncated = truncatePath(model.modelPath);
+                const providerTypeLabel = providerTypeLabelMap[model.providerType] ?? model.providerType;
+                const resolvedModelPath = model.resolvedPath || model.modelPath;
+                const truncated = truncatePath(resolvedModelPath);
                 return (
                   <tr key={model.id}>
                     <td className={tableCellLeftClassName}>
@@ -242,11 +255,12 @@ export function ModelsPage() {
                           <Badge tone="accent">{t("models.list.defaultTag")}</Badge>
                         ) : null}
                         <Badge tone="neutral">{sourceLabel}</Badge>
+                        <Badge tone="neutral">{providerTypeLabel}</Badge>
                       </div>
-                      {model.modelPath ? (
+                      {resolvedModelPath ? (
                         <div
                           className="mt-0.5 truncate text-xs text-text-muted"
-                          title={model.modelPath}
+                          title={resolvedModelPath}
                         >
                           {truncated}
                         </div>

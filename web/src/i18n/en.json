@@ -235,28 +235,28 @@
     "addModel": {
       "title": "Add Model",
       "fields": {
-        "displayName": "Display Name",
+        "displayName": "Model Name",
         "id": "ID",
-        "provider": "Provider",
+        "provider": "Model Type",
         "minVram": "Min VRAM (MB)",
         "weightSource": "Weight Source"
       },
       "sources": {
         "huggingface": "HuggingFace",
         "local": "Local Path",
-        "url": "URL"
+        "url": "Download Link"
       },
       "placeholders": {
         "huggingface": "owner/repo",
         "local": "/data/models/my-model",
-        "url": "https://...model.tar.gz"
+        "url": "https://example.com/model.tar.gz"
       },
       "submit": "Add Model",
       "submitting": "Adding...",
       "cancel": "Cancel",
       "errors": {
-        "displayNameRequired": "Display name is required.",
-        "idRequired": "Model ID is required.",
+        "displayNameRequired": "Model name is required.",
+        "idRequired": "Unable to generate a model ID from the model name. Use letters or numbers.",
         "hfInvalid": "HuggingFace repo must be in format owner/repo.",
         "localRequired": "Local path is required.",
         "urlInvalid": "URL must start with http:// or https://."

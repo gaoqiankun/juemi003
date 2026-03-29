@@ -235,28 +235,28 @@
     "addModel": {
       "title": "添加模型",
       "fields": {
-        "displayName": "显示名称",
+        "displayName": "模型名称",
         "id": "模型 ID",
-        "provider": "提供方",
+        "provider": "模型类型",
         "minVram": "最低显存 (MB)",
         "weightSource": "权重来源"
       },
       "sources": {
         "huggingface": "HuggingFace",
         "local": "本地路径",
-        "url": "URL"
+        "url": "下载链接"
       },
       "placeholders": {
         "huggingface": "owner/repo",
         "local": "/data/models/my-model",
-        "url": "https://...model.tar.gz"
+        "url": "https://example.com/model.tar.gz"
       },
       "submit": "添加模型",
       "submitting": "添加中...",
       "cancel": "取消",
       "errors": {
-        "displayNameRequired": "请输入显示名称。",
-        "idRequired": "请输入模型 ID。",
+        "displayNameRequired": "请输入模型名称。",
+        "idRequired": "模型名称无法自动生成模型 ID，请使用英文或数字名称。",
         "hfInvalid": "HuggingFace 仓库格式应为 owner/repo。",
         "localRequired": "请输入本地路径。",
         "urlInvalid": "URL 须以 http:// 或 https:// 开头。"

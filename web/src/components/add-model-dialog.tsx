@@ -39,10 +39,7 @@ export function AddModelDialog({ open, onOpenChange, onSubmit }: AddModelDialogP
   const { t } = useTranslation();
 
   const [displayName, setDisplayName] = useState("");
-  const [modelId, setModelId] = useState("");
-  const [idEdited, setIdEdited] = useState(false);
   const [providerType, setProviderType] = useState("trellis2");
-  const [minVram, setMinVram] = useState("24000");
   const [weightSource, setWeightSource] = useState<WeightSource>("huggingface");
   const [hfPath, setHfPath] = useState("");
   const [localPath, setLocalPath] = useState("");
@@ -52,15 +49,9 @@ export function AddModelDialog({ open, onOpenChange, onSubmit }: AddModelDialogP
 
   const handleDisplayNameChange = useCallback((value: string) => {
     setDisplayName(value);
-    if (!idEdited) {
-      setModelId(slugify(value));
-    }
-  }, [idEdited]);
-
-  const handleIdChange = useCallback((value: string) => {
-    setModelId(value);
-    setIdEdited(true);
   }, []);
+
+  const getAutoModelId = useCallback(() => slugify(displayName), [displayName]);
 
   const getActivePath = useCallback((): string => {
     if (weightSource === "huggingface") return hfPath;
@@ -70,7 +61,7 @@ export function AddModelDialog({ open, onOpenChange, onSubmit }: AddModelDialogP
 
   const validate = useCallback((): string => {
     if (!displayName.trim()) return t("models.addModel.errors.displayNameRequired");
-    if (!modelId.trim()) return t("models.addModel.errors.idRequired");
+    if (!getAutoModelId()) return t("models.addModel.errors.idRequired");
     const path = getActivePath().trim();
     if (weightSource === "huggingface" && !HUGGINGFACE_REPO_PATTERN.test(path)) {
       return t("models.addModel.errors.hfInvalid");
@@ -82,14 +73,11 @@ export function AddModelDialog({ open, onOpenChange, onSubmit }: AddModelDialogP
       return t("models.addModel.errors.urlInvalid");
     }
     return "";
-  }, [displayName, modelId, weightSource, getActivePath, t]);
+  }, [displayName, getAutoModelId, weightSource, getActivePath, t]);
 
   const resetForm = useCallback(() => {
     setDisplayName("");
-    setModelId("");
-    setIdEdited(false);
     setProviderType("trellis2");
-    setMinVram("24000");
     setWeightSource("huggingface");
     setHfPath("");
     setLocalPath("");
@@ -106,11 +94,11 @@ export function AddModelDialog({ open, onOpenChange, onSubmit }: AddModelDialogP
     setSubmitting(true);
     setError("");
     try {
+      const modelId = getAutoModelId().trim();
       await onSubmit({
-        id: modelId.trim(),
+        id: modelId,
         displayName: displayName.trim(),
         providerType,
-        minVramMb: Number(minVram) || 0,
         modelPath: getActivePath().trim(),
         weightSource,
       });
@@ -121,7 +109,7 @@ export function AddModelDialog({ open, onOpenChange, onSubmit }: AddModelDialogP
     } finally {
       setSubmitting(false);
     }
-  }, [validate, modelId, displayName, providerType, minVram, getActivePath, weightSource, onSubmit, resetForm, onOpenChange]);
+  }, [validate, getAutoModelId, displayName, providerType, getActivePath, weightSource, onSubmit, resetForm, onOpenChange]);
 
   const handleOpenChange = useCallback((nextOpen: boolean) => {
     if (!submitting) {
@@ -144,8 +132,8 @@ export function AddModelDialog({ open, onOpenChange, onSubmit }: AddModelDialogP
         </DialogHeader>
 
         <div className="grid gap-4 pt-1">
-          {/* Display Name + ID */}
-          <div className="grid grid-cols-2 gap-3">
+          {/* Model Name + Model Type */}
+          <div className="grid gap-3 sm:grid-cols-2">
             <div className="grid gap-1.5">
               <label className="text-xs font-semibold uppercase tracking-wide text-text-secondary">
                 {t("models.addModel.fields.displayName")}
@@ -159,39 +147,12 @@ export function AddModelDialog({ open, onOpenChange, onSubmit }: AddModelDialogP
             </div>
             <div className="grid gap-1.5">
               <label className="text-xs font-semibold uppercase tracking-wide text-text-secondary">
-                {t("models.addModel.fields.id")}
-              </label>
-              <InputField
-                value={modelId}
-                onChange={(e) => handleIdChange(e.target.value)}
-                placeholder="hunyuan3d-2"
-                disabled={submitting}
-              />
-            </div>
-          </div>
-
-          {/* Provider + Min VRAM */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className="grid gap-1.5">
-              <label className="text-xs font-semibold uppercase tracking-wide text-text-secondary">
                 {t("models.addModel.fields.provider")}
               </label>
               <SelectField
                 value={providerType}
                 onValueChange={setProviderType}
                 options={PROVIDER_OPTIONS}
-              />
-            </div>
-            <div className="grid gap-1.5">
-              <label className="text-xs font-semibold uppercase tracking-wide text-text-secondary">
-                {t("models.addModel.fields.minVram")}
-              </label>
-              <InputField
-                type="number"
-                value={minVram}
-                onChange={(e) => setMinVram(e.target.value)}
-                placeholder="24000"
-                disabled={submitting}
               />
             </div>
           </div>

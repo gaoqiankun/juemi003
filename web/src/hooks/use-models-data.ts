@@ -16,7 +16,9 @@ export type AdminModelProviderType = "trellis2" | "hunyuan3d" | "step1x3d";
 export interface AdminModelItem {
   id: string;
   displayName: string;
+  providerType: AdminModelProviderType;
   modelPath: string;
+  resolvedPath: string;
   weightSource: AdminModelWeightSource;
   isEnabled: boolean;
   isDefault: boolean;
@@ -93,7 +95,9 @@ function splitModels(payload: RawAdminModelRecord[] | undefined): {
       models.push({
         id,
         displayName,
+        providerType: normalizeProviderType(String(item.provider_type || item.providerType || "").trim()),
         modelPath: String(item.model_path || "").trim(),
+        resolvedPath: String(item.resolved_path || item.resolvedPath || "").trim(),
         weightSource: normalizeWeightSource(item.weight_source),
         isEnabled: Boolean(item.is_enabled),
         isDefault: Boolean(item.is_default),

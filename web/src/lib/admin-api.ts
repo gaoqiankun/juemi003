@@ -138,6 +138,7 @@ export interface RawAdminModelRecord {
   download_progress?: number;
   download_speed_bps?: number;
   download_error?: string | null;
+  resolvedPath?: string | null;
   resolved_path?: string | null;
 }
 
