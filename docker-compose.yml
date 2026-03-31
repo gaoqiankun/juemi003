@@ -19,7 +19,7 @@ services:
       HF_TOKEN: ${HF_TOKEN:-}
       PROVIDER_MODE: ${PROVIDER_MODE:-real}
       HOME: /data/home
-      HF_HOME: /data/huggingface
+      HF_HOME: ${HF_HOME:-/data/huggingface}
       XDG_CACHE_HOME: /data/.cache
       TRITON_CACHE_DIR: /data/.triton
       PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True

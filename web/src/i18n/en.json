@@ -217,6 +217,7 @@
       "defaultTag": "Default",
       "setDefault": "Set as default",
       "load": "Load",
+      "details": "Details",
       "retry": "Retry",
       "loading": "Loading",
       "loaded": "Loaded",
@@ -264,10 +265,38 @@
     },
     "pending": {
       "title": "Downloading",
+      "downloadingWithName": "Downloading - {{name}}",
+      "failedWithName": "Download failed - {{name}}",
       "cancel": "Cancel",
       "retry": "Retry",
       "remove": "Remove",
+      "stage": {
+        "mainModel": "Main model",
+        "depFallback": "Dependency",
+        "completed": "Completed",
+        "waiting": "Waiting",
+        "error": "Download failed."
+      },
       "unknownError": "Download failed."
+    },
+    "details": {
+      "title": "Model details",
+      "description": "Inspect read-only runtime and dependency status for {{name}}.",
+      "fields": {
+        "provider": "Provider",
+        "source": "Weight source",
+        "runtime": "Runtime",
+        "path": "Resolved path"
+      },
+      "dependenciesLoading": "Loading dependency status...",
+      "dependenciesLoadFailed": "Failed to load dependencies: {{message}}",
+      "dependencies": {
+        "title": "Dependency weights",
+        "depFallback": "Dependency",
+        "ready": "Ready",
+        "waiting": "Waiting",
+        "error": "Dependency download failed."
+      }
     }
   },
   "apiKeys": {

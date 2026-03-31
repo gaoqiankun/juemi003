@@ -217,6 +217,7 @@
       "defaultTag": "默认",
       "setDefault": "设为默认",
       "load": "加载",
+      "details": "详情",
       "retry": "重试",
       "loading": "加载中",
       "loaded": "已加载",
@@ -264,10 +265,38 @@
     },
     "pending": {
       "title": "下载中",
+      "downloadingWithName": "正在下载 - {{name}}",
+      "failedWithName": "下载失败 - {{name}}",
       "cancel": "取消",
       "retry": "重试",
       "remove": "移除",
+      "stage": {
+        "mainModel": "主模型",
+        "depFallback": "依赖",
+        "completed": "完成",
+        "waiting": "等待中",
+        "error": "下载失败。"
+      },
       "unknownError": "下载失败。"
+    },
+    "details": {
+      "title": "模型详情",
+      "description": "查看 {{name}} 的运行状态与依赖权重（只读）。",
+      "fields": {
+        "provider": "模型类型",
+        "source": "权重来源",
+        "runtime": "运行状态",
+        "path": "解析路径"
+      },
+      "dependenciesLoading": "正在加载依赖状态...",
+      "dependenciesLoadFailed": "依赖状态加载失败：{{message}}",
+      "dependencies": {
+        "title": "依赖权重",
+        "depFallback": "依赖",
+        "ready": "已就绪",
+        "waiting": "等待中",
+        "error": "依赖下载失败。"
+      }
     }
   },
   "apiKeys": {

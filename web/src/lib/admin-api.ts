@@ -140,16 +140,84 @@ export interface RawAdminModelRecord {
   download_error?: string | null;
   resolvedPath?: string | null;
   resolved_path?: string | null;
+  deps?: RawDepStatus[] | null;
 }
 
 export interface RawAdminModelsResponse {
   models?: RawAdminModelRecord[];
 }
 
+export type DepDownloadStatus = "done" | "downloading" | "error" | "pending";
+
+export interface RawDepStatus {
+  dep_id?: string;
+  hf_repo_id?: string;
+  description?: string | null;
+  resolved_path?: string | null;
+  download_status?: string;
+  download_progress?: number;
+  download_speed_bps?: number;
+  download_error?: string | null;
+}
+
+export interface DepStatus {
+  dep_id: string;
+  hf_repo_id: string;
+  description?: string;
+  resolved_path?: string;
+  download_status: DepDownloadStatus;
+  download_progress: number;
+  download_speed_bps: number;
+  download_error?: string;
+}
+
+function normalizeDepDownloadStatus(status: string | undefined): DepDownloadStatus {
+  const normalized = String(status || "pending").trim().toLowerCase();
+  if (
+    normalized === "done"
+    || normalized === "downloading"
+    || normalized === "error"
+    || normalized === "pending"
+  ) {
+    return normalized;
+  }
+  return "pending";
+}
+
+export function normalizeDepStatus(item: RawDepStatus): DepStatus {
+  const depId = String(item.dep_id || "").trim();
+  const hfRepoId = String(item.hf_repo_id || "").trim();
+  const description = String(item.description || "").trim();
+  const resolvedPath = String(item.resolved_path || "").trim();
+  const downloadError = String(item.download_error || "").trim();
+
+  return {
+    dep_id: depId,
+    hf_repo_id: hfRepoId,
+    ...(description ? { description } : {}),
+    ...(resolvedPath ? { resolved_path: resolvedPath } : {}),
+    download_status: normalizeDepDownloadStatus(item.download_status),
+    download_progress: Number(item.download_progress ?? 0),
+    download_speed_bps: Number(item.download_speed_bps ?? 0),
+    ...(downloadError ? { download_error: downloadError } : {}),
+  };
+}
+
 export const fetchModels = (includePending = false) =>
   adminFetch<RawAdminModelsResponse>(
     includePending ? "/api/admin/models?include_pending=true" : "/api/admin/models",
   );
+export async function fetchModelDeps(modelId: string): Promise<DepStatus[]> {
+  const response = await adminFetch<RawDepStatus[] | { deps?: RawDepStatus[] }>(
+    `/api/admin/models/${encodeURIComponent(modelId)}/deps`,
+  );
+  const items = Array.isArray(response)
+    ? response
+    : Array.isArray(response?.deps)
+      ? response.deps
+      : [];
+  return items.map(normalizeDepStatus);
+}
 export const createModel = (data: Record<string, unknown>) =>
   adminFetch<unknown>("/api/admin/models", { method: "POST", body: JSON.stringify(data) });
 export const updateModel = (id: string, data: Record<string, unknown>) =>

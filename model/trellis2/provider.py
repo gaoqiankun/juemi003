@@ -4,7 +4,10 @@ import asyncio
 import importlib
 import inspect
 import json
+import os
 import struct
+import tempfile
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +15,7 @@ from gen3d.model.base import (
     GenerationResult,
     ModelProviderConfigurationError,
     ModelProviderExecutionError,
+    ProviderDependency,
     StageProgress,
 )
 
@@ -21,8 +25,13 @@ class MockTrellis2Provider:
         self._stage_delay_seconds = max(stage_delay_ms, 0) / 1000
 
     @classmethod
-    def from_pretrained(cls, model_path: str) -> "MockTrellis2Provider":
+    def from_pretrained(
+        cls,
+        model_path: str,
+        dep_paths: dict[str, str] | None = None,
+    ) -> "MockTrellis2Provider":
         _ = model_path
+        _ = dep_paths
         return cls()
 
     def estimate_vram_mb(self, batch_size: int, options: dict) -> int:
@@ -91,8 +100,37 @@ class Trellis2Provider:
         self._model_path = model_path
 
     @classmethod
-    def from_pretrained(cls, model_path: str) -> "Trellis2Provider":
-        report, pipeline = cls._inspect_runtime(model_path, load_pipeline=True)
+    def dependencies(cls) -> list[ProviderDependency]:
+        return [
+            ProviderDependency(
+                dep_id="dinov3-vitl16",
+                hf_repo_id="facebook/dinov3-vitl16-pretrain-lvd1689m",
+                description="DINOv3 ViT-L/16 visual feature extractor",
+            ),
+            ProviderDependency(
+                dep_id="birefnet",
+                hf_repo_id="ZhengPeng7/BiRefNet",
+                description="Background removal (BiRefNet)",
+            ),
+            ProviderDependency(
+                dep_id="rmbg-2.0",
+                hf_repo_id="briaai/RMBG-2.0",
+                description="Background removal (RMBG-2.0)",
+            ),
+        ]
+
+    @classmethod
+    def from_pretrained(
+        cls,
+        model_path: str,
+        dep_paths: dict[str, str],
+    ) -> "Trellis2Provider":
+        resolved_dep_paths = cls._resolve_required_dep_paths(dep_paths)
+        report, pipeline = cls._inspect_runtime(
+            model_path,
+            dep_paths=resolved_dep_paths,
+            load_pipeline=True,
+        )
         if pipeline is None:  # pragma: no cover - defensive fallback
             raise ModelProviderConfigurationError(
                 f"failed to load TRELLIS2 pipeline from {model_path}: unknown error"
@@ -116,9 +154,14 @@ class Trellis2Provider:
         cls,
         model_path: str,
         *,
+        dep_paths: dict[str, str] | None = None,
         load_pipeline: bool = True,
     ) -> dict[str, Any]:
-        report, _ = cls._inspect_runtime(model_path, load_pipeline=load_pipeline)
+        report, _ = cls._inspect_runtime(
+            model_path,
+            dep_paths=dep_paths,
+            load_pipeline=load_pipeline,
+        )
         return report
 
     def estimate_vram_mb(self, batch_size: int, options: dict[str, Any]) -> int:
@@ -302,10 +345,11 @@ class Trellis2Provider:
         }.get(resolution, "1024_cascade")
 
     @classmethod
-    def _inspect_runtime(
+    def _inspect_runtime(  # noqa: C901
         cls,
         model_path: str,
         *,
+        dep_paths: dict[str, str] | None,
         load_pipeline: bool,
     ) -> tuple[dict[str, Any], Any | None]:
         if not model_path:
@@ -358,20 +402,94 @@ class Trellis2Provider:
         )
 
         pipeline = None
+        temp_config_path: Path | None = None
         if load_pipeline:
             try:
-                pipeline = pipeline_cls.from_pretrained(model_reference)
+                pipeline_config_name = "pipeline.json"
+                if dep_paths:
+                    pipeline_config_name, temp_config_path = cls._build_pipeline_config_with_dep_paths(
+                        model_reference=model_reference,
+                        dep_paths=dep_paths,
+                    )
+                pipeline = pipeline_cls.from_pretrained(
+                    model_reference,
+                    config_file=pipeline_config_name,
+                )
                 if hasattr(pipeline, "cuda"):
                     pipeline.cuda()
             except Exception as exc:  # pragma: no cover - depends on external runtime
                 raise ModelProviderConfigurationError(
                     f"failed to load TRELLIS2 pipeline from {model_reference}: {exc}"
                 ) from exc
+            finally:
+                if temp_config_path is not None:
+                    temp_config_path.unlink(missing_ok=True)
             report["pipeline_loaded"] = True
         else:
             report["pipeline_loaded"] = False
 
         return report, pipeline
+
+    @classmethod
+    def _resolve_required_dep_paths(
+        cls,
+        dep_paths: dict[str, str] | None,
+    ) -> dict[str, str]:
+        normalized_dep_paths = dep_paths or {}
+        resolved: dict[str, str] = {}
+        for dependency in cls.dependencies():
+            raw_path = cls._require_dep_path(normalized_dep_paths, dependency.dep_id)
+            resolved[dependency.dep_id] = str(Path(raw_path).expanduser())
+        return resolved
+
+    @staticmethod
+    def _require_dep_path(dep_paths: dict[str, str], dep_id: str) -> str:
+        value = str(dep_paths.get(dep_id) or "").strip()
+        if not value:
+            raise ModelProviderConfigurationError(
+                f"{dep_id} not in dep_paths, run Admin download first"
+            )
+        return value
+
+    @classmethod
+    def _build_pipeline_config_with_dep_paths(
+        cls,
+        *,
+        model_reference: str,
+        dep_paths: dict[str, str],
+    ) -> tuple[str, Path]:
+        source_config_path = Path(model_reference) / "pipeline.json"
+        if not source_config_path.exists():
+            raise ModelProviderConfigurationError(
+                f"pipeline config not found at {source_config_path}. Use Admin to download model weights first."
+            )
+        source_config = json.loads(source_config_path.read_text(encoding="utf-8"))
+        replaced_config = deepcopy(source_config)
+        repo_to_local = {
+            dependency.hf_repo_id: dep_paths[dependency.dep_id]
+            for dependency in cls.dependencies()
+            if dependency.dep_id in dep_paths
+        }
+
+        def replace_values(value: Any) -> Any:
+            if isinstance(value, str):
+                return repo_to_local.get(value, value)
+            if isinstance(value, list):
+                return [replace_values(item) for item in value]
+            if isinstance(value, dict):
+                return {key: replace_values(item) for key, item in value.items()}
+            return value
+
+        replaced_config = replace_values(replaced_config)
+        fd, temp_config_name = tempfile.mkstemp(
+            prefix="pipeline-deps-",
+            suffix=".json",
+            dir=model_reference,
+        )
+        temp_config_path = Path(temp_config_name)
+        with os.fdopen(fd, "w", encoding="utf-8") as temp_file:
+            json.dump(replaced_config, temp_file)
+        return temp_config_path.name, temp_config_path
 
     @staticmethod
     def _resolve_model_reference(model_path: str) -> tuple[str, str]:

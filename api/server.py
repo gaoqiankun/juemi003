@@ -87,8 +87,8 @@ from gen3d.engine.async_engine import AsyncGen3DEngine
 from gen3d.engine.model_registry import ModelRegistry, ModelRuntime
 from gen3d.engine.model_scheduler import ModelScheduler
 from gen3d.engine.pipeline import PipelineCoordinator, PipelineQueueFullError
-from gen3d.engine.weight_manager import WeightManager
 from gen3d.engine.sequence import TERMINAL_STATUSES, TaskStatus
+from gen3d.engine.weight_manager import WeightManager
 from gen3d.model.base import ModelProviderConfigurationError
 from gen3d.model.hunyuan3d.provider import Hunyuan3DProvider, MockHunyuan3DProvider
 from gen3d.model.step1x3d.provider import MockStep1X3DProvider, Step1X3DProvider
@@ -120,6 +120,7 @@ from gen3d.storage.artifact_store import (
     ArtifactStoreConfigurationError,
     build_boto3_object_storage_client,
 )
+from gen3d.storage.dep_store import DepCacheStore, ModelDepRequirementsStore
 from gen3d.storage.model_store import ModelStore
 from gen3d.storage.settings_store import (
     MAX_LOADED_MODELS_KEY,
@@ -312,6 +313,8 @@ class AppContainer:
     pipeline: PipelineCoordinator
     engine: AsyncGen3DEngine
     model_store: ModelStore
+    dep_cache_store: DepCacheStore
+    model_dep_requirements_store: ModelDepRequirementsStore
     settings_store: SettingsStore
     model_scheduler: ModelScheduler
     weight_manager: WeightManager
@@ -403,6 +406,101 @@ def build_provider(
     )
 
 
+def _provider_class_for_type(provider_type: str):
+    normalized_provider_type = str(provider_type or "").strip().lower()
+    if normalized_provider_type == "trellis2":
+        return Trellis2Provider
+    if normalized_provider_type == "hunyuan3d":
+        return Hunyuan3DProvider
+    if normalized_provider_type == "step1x3d":
+        return Step1X3DProvider
+    return None
+
+
+def _provider_dependency_descriptions(provider_type: str) -> dict[str, str]:
+    provider_cls = _provider_class_for_type(provider_type)
+    if provider_cls is None:
+        return {}
+    dependencies_getter = getattr(provider_cls, "dependencies", lambda: [])
+    raw_dependencies = dependencies_getter() or []
+    descriptions: dict[str, str] = {}
+    for item in raw_dependencies:
+        if isinstance(item, dict):
+            dep_id = str(item.get("dep_id") or "").strip()
+            description = str(item.get("description") or "").strip()
+        else:
+            dep_id = str(getattr(item, "dep_id", "") or "").strip()
+            description = str(getattr(item, "description", "") or "").strip()
+        if dep_id:
+            descriptions[dep_id] = description
+    return descriptions
+
+
+def _build_dep_response_rows(
+    *,
+    provider_type: str,
+    dep_rows: list[dict],
+) -> list[dict]:
+    descriptions = _provider_dependency_descriptions(provider_type)
+    payload_rows: list[dict] = []
+    for dep in dep_rows:
+        dep_id = str(dep.get("dep_id") or "").strip()
+        payload_rows.append(
+            {
+                "dep_id": dep_id,
+                "hf_repo_id": str(dep.get("hf_repo_id") or "").strip(),
+                "description": descriptions.get(dep_id, ""),
+                "resolved_path": dep.get("resolved_path"),
+                "download_status": str(dep.get("download_status") or "pending").strip().lower(),
+                "download_progress": int(dep.get("download_progress") or 0),
+                "download_speed_bps": int(dep.get("download_speed_bps") or 0),
+                "download_error": dep.get("download_error"),
+                "revision": dep.get("revision"),
+            }
+        )
+    return payload_rows
+
+
+async def _resolve_dep_paths(
+    model_id: str,
+    dep_cache_store: DepCacheStore,
+    model_dep_store: ModelDepRequirementsStore,
+) -> dict[str, str]:
+    normalized_model_id = str(model_id or "").strip()
+    if not normalized_model_id:
+        return {}
+
+    dep_ids = await model_dep_store.get_dep_ids_for_model(normalized_model_id)
+    if not dep_ids:
+        return {}
+
+    dep_paths: dict[str, str] = {}
+    for dep_id in dep_ids:
+        dep_row = await dep_cache_store.get(dep_id)
+        if dep_row is None:
+            raise ModelProviderConfigurationError(
+                f"dependency {dep_id} for model {normalized_model_id} is missing; "
+                "please complete dependency download first"
+            )
+
+        status = str(dep_row.get("download_status") or "pending").strip().lower()
+        resolved_path = str(dep_row.get("resolved_path") or "").strip()
+        if status != "done" or not resolved_path:
+            raise ModelProviderConfigurationError(
+                f"dependency {dep_id} for model {normalized_model_id} is {status}; "
+                "please complete dependency download first"
+            )
+
+        resolved_candidate = Path(resolved_path).expanduser()
+        if not resolved_candidate.exists():
+            raise ModelProviderConfigurationError(
+                f"dependency {dep_id} for model {normalized_model_id} path does not exist: "
+                f"{resolved_path}. please complete dependency download first"
+            )
+        dep_paths[dep_id] = str(resolved_candidate.resolve())
+    return dep_paths
+
+
 def build_artifact_store(config: ServingConfig) -> ArtifactStore:
     store_mode = config.artifact_store_mode.strip().lower()
     if store_mode == "local":
@@ -487,6 +585,21 @@ async def build_model_runtime(
             f"model definition is missing model_path: {normalized_model_name}"
         )
 
+    model_id = str(model_definition.get("id") or normalized_model_name).strip()
+    dep_cache_store = DepCacheStore(config.database_path)
+    model_dep_store = ModelDepRequirementsStore(config.database_path)
+    await dep_cache_store.initialize()
+    await model_dep_store.initialize()
+    try:
+        dep_paths = await _resolve_dep_paths(
+            model_id=model_id,
+            dep_cache_store=dep_cache_store,
+            model_dep_store=model_dep_store,
+        )
+    finally:
+        await dep_cache_store.close()
+        await model_dep_store.close()
+
     provider = await asyncio.to_thread(
         build_provider,
         provider_name=provider_name,
@@ -500,6 +613,7 @@ async def build_model_runtime(
         provider_name=provider_name,
         model_path=provider_model_path,
         device_ids=config.gpu_device_ids,
+        dep_paths=dep_paths,
     )
     return ModelRuntime(
         model_name=normalized_model_name,
@@ -728,6 +842,8 @@ def create_app(
     task_store = TaskStore(config.database_path)
     api_key_store = ApiKeyStore(config.database_path)
     model_store = ModelStore(config.database_path)
+    dep_cache_store = DepCacheStore(config.database_path)
+    model_dep_requirements_store = ModelDepRequirementsStore(config.database_path)
     settings_store = SettingsStore(config.database_path)
     artifact_store = build_artifact_store(config)
     preview_renderer_service = preview_renderer_service or PreviewRendererService()
@@ -747,6 +863,8 @@ def create_app(
     weight_manager = WeightManager(
         model_store=model_store,
         cache_dir=config.model_cache_dir,
+        dep_store=dep_cache_store,
+        model_dep_requirements_store=model_dep_requirements_store,
     )
     model_registry.add_model_loaded_listener(model_scheduler.on_model_loaded)
     rate_limiter = TokenRateLimiter(
@@ -810,6 +928,8 @@ def create_app(
         pipeline=pipeline,
         engine=engine,
         model_store=model_store,
+        dep_cache_store=dep_cache_store,
+        model_dep_requirements_store=model_dep_requirements_store,
         settings_store=settings_store,
         model_scheduler=model_scheduler,
         weight_manager=weight_manager,
@@ -819,12 +939,14 @@ def create_app(
 
     async def _run_model_weight_download(
         model_id: str,
+        provider_type: str,
         weight_source: str,
         model_path: str,
     ) -> None:
         try:
             await container.weight_manager.download(
                 model_id=model_id,
+                provider_type=provider_type,
                 weight_source=weight_source,
                 model_path=model_path,
             )
@@ -834,6 +956,7 @@ def create_app(
             _logger.warning(
                 "model.weight_download_failed",
                 model_id=model_id,
+                provider_type=provider_type,
                 weight_source=weight_source,
                 error=str(exc),
             )
@@ -861,6 +984,8 @@ def create_app(
         await container.task_store.initialize()
         await container.api_key_store.initialize()
         await container.model_store.initialize()
+        await container.dep_cache_store.initialize()
+        await container.model_dep_requirements_store.initialize()
         await container.settings_store.initialize()
         await container.model_scheduler.initialize()
         default_models = await container.model_store.list_models()
@@ -891,6 +1016,8 @@ def create_app(
         for model_id in download_task_ids:
             await _cancel_model_download_task(model_id)
         await container.settings_store.close()
+        await container.model_dep_requirements_store.close()
+        await container.dep_cache_store.close()
         await container.model_store.close()
         await container.api_key_store.close()
         await container.task_store.close()
@@ -1658,6 +1785,12 @@ def create_app(
                 model["error_message"] = _friendly_model_error_message(error)
             else:
                 model["error_message"] = None
+            if include_pending:
+                dep_rows = await app_container.dep_cache_store.get_all_for_model(model_id)
+                model["deps"] = _build_dep_response_rows(
+                    provider_type=str(model.get("provider_type") or ""),
+                    dep_rows=dep_rows,
+                )
 
         enabled = sum(1 for m in models if m.get("is_enabled"))
         return {
@@ -1668,6 +1801,36 @@ def create_app(
                 "disabled": len(models) - enabled,
             },
         }
+
+    @app.get(
+        "/api/admin/deps",
+        dependencies=[Depends(require_admin_token)],
+    )
+    async def list_deps(
+        app_container: AppContainer = Depends(get_container),
+    ) -> list[dict]:
+        dep_rows = await app_container.dep_cache_store.list_all()
+        return _build_dep_response_rows(
+            provider_type="",
+            dep_rows=dep_rows,
+        )
+
+    @app.get(
+        "/api/admin/models/{model_id}/deps",
+        dependencies=[Depends(require_admin_token)],
+    )
+    async def get_model_deps(
+        model_id: str,
+        app_container: AppContainer = Depends(get_container),
+    ) -> list[dict]:
+        model = await app_container.model_store.get_model(model_id)
+        if model is None:
+            raise HTTPException(status_code=404, detail="model not found")
+        dep_rows = await app_container.dep_cache_store.get_all_for_model(model_id)
+        return _build_dep_response_rows(
+            provider_type=str(model.get("provider_type") or ""),
+            dep_rows=dep_rows,
+        )
 
     @app.post(
         "/api/admin/models/{model_id}/load",
@@ -1698,7 +1861,13 @@ def create_app(
         app_container: AppContainer = Depends(get_container),
     ) -> dict:
         model_id = str(payload.get("id") or "").strip()
-        provider_type = str(payload.get("providerType") or "").strip()
+        provider_type = str(
+            payload.get(
+                "provider_type",
+                payload.get("providerType", payload.get("providerName")),
+            )
+            or ""
+        ).strip()
         display_name = str(payload.get("displayName") or "").strip()
         model_path = str(payload.get("modelPath") or "").strip()
         weight_source = str(
@@ -1762,6 +1931,7 @@ def create_app(
             try:
                 await app_container.weight_manager.download(
                     model_id=model_id,
+                    provider_type=provider_type,
                     weight_source=weight_source,
                     model_path=model_path,
                 )
@@ -1783,6 +1953,7 @@ def create_app(
         app_container.model_download_tasks[model_id] = asyncio.create_task(
             _run_model_weight_download(
                 model_id=model_id,
+                provider_type=provider_type,
                 weight_source=weight_source,
                 model_path=model_path,
             ),

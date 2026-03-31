@@ -37,6 +37,10 @@ class ServingConfig(BaseSettings):
         default=Path("/data/models"),
         alias="MODEL_CACHE_DIR",
     )
+    hf_home: Path = Field(
+        default=Path("~/.cache/huggingface"),
+        alias="HF_HOME",
+    )
     dev_proxy_target: str | None = Field(
         default=None,
         alias="DEV_PROXY_TARGET",

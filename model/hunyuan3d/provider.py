@@ -12,6 +12,7 @@ from gen3d.model.base import (
     GenerationResult,
     ModelProviderConfigurationError,
     ModelProviderExecutionError,
+    ProviderDependency,
     StageProgress,
 )
 from gen3d.model.hunyuan3d.pipeline.shape import Hunyuan3DDiTFlowMatchingPipeline
@@ -33,8 +34,13 @@ class MockHunyuan3DProvider:
         self._stage_delay_seconds = max(stage_delay_ms, 0) / 1000
 
     @classmethod
-    def from_pretrained(cls, model_path: str) -> "MockHunyuan3DProvider":
+    def from_pretrained(
+        cls,
+        model_path: str,
+        dep_paths: dict[str, str] | None = None,
+    ) -> "MockHunyuan3DProvider":
         _ = model_path
+        _ = dep_paths
         return cls()
 
     def estimate_vram_mb(self, batch_size: int, options: dict) -> int:
@@ -115,7 +121,16 @@ class Hunyuan3DProvider:
         self._model_path = model_path
 
     @classmethod
-    def from_pretrained(cls, model_path: str) -> "Hunyuan3DProvider":
+    def dependencies(cls) -> list[ProviderDependency]:
+        return []
+
+    @classmethod
+    def from_pretrained(
+        cls,
+        model_path: str,
+        dep_paths: dict[str, str] | None = None,
+    ) -> "Hunyuan3DProvider":
+        _ = dep_paths
         report, shape_pipeline, texture_pipeline = cls._inspect_runtime(
             model_path, load_pipeline=True,
         )

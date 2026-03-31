@@ -1053,6 +1053,31 @@ def test_admin_create_model_requires_weight_source(tmp_path: Path) -> None:
     assert response.json()["detail"] == "weightSource must be one of: huggingface, url, local"
 
 
+def test_admin_create_model_accepts_snake_case_provider_type(tmp_path: Path) -> None:
+    local_weights_dir = tmp_path / "snake-provider-local-weights"
+    local_weights_dir.mkdir(parents=True, exist_ok=True)
+    (local_weights_dir / "weights.bin").write_bytes(b"ok")
+
+    with make_client(tmp_path, admin_token="admin-token") as client:
+        response = client.post(
+            "/api/admin/models",
+            headers=admin_headers(),
+            json={
+                "id": "snake-provider-model",
+                "provider_type": "trellis2",
+                "displayName": "Snake Provider Model",
+                "modelPath": str(local_weights_dir),
+                "weightSource": "local",
+            },
+        )
+
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["id"] == "snake-provider-model"
+    assert payload["provider_type"] == "trellis2"
+    assert payload["download_status"] == "done"
+
+
 def test_admin_create_model_local_weight_source_resolves_synchronously(
     tmp_path: Path,
 ) -> None:
@@ -1099,8 +1124,13 @@ def test_admin_models_include_pending_query_and_delete_cancels_download_task(
     with make_client(tmp_path, admin_token="admin-token") as client:
         container = client.app.state.container
 
-        async def blocking_download(model_id: str, weight_source: str, model_path: str) -> str:
-            del model_id, weight_source, model_path
+        async def blocking_download(
+            model_id: str,
+            provider_type: str,
+            weight_source: str,
+            model_path: str,
+        ) -> str:
+            del model_id, provider_type, weight_source, model_path
             started.set()
             try:
                 while True:
@@ -1133,6 +1163,14 @@ def test_admin_models_include_pending_query_and_delete_cancels_download_task(
             "/api/admin/models?include_pending=true",
             headers=admin_headers(),
         )
+        deps_response = client.get(
+            "/api/admin/deps",
+            headers=admin_headers(),
+        )
+        model_deps_response = client.get(
+            "/api/admin/models/pending-hf/deps",
+            headers=admin_headers(),
+        )
         delete_response = client.delete(
             "/api/admin/models/pending-hf",
             headers=admin_headers(),
@@ -1147,6 +1185,13 @@ def test_admin_models_include_pending_query_and_delete_cancels_download_task(
     )
     assert pending_model["download_status"] == "downloading"
     assert pending_model["weight_source"] == "huggingface"
+    assert pending_model["deps"] == []
+
+    assert deps_response.status_code == 200
+    assert deps_response.json() == []
+
+    assert model_deps_response.status_code == 200
+    assert model_deps_response.json() == []
 
     assert delete_response.status_code == 200
     wait_for_condition(cancelled.is_set, timeout_seconds=2.0)

@@ -1,4 +1,5 @@
 # ruff: noqa
+import os
 import random
 import torch
 from torch import nn
@@ -52,6 +53,11 @@ class Dinov2Encoder(BaseVisualEncoder, ModelMixin):
 
         # Load the DINOV2 model and processor
         if not self.cfg.encode_camera:
+            dino_override = str(
+                os.environ.get("STEP1X3D_DINO_MODEL_PATH_OVERRIDE") or ""
+            ).strip()
+            if dino_override:
+                self.cfg.pretrained_dino_name_or_path = dino_override
             if self.cfg.pretrained_dino_name_or_path is not None:
                 self.cfg.dino_type = f"facebook/{self.cfg.pretrained_dino_name_or_path.split('facebook--')[-1].split('/')[0]}"
                 if self.cfg.kwargs is not None:

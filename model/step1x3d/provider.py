@@ -4,7 +4,9 @@ import asyncio
 import importlib
 import inspect
 import json
+import os
 import struct
+from contextlib import contextmanager
 from functools import wraps
 from pathlib import Path
 from typing import Any
@@ -13,6 +15,7 @@ from gen3d.model.base import (
     GenerationResult,
     ModelProviderConfigurationError,
     ModelProviderExecutionError,
+    ProviderDependency,
     StageProgress,
 )
 
@@ -32,8 +35,13 @@ class MockStep1X3DProvider:
         self._stage_delay_seconds = max(stage_delay_ms, 0) / 1000
 
     @classmethod
-    def from_pretrained(cls, model_path: str) -> "MockStep1X3DProvider":
+    def from_pretrained(
+        cls,
+        model_path: str,
+        dep_paths: dict[str, str] | None = None,
+    ) -> "MockStep1X3DProvider":
         _ = model_path
+        _ = dep_paths
         return cls()
 
     def estimate_vram_mb(self, batch_size: int, options: dict) -> int:
@@ -126,9 +134,41 @@ class Step1X3DProvider:
         self._model_path = model_path
 
     @classmethod
-    def from_pretrained(cls, model_path: str) -> "Step1X3DProvider":
+    def dependencies(cls) -> list[ProviderDependency]:
+        return [
+            ProviderDependency(
+                dep_id="sdxl-base-1.0",
+                hf_repo_id="stabilityai/stable-diffusion-xl-base-1.0",
+                description="SDXL base model for texture synthesis",
+            ),
+            ProviderDependency(
+                dep_id="sdxl-vae-fp16",
+                hf_repo_id="madebyollin/sdxl-vae-fp16-fix",
+                description="SDXL VAE (fp16 fixed)",
+            ),
+            ProviderDependency(
+                dep_id="birefnet",
+                hf_repo_id="ZhengPeng7/BiRefNet",
+                description="Background removal (shared)",
+            ),
+            ProviderDependency(
+                dep_id="dinov2-with-registers-large",
+                hf_repo_id="facebook/dinov2-with-registers-large",
+                description="DINOv2 geometry encoder",
+            ),
+        ]
+
+    @classmethod
+    def from_pretrained(
+        cls,
+        model_path: str,
+        dep_paths: dict[str, str],
+    ) -> "Step1X3DProvider":
+        resolved_dep_paths = cls._resolve_required_dep_paths(dep_paths)
         report, geometry_pipeline, texture_pipeline = cls._inspect_runtime(
-            model_path, load_pipeline=True,
+            model_path,
+            dep_paths=resolved_dep_paths,
+            load_pipeline=True,
         )
         if geometry_pipeline is None:
             raise ModelProviderConfigurationError(
@@ -158,9 +198,14 @@ class Step1X3DProvider:
         cls,
         model_path: str,
         *,
+        dep_paths: dict[str, str] | None = None,
         load_pipeline: bool = True,
     ) -> dict[str, Any]:
-        report, _, _ = cls._inspect_runtime(model_path, load_pipeline=load_pipeline)
+        report, _, _ = cls._inspect_runtime(
+            model_path,
+            dep_paths=dep_paths,
+            load_pipeline=load_pipeline,
+        )
         return report
 
     def estimate_vram_mb(self, batch_size: int, options: dict[str, Any]) -> int:
@@ -251,7 +296,7 @@ class Step1X3DProvider:
                 message=f"Step1X-3D GLB export failed: {exc}",
             ) from exc
 
-    def _run_single(self, image: Any, options: dict[str, Any], emit_stage=None) -> Any:
+    def _run_single(self, image: Any, options: dict[str, Any], emit_stage=None) -> Any:  # noqa: C901
         _install_rembg_bria_alias_patch()
         num_steps = options.get("num_inference_steps", 25)
         guidance_scale = options.get("guidance_scale", 7.5)
@@ -309,6 +354,7 @@ class Step1X3DProvider:
         cls,
         model_path: str,
         *,
+        dep_paths: dict[str, str] | None,
         load_pipeline: bool,
     ) -> tuple[dict[str, Any], Any | None, Any | None]:
         if not model_path:
@@ -394,9 +440,13 @@ class Step1X3DProvider:
         if load_pipeline:
             geometry_subfolder = "Step1X-3D-Geometry-1300m"
             try:
-                geometry_pipeline = geometry_cls.from_pretrained(
-                    model_reference, subfolder=geometry_subfolder,
-                )
+                with _temporary_env_var(
+                    "STEP1X3D_DINO_MODEL_PATH_OVERRIDE",
+                    dep_paths.get("dinov2-with-registers-large") if dep_paths else None,
+                ):
+                    geometry_pipeline = geometry_cls.from_pretrained(
+                        model_reference, subfolder=geometry_subfolder,
+                    )
                 if hasattr(geometry_pipeline, "to"):
                     geometry_pipeline = geometry_pipeline.to("cuda")
             except Exception as exc:
@@ -409,7 +459,11 @@ class Step1X3DProvider:
                 texture_subfolder = "Step1X-3D-Texture"
                 try:
                     texture_pipeline = texture_pipeline_cls.from_pretrained(
-                        model_reference, subfolder=texture_subfolder,
+                        model_reference,
+                        subfolder=texture_subfolder,
+                        base_model=dep_paths.get("sdxl-base-1.0") if dep_paths else None,
+                        vae_model=dep_paths.get("sdxl-vae-fp16") if dep_paths else None,
+                        birefnet_model=dep_paths.get("birefnet") if dep_paths else None,
                     )
                     if hasattr(texture_pipeline, "to"):
                         texture_pipeline = texture_pipeline.to("cuda")
@@ -426,6 +480,27 @@ class Step1X3DProvider:
             report["texture_pipeline_loaded"] = False
 
         return report, geometry_pipeline, texture_pipeline
+
+    @classmethod
+    def _resolve_required_dep_paths(
+        cls,
+        dep_paths: dict[str, str] | None,
+    ) -> dict[str, str]:
+        normalized_dep_paths = dep_paths or {}
+        resolved: dict[str, str] = {}
+        for dependency in cls.dependencies():
+            raw_path = cls._require_dep_path(normalized_dep_paths, dependency.dep_id)
+            resolved[dependency.dep_id] = str(Path(raw_path).expanduser())
+        return resolved
+
+    @staticmethod
+    def _require_dep_path(dep_paths: dict[str, str], dep_id: str) -> str:
+        value = str(dep_paths.get(dep_id) or "").strip()
+        if not value:
+            raise ModelProviderConfigurationError(
+                f"{dep_id} not in dep_paths, run Admin download first"
+            )
+        return value
 
     @staticmethod
     def _resolve_model_reference(model_path: str) -> tuple[str, str]:
@@ -531,6 +606,22 @@ def _extract_pil_image(prepared_input: Any) -> Any:
     if isinstance(prepared_input, dict) and "image" in prepared_input:
         return prepared_input["image"]
     return prepared_input
+
+
+@contextmanager
+def _temporary_env_var(name: str, value: str | None):
+    old_value = os.environ.get(name)
+    if value:
+        os.environ[name] = value
+    else:
+        os.environ.pop(name, None)
+    try:
+        yield
+    finally:
+        if old_value is None:
+            os.environ.pop(name, None)
+        else:
+            os.environ[name] = old_value
 
 
 def _install_step1x3d_geometry_alias() -> None:

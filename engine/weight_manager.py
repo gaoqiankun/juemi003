@@ -6,6 +6,7 @@ import tarfile
 import tempfile
 import threading
 import zipfile
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 from urllib.parse import urlsplit
@@ -43,52 +44,82 @@ class _ModelStoreProtocol(Protocol):
         ...
 
 
+class _DepStoreProtocol(Protocol):
+    async def get_or_create(
+        self,
+        dep_id: str,
+        hf_repo_id: str,
+        *,
+        revision: str | None = None,
+    ) -> dict:
+        ...
+
+    async def get(self, dep_id: str) -> dict | None:
+        ...
+
+    async def update_status(self, dep_id: str, status: str) -> dict | None:
+        ...
+
+    async def update_done(self, dep_id: str, resolved_path: str) -> dict | None:
+        ...
+
+    async def update_error(self, dep_id: str, error: str) -> dict | None:
+        ...
+
+
+class _ModelDepRequirementsStoreProtocol(Protocol):
+    async def link(self, model_id: str, dep_id: str) -> None:
+        ...
+
+
+@dataclass(frozen=True)
+class ProviderDependency:
+    dep_id: str
+    hf_repo_id: str
+    description: str = ""
+
+
 class WeightManager:
     _PROGRESS_INTERVAL_SECONDS = 1.0
 
-    def __init__(self, model_store: _ModelStoreProtocol, cache_dir: Path) -> None:
+    def __init__(
+        self,
+        model_store: _ModelStoreProtocol,
+        cache_dir: Path,
+        *,
+        dep_store: _DepStoreProtocol | None = None,
+        model_dep_requirements_store: _ModelDepRequirementsStoreProtocol | None = None,
+    ) -> None:
         self._model_store = model_store
         self._cache_dir = Path(cache_dir).expanduser()
         self._logger = structlog.get_logger(__name__)
+        self._dep_store = dep_store
+        self._model_dep_requirements_store = model_dep_requirements_store
+        self._dep_locks: dict[str, asyncio.Lock] = {}
 
     async def download(
         self,
         model_id: str,
+        provider_type: str,
         weight_source: str,
         model_path: str,
     ) -> str:
         normalized_source = _normalize_weight_source(weight_source)
         normalized_model_path = str(model_path).strip()
+        normalized_provider_type = str(provider_type or "").strip().lower()
         if not normalized_model_path:
             raise ValueError("model_path is required")
 
-        if normalized_source == "local":
-            resolved_path = await self._resolve_local_path(normalized_model_path)
-            await self._model_store.update_download_done(model_id, resolved_path)
-            return resolved_path
-
-        tracker = _ProgressTracker()
-        await self._model_store.update_download_progress(model_id, 0, 0)
-        stop_event = asyncio.Event()
-        progress_task = asyncio.create_task(
-            self._report_progress(model_id, tracker, stop_event),
-            name=f"weight-progress-{model_id}",
-        )
         try:
-            if normalized_source == "huggingface":
-                resolved_path = await self._download_from_huggingface(
-                    model_id=model_id,
-                    repo_id=normalized_model_path,
-                    tracker=tracker,
-                )
-            elif normalized_source == "url":
-                resolved_path = await self._download_from_url_archive(
-                    model_id=model_id,
-                    source_url=normalized_model_path,
-                    tracker=tracker,
-                )
+            if normalized_source == "local":
+                resolved_path = await self._resolve_local_path(normalized_model_path)
             else:
-                raise ValueError(f"unsupported weight source: {normalized_source}")
+                resolved_path = await self._download_main(
+                    model_id=model_id,
+                    weight_source=normalized_source,
+                    model_path=normalized_model_path,
+                )
+            await self._download_model_dependencies(model_id, normalized_provider_type)
             await self._model_store.update_download_done(model_id, resolved_path)
             return resolved_path
         except asyncio.CancelledError:
@@ -97,15 +128,102 @@ class WeightManager:
         except Exception as exc:
             await self._model_store.update_download_error(model_id, str(exc))
             raise
-        finally:
-            stop_event.set()
-            await asyncio.gather(progress_task, return_exceptions=True)
 
     async def _resolve_local_path(self, model_path: str) -> str:
         candidate = Path(model_path).expanduser()
         if not candidate.exists():
             raise ValueError(f"local model path does not exist: {model_path}")
         return str(candidate.resolve())
+
+    async def _download_main(
+        self,
+        *,
+        model_id: str,
+        weight_source: str,
+        model_path: str,
+    ) -> str:
+        tracker = _ProgressTracker()
+        await self._model_store.update_download_progress(model_id, 0, 0)
+        stop_event = asyncio.Event()
+        progress_task = asyncio.create_task(
+            self._report_progress(model_id, tracker, stop_event),
+            name=f"weight-progress-{model_id}",
+        )
+        try:
+            if weight_source == "huggingface":
+                return await self._download_from_huggingface(
+                    model_id=model_id,
+                    repo_id=model_path,
+                    tracker=tracker,
+                )
+            if weight_source == "url":
+                return await self._download_from_url_archive(
+                    model_id=model_id,
+                    source_url=model_path,
+                    tracker=tracker,
+                )
+            raise ValueError(f"unsupported weight source: {weight_source}")
+        finally:
+            stop_event.set()
+            await asyncio.gather(progress_task, return_exceptions=True)
+
+    async def _download_model_dependencies(
+        self,
+        model_id: str,
+        provider_type: str,
+    ) -> None:
+        if self._dep_store is None or self._model_dep_requirements_store is None:
+            return
+        provider_cls = _get_provider_class(provider_type)
+        dependencies = _resolve_provider_dependencies(provider_cls)
+        for dep in dependencies:
+            await self._dep_store.get_or_create(dep.dep_id, dep.hf_repo_id)
+            await self._model_dep_requirements_store.link(model_id, dep.dep_id)
+        if snapshot_download is None:
+            self._logger.warning(
+                "weight.dependencies.download_skipped",
+                reason="huggingface_hub unavailable",
+                provider_type=provider_type,
+                model_id=model_id,
+            )
+            return
+        for dep in dependencies:
+            try:
+                await self._download_dep_once(dep)
+            except Exception as exc:
+                raise RuntimeError(f"dep_{dep.dep_id}: {exc}") from exc
+
+    async def _download_dep_once(self, dep: ProviderDependency) -> None:
+        if self._dep_store is None:
+            return
+        dep_lock = self._dep_locks.get(dep.dep_id)
+        if dep_lock is None:
+            dep_lock = asyncio.Lock()
+            self._dep_locks[dep.dep_id] = dep_lock
+        async with dep_lock:
+            existing = await self._dep_store.get(dep.dep_id)
+            if existing is not None and str(existing.get("download_status") or "").lower() == "done":
+                return
+            await self._dep_store.update_status(dep.dep_id, "downloading")
+            try:
+                resolved_path = await self._download_dep(dep)
+            except Exception as exc:
+                await self._dep_store.update_error(dep.dep_id, str(exc))
+                raise
+            await self._dep_store.update_done(dep.dep_id, resolved_path)
+
+    async def _download_dep(self, dep: ProviderDependency) -> str:
+        if snapshot_download is None:
+            raise RuntimeError("huggingface_hub is not available")
+
+        def _run_download() -> str:
+            return snapshot_download(repo_id=dep.hf_repo_id, local_dir=None)
+
+        resolved_path = await asyncio.to_thread(_run_download)
+        resolved_candidate = Path(str(resolved_path)).expanduser()
+        if not _directory_has_entries(resolved_candidate):
+            raise ValueError(f"downloaded dependency repository is empty: {dep.hf_repo_id}")
+        return str(resolved_candidate.resolve())
 
     async def _download_from_huggingface(
         self,
@@ -424,3 +542,53 @@ def _normalize_weight_source(value: object) -> str:
             "weight_source must be one of: huggingface, url, local"
         )
     return normalized
+
+
+def _get_provider_class(provider_type: str):
+    normalized_provider_type = str(provider_type or "").strip().lower()
+    if normalized_provider_type == "trellis2":
+        from gen3d.model.trellis2.provider import Trellis2Provider
+
+        return Trellis2Provider
+    if normalized_provider_type == "step1x3d":
+        from gen3d.model.step1x3d.provider import Step1X3DProvider
+
+        return Step1X3DProvider
+    if normalized_provider_type == "hunyuan3d":
+        from gen3d.model.hunyuan3d.provider import Hunyuan3DProvider
+
+        return Hunyuan3DProvider
+    return None
+
+
+def _resolve_provider_dependencies(provider_cls) -> list[ProviderDependency]:
+    if provider_cls is None:
+        return []
+    dependencies_getter = getattr(provider_cls, "dependencies", lambda: [])
+    raw_dependencies = dependencies_getter() or []
+    normalized_dependencies: list[ProviderDependency] = []
+    for item in raw_dependencies:
+        dep = _normalize_provider_dependency(item)
+        if dep is not None:
+            normalized_dependencies.append(dep)
+    return normalized_dependencies
+
+
+def _normalize_provider_dependency(item: object) -> ProviderDependency | None:
+    if isinstance(item, dict):
+        raw_dep_id = item.get("dep_id")
+        raw_hf_repo_id = item.get("hf_repo_id")
+        raw_description = item.get("description")
+    else:
+        raw_dep_id = getattr(item, "dep_id", None)
+        raw_hf_repo_id = getattr(item, "hf_repo_id", None)
+        raw_description = getattr(item, "description", "")
+    dep_id = str(raw_dep_id or "").strip()
+    hf_repo_id = str(raw_hf_repo_id or "").strip()
+    if not dep_id or not hf_repo_id:
+        return None
+    return ProviderDependency(
+        dep_id=dep_id,
+        hf_repo_id=hf_repo_id,
+        description=str(raw_description or "").strip(),
+    )

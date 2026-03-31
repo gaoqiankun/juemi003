@@ -1,10 +1,25 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { Plus, X, RotateCcw, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { AddModelDialog } from "@/components/add-model-dialog";
 import { Progress } from "@/components/ui/progress";
-import { Badge, Button, Card, ToggleSwitch } from "@/components/ui/primitives";
+import {
+  Badge,
+  Button,
+  Card,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  ToggleSwitch,
+} from "@/components/ui/primitives";
+import {
+  fetchModelDeps,
+  type DepDownloadStatus,
+  type DepStatus,
+} from "@/lib/admin-api";
 import {
   useModelsData,
   type AdminModelItem,
@@ -45,9 +60,85 @@ function formatSpeedBps(bps: number): string {
   return `${mbps.toFixed(1)} MB/s`;
 }
 
+function clampProgress(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(100, value));
+}
+
+function formatProgress(value: number): string {
+  return `${Math.round(clampProgress(value))}%`;
+}
+
 function truncatePath(path: string, maxLen = 32): string {
   if (path.length <= maxLen) return path;
   return `…${path.slice(-(maxLen - 1))}`;
+}
+
+function getDependencyLabel(dep: DepStatus, fallback: string): string {
+  const description = String(dep.description || "").trim();
+  if (description) return description;
+  const depId = String(dep.dep_id || "").trim();
+  if (depId) return depId;
+  const hfRepoId = String(dep.hf_repo_id || "").trim();
+  if (hfRepoId) return hfRepoId;
+  return fallback;
+}
+
+function getDependencyKey(dep: DepStatus, index: number): string {
+  const depId = String(dep.dep_id || "").trim();
+  const hfRepoId = String(dep.hf_repo_id || "").trim();
+  return `${depId || "dep"}:${hfRepoId || "repo"}:${index}`;
+}
+
+function DownloadStageRow({
+  label,
+  status,
+  progress,
+  speedBps,
+  errorText,
+}: {
+  label: string;
+  status: DepDownloadStatus;
+  progress: number;
+  speedBps: number;
+  errorText?: string;
+}) {
+  const { t } = useTranslation();
+  const speed = formatSpeedBps(speedBps);
+  const normalizedProgress = status === "done" ? 100 : clampProgress(progress);
+  const progressText = formatProgress(normalizedProgress);
+  const normalizedErrorText = String(errorText || "").trim();
+
+  if (status === "downloading" || status === "done") {
+    return (
+      <div className="flex items-center gap-2">
+        <span className="w-36 shrink-0 text-xs text-text-secondary">[{label}]</span>
+        <Progress className="flex-1" value={normalizedProgress} />
+        <span className="w-12 shrink-0 text-right text-xs text-text-secondary">{progressText}</span>
+        <span className="w-20 shrink-0 text-right text-xs text-text-secondary">
+          {status === "done" ? t("models.pending.stage.completed") : (speed || "—")}
+        </span>
+      </div>
+    );
+  }
+
+  if (status === "error") {
+    return (
+      <div className="flex items-center gap-2">
+        <span className="w-36 shrink-0 text-xs text-text-secondary">[{label}]</span>
+        <span className="text-xs text-danger-text">
+          {normalizedErrorText || t("models.pending.stage.error")}
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <span className="w-36 shrink-0 text-xs text-text-secondary">[{label}]</span>
+      <span className="text-xs text-text-muted">{t("models.pending.stage.waiting")}</span>
+    </div>
+  );
 }
 
 function PendingRow({
@@ -62,13 +153,21 @@ function PendingRow({
   onRemove: (id: string) => void;
 }) {
   const { t } = useTranslation();
-  const speed = formatSpeedBps(item.downloadSpeedBps);
+  const isMainDownloadComplete = item.downloadStatus === "downloading"
+    && clampProgress(item.downloadProgress) >= 100;
+  const mainStageStatus: DepDownloadStatus = isMainDownloadComplete ? "done" : item.downloadStatus;
+  const canCancel = item.downloadStatus !== "error";
+  const normalizedDownloadError = String(item.downloadError || "").trim();
 
   return (
     <div className="grid gap-2 rounded-xl border border-outline bg-surface-container-lowest p-3">
       <div className="flex items-center justify-between gap-2">
         <div className="grid gap-0.5">
-          <span className="text-sm font-semibold text-text-primary">{item.displayName}</span>
+          <span className="text-sm font-semibold text-text-primary">
+            {item.downloadStatus === "error"
+              ? t("models.pending.failedWithName", { name: item.displayName })
+              : t("models.pending.downloadingWithName", { name: item.displayName })}
+          </span>
           <span
             className="max-w-[320px] truncate text-xs text-text-secondary"
             title={item.modelPath}
@@ -77,7 +176,7 @@ function PendingRow({
           </span>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
-          {item.downloadStatus === "downloading" ? (
+          {canCancel ? (
             <Button
               type="button"
               size="sm"
@@ -112,19 +211,75 @@ function PendingRow({
         </div>
       </div>
 
-      {item.downloadStatus === "downloading" ? (
-        <div className="grid gap-1">
-          <Progress value={item.downloadProgress} />
-          <div className="flex items-center justify-between text-xs text-text-secondary">
-            <span>{item.downloadProgress}%</span>
-            {speed ? <span>{speed}</span> : null}
-          </div>
+      <div className="grid gap-1.5">
+        <DownloadStageRow
+          label={t("models.pending.stage.mainModel")}
+          status={mainStageStatus}
+          progress={mainStageStatus === "done" ? 100 : item.downloadProgress}
+          speedBps={mainStageStatus === "done" ? 0 : item.downloadSpeedBps}
+          errorText={item.downloadError}
+        />
+        {item.deps.map((dep, index) => (
+          <DownloadStageRow
+            key={getDependencyKey(dep, index)}
+            label={getDependencyLabel(dep, t("models.pending.stage.depFallback"))}
+            status={dep.download_status}
+            progress={dep.download_status === "done" ? 100 : dep.download_progress}
+            speedBps={dep.download_speed_bps}
+            errorText={dep.download_error}
+          />
+        ))}
+      </div>
+
+      {item.downloadStatus === "error" && normalizedDownloadError ? (
+        <p className="text-xs text-danger-text">{normalizedDownloadError}</p>
+      ) : null}
+    </div>
+  );
+}
+
+function DependencyDetailStatus({ dep }: { dep: DepStatus }) {
+  const { t } = useTranslation();
+  const speed = formatSpeedBps(dep.download_speed_bps);
+  const progress = dep.download_status === "done"
+    ? 100
+    : clampProgress(dep.download_progress);
+  const progressText = formatProgress(progress);
+  const downloadError = String(dep.download_error || "").trim();
+
+  if (dep.download_status === "done") {
+    return (
+      <div className="inline-flex items-center gap-1.5 text-xs text-success-text">
+        <span className="h-2 w-2 rounded-full bg-success-text" />
+        <span>{t("models.details.dependencies.ready")}</span>
+      </div>
+    );
+  }
+
+  if (dep.download_status === "downloading") {
+    return (
+      <div className="grid gap-1">
+        <Progress value={progress} />
+        <div className="flex items-center justify-between text-xs text-text-secondary">
+          <span>{progressText}</span>
+          <span>{speed || "—"}</span>
         </div>
-      ) : (
-        <p className="text-xs text-danger-text">
-          {item.downloadError || t("models.pending.unknownError")}
-        </p>
-      )}
+      </div>
+    );
+  }
+
+  if (dep.download_status === "error") {
+    return (
+      <p className="text-xs text-danger-text">
+        {downloadError || t("models.details.dependencies.error")}
+      </p>
+    );
+  }
+
+  return (
+    <div className="inline-flex items-center gap-1.5 text-xs text-text-muted">
+      <span className="h-2 w-2 rounded-full bg-text-muted" />
+      <span>{t("models.details.dependencies.waiting")}</span>
     </div>
   );
 }
@@ -147,6 +302,11 @@ export function ModelsPage() {
   } = useModelsData();
   const [actionError, setActionError] = useState("");
   const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [detailModel, setDetailModel] = useState<AdminModelItem | null>(null);
+  const [detailDeps, setDetailDeps] = useState<DepStatus[]>([]);
+  const [detailDepsLoading, setDetailDepsLoading] = useState(false);
+  const [detailDepsError, setDetailDepsError] = useState("");
+  const detailDepsRequestIdRef = useRef(0);
 
   const runModelAction = useCallback(async (action: () => Promise<void>) => {
     try {
@@ -193,10 +353,53 @@ export function ModelsPage() {
     );
   }, [runModelAction, retryDownload]);
 
+  const handleOpenDetails = useCallback((model: AdminModelItem) => {
+    const requestId = detailDepsRequestIdRef.current + 1;
+    detailDepsRequestIdRef.current = requestId;
+    setDetailModel(model);
+    setDetailDeps([]);
+    setDetailDepsError("");
+    setDetailDepsLoading(true);
+
+    fetchModelDeps(model.id)
+      .then((deps) => {
+        if (detailDepsRequestIdRef.current !== requestId) return;
+        setDetailDeps(deps);
+      })
+      .catch((depsError) => {
+        if (detailDepsRequestIdRef.current !== requestId) return;
+        setDetailDepsError(depsError instanceof Error ? depsError.message : String(depsError));
+      })
+      .finally(() => {
+        if (detailDepsRequestIdRef.current !== requestId) return;
+        setDetailDepsLoading(false);
+      });
+  }, []);
+
+  const handleDetailDialogOpenChange = useCallback((open: boolean) => {
+    if (!open) {
+      detailDepsRequestIdRef.current += 1;
+      setDetailModel(null);
+      setDetailDeps([]);
+      setDetailDepsError("");
+      setDetailDepsLoading(false);
+    }
+  }, []);
+
   if (loading) return <div className="flex items-center justify-center h-full"><span className="text-text-secondary">Loading...</span></div>;
   if (error) return <div className="flex items-center justify-center h-full text-red-500">{error}</div>;
 
   const hasPending = pendingItems.length > 0;
+  const detailProviderLabel = detailModel
+    ? providerTypeLabelMap[detailModel.providerType] ?? detailModel.providerType
+    : "";
+  const detailSourceLabel = detailModel
+    ? sourceLabelMap[detailModel.weightSource] ?? detailModel.weightSource
+    : "";
+  const detailResolvedPath = detailModel
+    ? (detailModel.resolvedPath || detailModel.modelPath)
+    : "";
+  const shouldShowDepsBlock = !detailDepsLoading && detailDeps.length > 0;
 
   return (
     <div className="grid gap-4">
@@ -313,6 +516,14 @@ export function ModelsPage() {
                         >
                           {t("models.list.load")}
                         </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleOpenDetails(model)}
+                        >
+                          {t("models.list.details")}
+                        </Button>
                       </div>
                     </td>
                   </tr>
@@ -343,6 +554,82 @@ export function ModelsPage() {
           </div>
         </Card>
       ) : null}
+
+      <Dialog open={Boolean(detailModel)} onOpenChange={handleDetailDialogOpenChange}>
+        <DialogContent className="w-[min(92vw,720px)] p-4">
+          <DialogHeader className="pr-8">
+            <DialogTitle>{t("models.details.title")}</DialogTitle>
+            <DialogDescription>
+              {t("models.details.description", { name: detailModel?.displayName || "" })}
+            </DialogDescription>
+          </DialogHeader>
+          {detailModel ? (
+            <div className="grid gap-3">
+              <div className="grid gap-1.5 rounded-xl border border-outline bg-surface-container-lowest p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs text-text-muted">{t("models.details.fields.provider")}</span>
+                  <span className="text-sm font-medium text-text-primary">{detailProviderLabel}</span>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs text-text-muted">{t("models.details.fields.source")}</span>
+                  <span className="text-sm font-medium text-text-primary">{detailSourceLabel}</span>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs text-text-muted">{t("models.details.fields.runtime")}</span>
+                  <Badge tone={runtimeToneMap[detailModel.runtimeState]}>
+                    {t(`models.runtime.${detailModel.runtimeState}`)}
+                  </Badge>
+                </div>
+                {detailResolvedPath ? (
+                  <div className="grid gap-0.5">
+                    <span className="text-xs text-text-muted">{t("models.details.fields.path")}</span>
+                    <p className="break-all text-xs text-text-secondary">{detailResolvedPath}</p>
+                  </div>
+                ) : null}
+              </div>
+
+              {detailDepsLoading ? (
+                <p className="text-xs text-text-secondary">
+                  {t("models.details.dependenciesLoading")}
+                </p>
+              ) : null}
+
+              {detailDepsError ? (
+                <p className="text-xs text-danger-text">
+                  {t("models.details.dependenciesLoadFailed", { message: detailDepsError })}
+                </p>
+              ) : null}
+
+              {shouldShowDepsBlock ? (
+                <div className="grid gap-2 rounded-xl border border-outline bg-surface-container-lowest p-3">
+                  <h3 className="text-sm font-semibold text-text-primary">
+                    {t("models.details.dependencies.title")}
+                  </h3>
+                  <div className="grid gap-2">
+                    {detailDeps.map((dep, index) => (
+                      <div
+                        key={getDependencyKey(dep, index)}
+                        className="grid gap-1 rounded-lg border border-outline bg-surface-container p-2.5"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-sm font-semibold text-text-primary">
+                            {getDependencyLabel(dep, t("models.details.dependencies.depFallback"))}
+                          </span>
+                          <span className="text-xs text-text-secondary">{dep.hf_repo_id}</span>
+                        </div>
+                        {dep.resolved_path ? (
+                          <p className="break-all text-xs text-text-secondary">{dep.resolved_path}</p>
+                        ) : null}
+                        <DependencyDetailStatus dep={dep} />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
 
       <AddModelDialog
         open={addDialogOpen}

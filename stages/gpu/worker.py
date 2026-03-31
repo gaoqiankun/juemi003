@@ -7,7 +7,7 @@ import os
 import queue
 import uuid
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Protocol
 
 from gen3d.model.base import (
@@ -45,6 +45,7 @@ class GPUWorkerHandle(Protocol):
 class WorkerProcessConfig:
     provider_name: str
     model_path: str
+    dep_paths: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -264,6 +265,7 @@ def build_gpu_workers(
     provider_name: str,
     model_path: str,
     device_ids: tuple[str, ...],
+    dep_paths: dict[str, str] | None = None,
 ) -> list[GPUWorkerHandle]:
     normalized_mode = provider_mode.strip().lower()
     if normalized_mode == "mock" or isinstance(provider, MockTrellis2Provider):
@@ -279,6 +281,7 @@ def build_gpu_workers(
     process_config = WorkerProcessConfig(
         provider_name=provider_name.strip().lower(),
         model_path=model_path,
+        dep_paths=dict(dep_paths or {}),
     )
     return [
         ProcessGPUWorker(
@@ -378,12 +381,23 @@ def _worker_process_main(
 
 
 def _build_process_provider(process_config: WorkerProcessConfig) -> BaseModelProvider:
+    os.environ["HF_HUB_OFFLINE"] = "1"
+    os.environ["TRANSFORMERS_OFFLINE"] = "1"
     if process_config.provider_name == "trellis2":
-        return Trellis2Provider.from_pretrained(process_config.model_path)
+        return Trellis2Provider.from_pretrained(
+            process_config.model_path,
+            dep_paths=process_config.dep_paths,
+        )
     if process_config.provider_name == "hunyuan3d":
-        return Hunyuan3DProvider.from_pretrained(process_config.model_path)
+        return Hunyuan3DProvider.from_pretrained(
+            process_config.model_path,
+            dep_paths=process_config.dep_paths,
+        )
     if process_config.provider_name == "step1x3d":
-        return Step1X3DProvider.from_pretrained(process_config.model_path)
+        return Step1X3DProvider.from_pretrained(
+            process_config.model_path,
+            dep_paths=process_config.dep_paths,
+        )
     raise ModelProviderConfigurationError(
         f"unsupported MODEL_PROVIDER in GPU worker: {process_config.provider_name}"
     )

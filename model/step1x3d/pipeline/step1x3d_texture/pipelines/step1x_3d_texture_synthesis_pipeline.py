@@ -36,6 +36,7 @@ class Step1X3DTextureConfig:
         # prepare pipeline params
         self.base_model = "stabilityai/stable-diffusion-xl-base-1.0"
         self.vae_model = "madebyollin/sdxl-vae-fp16-fix"
+        self.birefnet_model = "ZhengPeng7/BiRefNet"
         self.unet_model = None
         self.lora_model = None
         self.adapter_path = "stepfun-ai/Step1X-3D"
@@ -104,8 +105,22 @@ class Step1X3DTexturePipeline:
         )
 
     @classmethod
-    def from_pretrained(cls, model_path, subfolder):
+    def from_pretrained(
+        cls,
+        model_path,
+        subfolder,
+        *,
+        base_model=None,
+        vae_model=None,
+        birefnet_model=None,
+    ):
         config = Step1X3DTextureConfig()
+        if base_model is not None:
+            config.base_model = base_model
+        if vae_model is not None:
+            config.vae_model = vae_model
+        if birefnet_model is not None:
+            config.birefnet_model = birefnet_model
         local_model_path = smart_load_model(model_path, subfolder=subfolder)
         print(f'Local model path: {local_model_path}')
         config.adapter_path = local_model_path
@@ -344,8 +359,13 @@ class Step1X3DTexturePipeline:
     def __call__(self, image, mesh, remove_bg=True, seed=2025):
         if remove_bg:
             if self._birefnet is None:
+                birefnet_model = getattr(
+                    self.config,
+                    "birefnet_model",
+                    "ZhengPeng7/BiRefNet",
+                )
                 self._birefnet = AutoModelForImageSegmentation.from_pretrained(
-                    "ZhengPeng7/BiRefNet", trust_remote_code=True
+                    birefnet_model, trust_remote_code=True
                 )
                 self._birefnet.to(device=self.config.device)
                 self._birefnet_transform = transforms.Compose(

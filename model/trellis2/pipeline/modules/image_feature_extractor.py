@@ -3,7 +3,7 @@ from typing import *
 import torch
 import torch.nn.functional as F
 from torchvision import transforms
-from transformers import DINOv3ViTModel
+from transformers import AutoModel, DINOv3ViTModel
 import numpy as np
 from PIL import Image
 
@@ -14,7 +14,7 @@ class DinoV2FeatureExtractor:
     """
     def __init__(self, model_name: str):
         self.model_name = model_name
-        self.model = torch.hub.load('facebookresearch/dinov2', model_name, pretrained=True)
+        self.model = AutoModel.from_pretrained(model_name)
         self.model.eval()
         self.transform = transforms.Compose([
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
@@ -52,7 +52,7 @@ class DinoV2FeatureExtractor:
             raise ValueError(f"Unsupported type of image: {type(image)}")
         
         image = self.transform(image).cuda()
-        features = self.model(image, is_training=True)['x_prenorm']
+        features = self.model(pixel_values=image).last_hidden_state
         patchtokens = F.layer_norm(features, features.shape[-1:])
         return patchtokens
     

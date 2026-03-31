@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any
 
 
 @dataclass(slots=True)
@@ -18,6 +19,13 @@ class GenerationResult:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass(frozen=True, slots=True)
+class ProviderDependency:
+    dep_id: str
+    hf_repo_id: str
+    description: str
+
+
 class ModelProviderConfigurationError(RuntimeError):
     pass
 
@@ -28,26 +36,44 @@ class ModelProviderExecutionError(RuntimeError):
         self.stage_name = stage_name
 
 
-class BaseModelProvider(Protocol):
+class BaseModelProvider(ABC):
     @classmethod
-    def from_pretrained(cls, model_path: str) -> "BaseModelProvider": ...
+    def dependencies(cls) -> list[ProviderDependency]:
+        return []
 
-    def estimate_vram_mb(self, batch_size: int, options: dict[str, Any]) -> int: ...
+    @classmethod
+    @abstractmethod
+    def from_pretrained(
+        cls,
+        model_path: str,
+        dep_paths: dict[str, str],
+    ) -> "BaseModelProvider":
+        raise NotImplementedError
+
+    @abstractmethod
+    def estimate_vram_mb(self, batch_size: int, options: dict[str, Any]) -> int:
+        raise NotImplementedError
 
     @property
-    def stages(self) -> list[dict[str, Any]]: ...
+    @abstractmethod
+    def stages(self) -> list[dict[str, Any]]:
+        raise NotImplementedError
 
+    @abstractmethod
     async def run_batch(
         self,
         images: list[object],
         options: dict[str, Any],
         progress_cb=None,
         cancel_flags=None,
-    ) -> list[GenerationResult]: ...
+    ) -> list[GenerationResult]:
+        raise NotImplementedError
 
+    @abstractmethod
     def export_glb(
         self,
         result: GenerationResult,
         output_path: str | Path,
         options: dict[str, Any],
-    ) -> None: ...
+    ) -> None:
+        raise NotImplementedError

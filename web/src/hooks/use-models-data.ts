@@ -5,7 +5,10 @@ import {
   deleteModel,
   fetchModels,
   loadModel,
+  normalizeDepStatus,
   updateModel,
+  type DepDownloadStatus,
+  type DepStatus,
   type RawAdminModelRecord,
 } from "@/lib/admin-api";
 
@@ -34,10 +37,11 @@ export interface AdminPendingItem {
   modelPath: string;
   weightSource: AdminModelWeightSource;
   providerType: AdminModelProviderType;
-  downloadStatus: "downloading" | "error";
+  downloadStatus: DepDownloadStatus;
   downloadProgress: number;
   downloadSpeedBps: number;
   downloadError: string;
+  deps: DepStatus[];
 }
 
 function normalizeRuntimeState(runtimeState: string): AdminModelRuntimeState {
@@ -64,6 +68,24 @@ function normalizeProviderType(raw: string | undefined): AdminModelProviderType 
   return "trellis2";
 }
 
+function normalizeDownloadStatus(raw: string | undefined): DepDownloadStatus {
+  const normalized = String(raw || "done").trim().toLowerCase();
+  if (
+    normalized === "done"
+    || normalized === "downloading"
+    || normalized === "error"
+    || normalized === "pending"
+  ) {
+    return normalized;
+  }
+  return "done";
+}
+
+function normalizeDeps(item: RawAdminModelRecord): DepStatus[] {
+  if (!Array.isArray(item.deps)) return [];
+  return item.deps.map((dep) => normalizeDepStatus(dep || {}));
+}
+
 function splitModels(payload: RawAdminModelRecord[] | undefined): {
   models: AdminModelItem[];
   pendingItems: AdminPendingItem[];
@@ -74,12 +96,14 @@ function splitModels(payload: RawAdminModelRecord[] | undefined): {
   const pendingItems: AdminPendingItem[] = [];
 
   for (const item of payload) {
-    const downloadStatus = String(item.download_status || "done").trim().toLowerCase();
+    const downloadStatus = normalizeDownloadStatus(item.download_status);
+    const deps = normalizeDeps(item);
+    const hasPendingDeps = deps.some((dep) => dep.download_status !== "done");
     const id = String(item.id || "").trim();
     const displayName = String(item.display_name || item.id || "").trim();
     if (!id || !displayName) continue;
 
-    if (downloadStatus === "downloading" || downloadStatus === "error") {
+    if (downloadStatus !== "done" || hasPendingDeps) {
       pendingItems.push({
         id,
         displayName,
@@ -90,6 +114,7 @@ function splitModels(payload: RawAdminModelRecord[] | undefined): {
         downloadProgress: Number(item.download_progress ?? 0),
         downloadSpeedBps: Number(item.download_speed_bps ?? 0),
         downloadError: String(item.download_error || "").trim(),
+        deps,
       });
     } else {
       models.push({
@@ -119,7 +144,9 @@ export function useModelsData() {
   const [error, setError] = useState<string | null>(null);
   const [busyModelId, setBusyModelId] = useState("");
 
-  const hasDownloading = pendingItems.some((p) => p.downloadStatus === "downloading");
+  const hasDownloading = pendingItems.some((item) =>
+    item.downloadStatus === "downloading"
+    || item.deps.some((dep) => dep.download_status === "downloading"));
   const hasLoadingRuntime = models.some((m) => m.runtimeState === "loading");
   const pollingIntervalMs = hasDownloading ? 2_000 : hasLoadingRuntime ? 3_000 : 10_000;
 
