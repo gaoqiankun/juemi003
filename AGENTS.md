@@ -1,37 +1,45 @@
-# Cubie · AI Coder 执行指南
+# Cubie · Agent Spec
 
-> 先读本文件，再读架构师在 Prompt 里指定的角色文件（`.agent/roles/`）。
+> Read `~/AGENTS.md` (global workflow) first, then this file (project constraints), then the role file specified in the prompt (`.ai/roles/[slug].md` if exists, otherwise `~/dotai/roles/[domain]/[slug].md`).
 
-## 项目概况
+## Project Overview
 
-**Cubie** — 开源 3D 生成服务（图片 → GLB）。FastAPI 后端 + React 前端。
+**Cubie** — open-source 3D generation service (image → GLB). FastAPI backend + React frontend.
 
 ```
 gen3d/
-├── config.py / serve.py   # 后端入口
-├── api/                   # FastAPI 路由与 Schema
-├── engine/                # 任务引擎
-├── model/                 # Provider 实现（trellis2 / hunyuan3d / step1x3d）
+├── config.py / serve.py   # backend entrypoints
+├── api/                   # FastAPI routes and schemas
+├── engine/                # task engine
+├── model/                 # Provider implementations (trellis2 / hunyuan3d / step1x3d)
 ├── stages/                # preprocess / gpu / export
-├── storage/               # 5 个 store（SQLite + 文件系统）
-├── tests/                 # 基线 163 passed
+├── storage/               # 5 stores (SQLite + filesystem)
+├── tests/                 # baseline: 163 passed
 ├── web/                   # React SPA
-├── .claude/               # Claude Code 专用：rules/ + skills/
-└── .agent/                # Agent 工作目录：roles/ + plan/ + 工具文档
+├── .claude/               # Claude Code: rules/ + skills/
+└── .ai/                # agent workspace: roles/ + plan/ + docs
 ```
 
-## 通用规则
+## Rules
 
-- 不执行任何修改 git 树的操作（`git add/commit/push/rebase`），完成后只汇报结果
-- 不修改 `ios/`、`server/`、`Hunyuan3D-2/`
-- **开工前**在 `.agent/plan/` 新建 `YYYY-MM-DD-描述.md`（`Status: planning`），列明本次会改哪些文件；完成后改为 `Status: done`
-- 若变更影响其他模块的行为，在 `.agent/decisions.md` 顶部追加一条
-- 执行中遇到文档缺失、路径错误、流程不清晰等阻碍，在 `.agent/friction-log.md` 随手记一行
-- 不升级依赖，除非明确要求
+- Do not modify `ios/`, `server/`, `Hunyuan3D-2/`
+- Plan files are created by Orchestrator — Worker reads only, never writes; on completion write report to `.ai/tmp/report-{task}.md`
+- If a change affects another module's behavior, prepend a note to `.ai/decisions.md`
+- Log any friction (missing docs, wrong paths, unclear flow) to `.ai/friction-log.md`
+- Do not upgrade dependencies unless explicitly asked
 
-## 验收命令
+## Python Toolchain
+
+Always use `uv` for Python:
 
 ```bash
-.venv/bin/python -m pytest tests -q    # 改了 Python：≥ 163 passed
-cd web && npm run build            # 改了前端：零错误
+uv run python -m pytest tests -q   # run tests (baseline: ≥ 163 passed)
+uv run ruff check .                # lint (no new issues allowed)
+uv run python <script.py>          # run script
+```
+
+## Frontend
+
+```bash
+cd web && npm run build            # zero errors required
 ```

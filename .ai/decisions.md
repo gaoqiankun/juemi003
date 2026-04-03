@@ -5,6 +5,12 @@
 
 ---
 
+## 2026-03-30
+
+- **模型运行时改为强依赖 dep_cache 就绪状态**：`api/server.py` 的 `build_model_runtime()` 在加载模型前会按 `model_dep_requirements -> dep_cache` 解析 `dep_paths`，任何依赖 `download_status != done`、`resolved_path` 为空或路径不存在都会直接抛 `ModelProviderConfigurationError`，避免运行时隐式联网或加载半成品依赖。（plan: 2026-03-30-weight-dep-b3.md）
+
+- **离线兜底仅在 GPU 子进程启用**：`stages/gpu/worker.py` 在 `_build_process_provider()` 内设置 `HF_HUB_OFFLINE=1` 与 `TRANSFORMERS_OFFLINE=1`，主进程保持不设置，避免影响 `WeightManager` 与迁移脚本的依赖补齐流程。（plan: 2026-03-30-weight-dep-b3.md）
+
 ## 2026-03-26
 
 - **GPU 子进程回传结果统一 CPU 化，避免 CUDA IPC 依赖**：`model/trellis2/provider.py` 在 `GenerationResult` 返回前递归将 tensor-like 值 `detach().cpu()`；`stages/gpu/worker.py` 新增 `_sanitize_generation_results_for_ipc()` 作为跨 provider 传输层兜底，确保 `multiprocessing.Queue` 不再裸传 CUDA tensor，规避容器内 `pidfd_getfd` 限制导致的 `rebuild_cuda_tensor/_new_shared_cuda` 失败。（plan: 2026-03-26-cuda-tensor-ipc-fix.md）

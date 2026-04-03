@@ -19,7 +19,7 @@ Date / Status: 2026-03-26 / done / Commits: N/A（未执行 git commit）
   - 改为动态加载 `hy3dgen.texgen.pipelines.Hunyuan3DPaintPipeline` 并委托其 `from_pretrained`。
   - 保留原 wrapper 的调用兼容层（mesh/image 参数尝试、输出抽取逻辑）。
 - 未修改 `model/hunyuan3d/provider.py`（现有调用方式可直接复用）。
-- 更新 `.agent/decisions.md`：记录 HunYuan3D checkpoint 加载语义回退为上游 hy3dgen 方式。
+- 更新 `.ai/decisions.md`：记录 HunYuan3D checkpoint 加载语义回退为上游 hy3dgen 方式。
 
 ## Notes
 - 基线：`.venv/bin/python -m pytest tests -q` -> `163 passed`。

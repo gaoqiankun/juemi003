@@ -7,7 +7,7 @@
 ## 今天完成了什么
 
 ### Agent 工作流重构
-- 建立 `.agent/` 目录（roles/ + plan/ + 工具文档），与 `.claude/`（Claude Code 专有）分离
+- 建立 `.ai/` 目录（roles/ + plan/ + 工具文档），与 `.claude/`（Claude Code 专有）分离
 - 三个角色文件：`backend.md` / `frontend.md` / `debug.md`，各自独立入口
 - `pending.md`：API Contract 跨角色交接协议
 - `decisions.md`：近期关键行为变更索引
@@ -74,7 +74,7 @@
 
 已同步进 `decisions.md`，这里列摘要：
 
-- `plan/` 移入 `.agent/`，与 `.claude/`（Claude Code 专有）分离
+- `plan/` 移入 `.ai/`，与 `.claude/`（Claude Code 专有）分离
 - `viewer3d-runtime.ts` 555 行超过 500 行软警戒，但已拆出所有无状态逻辑，剩余是必要的类体积
 - `async_engine.py` worker/cleanup 不拆，时序风险高于收益，列为 v0.2
 - `api/server.py` Router 工厂模式方案已设计，v0.2 执行
