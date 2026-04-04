@@ -1064,7 +1064,7 @@ def test_admin_create_model_accepts_snake_case_provider_type(tmp_path: Path) -> 
             headers=admin_headers(),
             json={
                 "id": "snake-provider-model",
-                "provider_type": "trellis2",
+                "provider_type": "hunyuan3d",
                 "displayName": "Snake Provider Model",
                 "modelPath": str(local_weights_dir),
                 "weightSource": "local",
@@ -1074,7 +1074,7 @@ def test_admin_create_model_accepts_snake_case_provider_type(tmp_path: Path) -> 
     assert response.status_code == 201
     payload = response.json()
     assert payload["id"] == "snake-provider-model"
-    assert payload["provider_type"] == "trellis2"
+    assert payload["provider_type"] == "hunyuan3d"
     assert payload["download_status"] == "done"
 
 
@@ -1091,7 +1091,7 @@ def test_admin_create_model_local_weight_source_resolves_synchronously(
             headers=admin_headers(),
             json={
                 "id": "local-model",
-                "providerType": "trellis2",
+                "providerType": "hunyuan3d",
                 "displayName": "Local Model",
                 "modelPath": str(local_weights_dir),
                 "weightSource": "local",
@@ -1129,6 +1129,7 @@ def test_admin_models_include_pending_query_and_delete_cancels_download_task(
             provider_type: str,
             weight_source: str,
             model_path: str,
+            dep_assignments: dict | None = None,
         ) -> str:
             del model_id, provider_type, weight_source, model_path
             started.set()

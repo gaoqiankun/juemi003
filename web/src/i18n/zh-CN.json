@@ -252,10 +252,13 @@
         "local": "/data/models/my-model",
         "url": "https://example.com/model.tar.gz"
       },
-      "guidance": {
-        "mainWeightSource": "这里由你指定主模型权重的来源。",
-        "dependencyAutoDownload": "依赖权重会在模型首次加载前由系统自动下载，无需手动操作。",
-        "step1x3dDeps": "Step1X-3D 需要额外依赖（如 SDXL、BiRefNet）。首次加载前请确保当前环境可访问 HuggingFace，或这些依赖已提前缓存。"
+      "deps": {
+        "sectionTitle": "依赖模型",
+        "loading": "正在加载依赖列表...",
+        "newInstance": "+ 新建实例",
+        "namePlaceholder": "实例名称",
+        "nameLabel": "名称",
+        "sourceLabel": "来源"
       },
       "submit": "添加模型",
       "submitting": "添加中...",
@@ -265,7 +268,11 @@
         "idRequired": "模型名称无法自动生成模型 ID，请使用英文或数字名称。",
         "hfInvalid": "HuggingFace 仓库格式应为 owner/repo。",
         "localRequired": "请输入本地路径。",
-        "urlInvalid": "URL 须以 http:// 或 https:// 开头。"
+        "urlInvalid": "URL 须以 http:// 或 https:// 开头。",
+        "depNameRequired": "请输入依赖 {{depType}} 的实例名称。",
+        "depHfInvalid": "依赖 {{depType}} 的 HuggingFace 仓库格式应为 owner/repo。",
+        "depLocalRequired": "请输入依赖 {{depType}} 的本地路径。",
+        "depUrlInvalid": "依赖 {{depType}} 的 URL 须以 http:// 或 https:// 开头。"
       }
     },
     "pending": {

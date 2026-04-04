@@ -149,8 +149,42 @@ export interface RawAdminModelsResponse {
 
 export type DepDownloadStatus = "done" | "downloading" | "error" | "pending";
 
+export interface DepInstance {
+  id: string;
+  dep_type: string;
+  hf_repo_id: string;
+  display_name: string;
+  weight_source: "huggingface" | "local" | "url";
+  dep_model_path?: string;
+  download_status: DepDownloadStatus;
+  download_progress: number;
+  download_speed_bps: number;
+  resolved_path?: string;
+  download_error?: string;
+}
+
+export interface ProviderDepType {
+  dep_type: string;
+  hf_repo_id: string;
+  description: string;
+  instances: DepInstance[];
+}
+
+export interface DepAssignment {
+  instance_id?: string;
+  new?: {
+    instance_id: string;
+    display_name: string;
+    weight_source: "huggingface" | "local" | "url";
+    dep_model_path: string;
+  };
+}
+
 export interface RawDepStatus {
   dep_id?: string;
+  instance_id?: string;
+  dep_type?: string;
+  display_name?: string;
   hf_repo_id?: string;
   description?: string | null;
   resolved_path?: string | null;
@@ -206,6 +240,10 @@ export function normalizeDepStatus(item: RawDepStatus): DepStatus {
 export const fetchModels = (includePending = false) =>
   adminFetch<RawAdminModelsResponse>(
     includePending ? "/api/admin/models?include_pending=true" : "/api/admin/models",
+  );
+export const fetchProviderDeps = (providerType: string): Promise<ProviderDepType[]> =>
+  adminFetch<ProviderDepType[]>(
+    `/api/admin/providers/${encodeURIComponent(providerType)}/deps`,
   );
 export async function fetchModelDeps(modelId: string): Promise<DepStatus[]> {
   const response = await adminFetch<RawDepStatus[] | { deps?: RawDepStatus[] }>(

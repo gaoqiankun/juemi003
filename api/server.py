@@ -88,7 +88,7 @@ from gen3d.engine.model_registry import ModelRegistry, ModelRuntime
 from gen3d.engine.model_scheduler import ModelScheduler
 from gen3d.engine.pipeline import PipelineCoordinator, PipelineQueueFullError
 from gen3d.engine.sequence import TERMINAL_STATUSES, TaskStatus
-from gen3d.engine.weight_manager import WeightManager
+from gen3d.engine.weight_manager import WeightManager, get_provider_deps
 from gen3d.model.base import ModelProviderConfigurationError
 from gen3d.model.hunyuan3d.provider import Hunyuan3DProvider, MockHunyuan3DProvider
 from gen3d.model.step1x3d.provider import MockStep1X3DProvider, Step1X3DProvider
@@ -120,7 +120,7 @@ from gen3d.storage.artifact_store import (
     ArtifactStoreConfigurationError,
     build_boto3_object_storage_client,
 )
-from gen3d.storage.dep_store import DepCacheStore, ModelDepRequirementsStore
+from gen3d.storage.dep_store import DepInstanceStore, ModelDepRequirementsStore
 from gen3d.storage.model_store import ModelStore
 from gen3d.storage.settings_store import (
     MAX_LOADED_MODELS_KEY,
@@ -313,7 +313,7 @@ class AppContainer:
     pipeline: PipelineCoordinator
     engine: AsyncGen3DEngine
     model_store: ModelStore
-    dep_cache_store: DepCacheStore
+    dep_instance_store: DepInstanceStore
     model_dep_requirements_store: ModelDepRequirementsStore
     settings_store: SettingsStore
     model_scheduler: ModelScheduler
@@ -406,34 +406,8 @@ def build_provider(
     )
 
 
-def _provider_class_for_type(provider_type: str):
-    normalized_provider_type = str(provider_type or "").strip().lower()
-    if normalized_provider_type == "trellis2":
-        return Trellis2Provider
-    if normalized_provider_type == "hunyuan3d":
-        return Hunyuan3DProvider
-    if normalized_provider_type == "step1x3d":
-        return Step1X3DProvider
-    return None
-
-
 def _provider_dependency_descriptions(provider_type: str) -> dict[str, str]:
-    provider_cls = _provider_class_for_type(provider_type)
-    if provider_cls is None:
-        return {}
-    dependencies_getter = getattr(provider_cls, "dependencies", lambda: [])
-    raw_dependencies = dependencies_getter() or []
-    descriptions: dict[str, str] = {}
-    for item in raw_dependencies:
-        if isinstance(item, dict):
-            dep_id = str(item.get("dep_id") or "").strip()
-            description = str(item.get("description") or "").strip()
-        else:
-            dep_id = str(getattr(item, "dep_id", "") or "").strip()
-            description = str(getattr(item, "description", "") or "").strip()
-        if dep_id:
-            descriptions[dep_id] = description
-    return descriptions
+    return {dep.dep_id: dep.description for dep in get_provider_deps(provider_type)}
 
 
 def _build_dep_response_rows(
@@ -444,18 +418,27 @@ def _build_dep_response_rows(
     descriptions = _provider_dependency_descriptions(provider_type)
     payload_rows: list[dict] = []
     for dep in dep_rows:
-        dep_id = str(dep.get("dep_id") or "").strip()
+        dep_type = str(dep.get("dep_type") or dep.get("dep_id") or "").strip()
+        instance_id = str(dep.get("instance_id") or dep.get("id") or dep.get("dep_id") or "").strip()
+        dep_id = dep_type or instance_id
+        display_name = str(dep.get("display_name") or instance_id or dep_id).strip()
         payload_rows.append(
             {
                 "dep_id": dep_id,
+                "dep_type": dep_type or dep_id,
+                "instance_id": instance_id or dep_id,
+                "id": instance_id or dep_id,
+                "display_name": display_name,
                 "hf_repo_id": str(dep.get("hf_repo_id") or "").strip(),
-                "description": descriptions.get(dep_id, ""),
+                "weight_source": str(dep.get("weight_source") or "huggingface").strip().lower(),
+                "dep_model_path": dep.get("dep_model_path"),
+                "description": descriptions.get(dep_type, ""),
                 "resolved_path": dep.get("resolved_path"),
                 "download_status": str(dep.get("download_status") or "pending").strip().lower(),
                 "download_progress": int(dep.get("download_progress") or 0),
                 "download_speed_bps": int(dep.get("download_speed_bps") or 0),
                 "download_error": dep.get("download_error"),
-                "revision": dep.get("revision"),
+                "revision": None,
             }
         )
     return payload_rows
@@ -463,23 +446,30 @@ def _build_dep_response_rows(
 
 async def _resolve_dep_paths(
     model_id: str,
-    dep_cache_store: DepCacheStore,
+    dep_instance_store: DepInstanceStore,
     model_dep_store: ModelDepRequirementsStore,
 ) -> dict[str, str]:
     normalized_model_id = str(model_id or "").strip()
     if not normalized_model_id:
         return {}
 
-    dep_ids = await model_dep_store.get_dep_ids_for_model(normalized_model_id)
-    if not dep_ids:
+    assignments = await model_dep_store.get_assignments_for_model(normalized_model_id)
+    if not assignments:
         return {}
 
     dep_paths: dict[str, str] = {}
-    for dep_id in dep_ids:
-        dep_row = await dep_cache_store.get(dep_id)
+    for assignment in assignments:
+        dep_type = str(assignment.get("dep_type") or "").strip()
+        instance_id = str(assignment.get("dep_instance_id") or "").strip()
+        if not dep_type or not instance_id:
+            raise ModelProviderConfigurationError(
+                f"invalid dependency assignment for model {normalized_model_id}"
+            )
+
+        dep_row = await dep_instance_store.get(instance_id)
         if dep_row is None:
             raise ModelProviderConfigurationError(
-                f"dependency {dep_id} for model {normalized_model_id} is missing; "
+                f"dependency {dep_type} instance {instance_id} for model {normalized_model_id} is missing; "
                 "please complete dependency download first"
             )
 
@@ -487,18 +477,248 @@ async def _resolve_dep_paths(
         resolved_path = str(dep_row.get("resolved_path") or "").strip()
         if status != "done" or not resolved_path:
             raise ModelProviderConfigurationError(
-                f"dependency {dep_id} for model {normalized_model_id} is {status}; "
+                f"dependency {dep_type} instance {instance_id} for model {normalized_model_id} is {status}; "
                 "please complete dependency download first"
             )
 
         resolved_candidate = Path(resolved_path).expanduser()
         if not resolved_candidate.exists():
             raise ModelProviderConfigurationError(
-                f"dependency {dep_id} for model {normalized_model_id} path does not exist: "
+                f"dependency {dep_type} instance {instance_id} for model {normalized_model_id} path does not exist: "
                 f"{resolved_path}. please complete dependency download first"
             )
-        dep_paths[dep_id] = str(resolved_candidate.resolve())
+        dep_paths[dep_type] = str(resolved_candidate.resolve())
     return dep_paths
+
+
+def _normalize_new_dep_config(dep_type: str, raw_new: Any) -> dict:
+    if not isinstance(raw_new, dict):
+        raise HTTPException(
+            status_code=422,
+            detail=f"depAssignments.{dep_type}.new must be an object",
+        )
+    return {
+        "instance_id": str(raw_new.get("instance_id", raw_new.get("instanceId")) or "").strip(),
+        "display_name": str(raw_new.get("display_name", raw_new.get("displayName")) or "").strip(),
+        "weight_source": str(raw_new.get("weight_source", raw_new.get("weightSource")) or "").strip().lower(),
+        "dep_model_path": str(raw_new.get("dep_model_path", raw_new.get("depModelPath")) or "").strip(),
+    }
+
+
+def _normalize_single_dep_assignment(dep_type: str, raw_assignment: Any) -> dict:
+    if not isinstance(raw_assignment, dict):
+        raise HTTPException(
+            status_code=422,
+            detail=f"depAssignments.{dep_type} must be an object",
+        )
+    normalized_assignment: dict[str, Any] = {}
+    raw_instance_id = raw_assignment.get("instance_id", raw_assignment.get("instanceId"))
+    if raw_instance_id is not None:
+        instance_id = str(raw_instance_id).strip()
+        if not instance_id:
+            raise HTTPException(
+                status_code=422,
+                detail=f"depAssignments.{dep_type}.instance_id is required",
+            )
+        normalized_assignment["instance_id"] = instance_id
+    if "new" in raw_assignment:
+        normalized_assignment["new"] = _normalize_new_dep_config(dep_type, raw_assignment.get("new"))
+    if "instance_id" in normalized_assignment and "new" in normalized_assignment:
+        raise HTTPException(
+            status_code=422,
+            detail=f"depAssignments.{dep_type} cannot set both instance_id and new",
+        )
+    return normalized_assignment
+
+
+def _normalize_dep_assignments_payload(raw_assignments: Any) -> dict[str, dict]:
+    if raw_assignments is None:
+        return {}
+    if not isinstance(raw_assignments, dict):
+        raise HTTPException(status_code=422, detail="depAssignments must be an object")
+    normalized_assignments: dict[str, dict] = {}
+    for raw_dep_type, raw_assignment in raw_assignments.items():
+        dep_type = str(raw_dep_type or "").strip()
+        if not dep_type:
+            raise HTTPException(status_code=422, detail="depAssignments contains an empty dep_type key")
+        normalized_assignments[dep_type] = _normalize_single_dep_assignment(dep_type, raw_assignment)
+    return normalized_assignments
+
+
+def _is_hf_repo_id(value: str) -> bool:
+    normalized = str(value or "").strip()
+    parts = normalized.split("/")
+    if len(parts) != 2:
+        return False
+    return all(part and part == part.strip() for part in parts)
+
+
+def _default_dep_assignment(model_id: str, dep_type: str, hf_repo_id: str) -> dict:
+    return {
+        "new": {
+            "instance_id": f"{dep_type}-{model_id}",
+            "display_name": dep_type,
+            "weight_source": "huggingface",
+            "dep_model_path": hf_repo_id,
+        }
+    }
+
+
+async def _validate_existing_dep_assignment(
+    dep_type: str,
+    instance_id: str,
+    dep_instance_store: DepInstanceStore,
+) -> dict:
+    normalized_instance_id = str(instance_id or "").strip()
+    if not normalized_instance_id:
+        raise HTTPException(
+            status_code=422,
+            detail=f"depAssignments.{dep_type}.instance_id is required",
+        )
+    existing = await dep_instance_store.get(normalized_instance_id)
+    if existing is None:
+        raise HTTPException(status_code=422, detail=f"dep instance not found: {normalized_instance_id}")
+    existing_dep_type = str(existing.get("dep_type") or "").strip()
+    if existing_dep_type and existing_dep_type != dep_type:
+        raise HTTPException(
+            status_code=422,
+            detail=f"dep instance {normalized_instance_id} belongs to dep_type {existing_dep_type}, expected {dep_type}",
+        )
+    return {"instance_id": normalized_instance_id}
+
+
+def _validate_new_dep_model_path(
+    dep_type: str,
+    hf_repo_id: str,
+    weight_source: str,
+    dep_model_path: str,
+) -> str:
+    if weight_source == "local":
+        if not dep_model_path:
+            raise HTTPException(
+                status_code=422,
+                detail=f"dep {dep_type} local source requires dep_model_path",
+            )
+        if not Path(dep_model_path).expanduser().exists():
+            raise HTTPException(
+                status_code=422,
+                detail=f"dep {dep_type} local path does not exist: {dep_model_path}",
+            )
+        return dep_model_path
+    if weight_source == "url":
+        parsed_url = urlsplit(dep_model_path)
+        if parsed_url.scheme not in {"http", "https"}:
+            raise HTTPException(
+                status_code=422,
+                detail=f"dep {dep_type} url source requires an http(s) dep_model_path",
+            )
+        url_path = parsed_url.path.strip().lower()
+        if not (url_path.endswith(".zip") or url_path.endswith(".tar.gz")):
+            raise HTTPException(
+                status_code=422,
+                detail=f"dep {dep_type} url source only supports .zip and .tar.gz archives",
+            )
+        return dep_model_path
+    repo_id = dep_model_path or hf_repo_id
+    if not _is_hf_repo_id(repo_id):
+        raise HTTPException(
+            status_code=422,
+            detail=f"dep {dep_type} huggingface source requires owner/repo format",
+        )
+    return repo_id
+
+
+async def _validate_new_dep_assignment(
+    dep_type: str,
+    hf_repo_id: str,
+    new_cfg: dict,
+    dep_instance_store: DepInstanceStore,
+) -> dict:
+    instance_id = str(new_cfg.get("instance_id") or "").strip()
+    if not instance_id:
+        raise HTTPException(
+            status_code=422,
+            detail=f"depAssignments.{dep_type}.new.instance_id is required",
+        )
+    if await dep_instance_store.get(instance_id) is not None:
+        raise HTTPException(status_code=422, detail=f"dep instance already exists: {instance_id}")
+
+    display_name = str(new_cfg.get("display_name") or dep_type).strip()
+    if not display_name:
+        raise HTTPException(
+            status_code=422,
+            detail=f"depAssignments.{dep_type}.new.display_name is required",
+        )
+
+    weight_source = str(new_cfg.get("weight_source") or "huggingface").strip().lower()
+    if weight_source not in {"huggingface", "local", "url"}:
+        raise HTTPException(
+            status_code=422,
+            detail=f"depAssignments.{dep_type}.new.weight_source must be one of: huggingface, local, url",
+        )
+
+    dep_model_path = _validate_new_dep_model_path(
+        dep_type,
+        hf_repo_id,
+        weight_source,
+        str(new_cfg.get("dep_model_path") or "").strip(),
+    )
+    return {
+        "instance_id": instance_id,
+        "display_name": display_name,
+        "weight_source": weight_source,
+        "dep_model_path": dep_model_path,
+    }
+
+
+async def _prepare_dep_assignments(
+    model_id: str,
+    provider_type: str,
+    raw_dep_assignments: Any,
+    dep_instance_store: DepInstanceStore,
+) -> dict[str, dict]:
+    dependencies = get_provider_deps(provider_type)
+    if not dependencies:
+        return {}
+
+    assignments = _normalize_dep_assignments_payload(raw_dep_assignments)
+    expected_dep_types = {dep.dep_id for dep in dependencies}
+    unknown_dep_types = sorted(dep_type for dep_type in assignments if dep_type not in expected_dep_types)
+    if unknown_dep_types:
+        raise HTTPException(
+            status_code=422,
+            detail=f"depAssignments has unknown dep_type: {unknown_dep_types[0]}",
+        )
+
+    normalized_assignments: dict[str, dict] = {}
+    for dep in dependencies:
+        dep_type = dep.dep_id
+        assignment = dict(assignments.get(dep_type) or _default_dep_assignment(model_id, dep_type, dep.hf_repo_id))
+        if "instance_id" in assignment:
+            normalized_assignments[dep_type] = await _validate_existing_dep_assignment(
+                dep_type,
+                str(assignment.get("instance_id") or ""),
+                dep_instance_store,
+            )
+            continue
+
+        new_cfg = assignment.get("new")
+        if not isinstance(new_cfg, dict):
+            raise HTTPException(
+                status_code=422,
+                detail=f"depAssignments.{dep_type} must set instance_id or new",
+            )
+
+        normalized_assignments[dep_type] = {
+            "new": await _validate_new_dep_assignment(
+                dep_type,
+                dep.hf_repo_id,
+                new_cfg,
+                dep_instance_store,
+            )
+        }
+
+    return normalized_assignments
 
 
 def build_artifact_store(config: ServingConfig) -> ArtifactStore:
@@ -586,18 +806,18 @@ async def build_model_runtime(
         )
 
     model_id = str(model_definition.get("id") or normalized_model_name).strip()
-    dep_cache_store = DepCacheStore(config.database_path)
+    dep_instance_store = DepInstanceStore(config.database_path)
     model_dep_store = ModelDepRequirementsStore(config.database_path)
-    await dep_cache_store.initialize()
+    await dep_instance_store.initialize()
     await model_dep_store.initialize()
     try:
         dep_paths = await _resolve_dep_paths(
             model_id=model_id,
-            dep_cache_store=dep_cache_store,
+            dep_instance_store=dep_instance_store,
             model_dep_store=model_dep_store,
         )
     finally:
-        await dep_cache_store.close()
+        await dep_instance_store.close()
         await model_dep_store.close()
 
     provider = await asyncio.to_thread(
@@ -842,7 +1062,7 @@ def create_app(
     task_store = TaskStore(config.database_path)
     api_key_store = ApiKeyStore(config.database_path)
     model_store = ModelStore(config.database_path)
-    dep_cache_store = DepCacheStore(config.database_path)
+    dep_instance_store = DepInstanceStore(config.database_path)
     model_dep_requirements_store = ModelDepRequirementsStore(config.database_path)
     settings_store = SettingsStore(config.database_path)
     artifact_store = build_artifact_store(config)
@@ -863,7 +1083,7 @@ def create_app(
     weight_manager = WeightManager(
         model_store=model_store,
         cache_dir=config.model_cache_dir,
-        dep_store=dep_cache_store,
+        dep_store=dep_instance_store,
         model_dep_requirements_store=model_dep_requirements_store,
     )
     model_registry.add_model_loaded_listener(model_scheduler.on_model_loaded)
@@ -928,7 +1148,7 @@ def create_app(
         pipeline=pipeline,
         engine=engine,
         model_store=model_store,
-        dep_cache_store=dep_cache_store,
+        dep_instance_store=dep_instance_store,
         model_dep_requirements_store=model_dep_requirements_store,
         settings_store=settings_store,
         model_scheduler=model_scheduler,
@@ -942,6 +1162,7 @@ def create_app(
         provider_type: str,
         weight_source: str,
         model_path: str,
+        dep_assignments: dict[str, dict] | None = None,
     ) -> None:
         try:
             await container.weight_manager.download(
@@ -949,6 +1170,7 @@ def create_app(
                 provider_type=provider_type,
                 weight_source=weight_source,
                 model_path=model_path,
+                dep_assignments=dep_assignments,
             )
         except asyncio.CancelledError:
             raise
@@ -984,7 +1206,7 @@ def create_app(
         await container.task_store.initialize()
         await container.api_key_store.initialize()
         await container.model_store.initialize()
-        await container.dep_cache_store.initialize()
+        await container.dep_instance_store.initialize()
         await container.model_dep_requirements_store.initialize()
         await container.settings_store.initialize()
         await container.model_scheduler.initialize()
@@ -1017,7 +1239,7 @@ def create_app(
             await _cancel_model_download_task(model_id)
         await container.settings_store.close()
         await container.model_dep_requirements_store.close()
-        await container.dep_cache_store.close()
+        await container.dep_instance_store.close()
         await container.model_store.close()
         await container.api_key_store.close()
         await container.task_store.close()
@@ -1786,7 +2008,7 @@ def create_app(
             else:
                 model["error_message"] = None
             if include_pending:
-                dep_rows = await app_container.dep_cache_store.get_all_for_model(model_id)
+                dep_rows = await app_container.dep_instance_store.get_all_for_model(model_id)
                 model["deps"] = _build_dep_response_rows(
                     provider_type=str(model.get("provider_type") or ""),
                     dep_rows=dep_rows,
@@ -1809,11 +2031,33 @@ def create_app(
     async def list_deps(
         app_container: AppContainer = Depends(get_container),
     ) -> list[dict]:
-        dep_rows = await app_container.dep_cache_store.list_all()
+        dep_rows = await app_container.dep_instance_store.list_all()
         return _build_dep_response_rows(
             provider_type="",
             dep_rows=dep_rows,
         )
+
+    @app.get(
+        "/api/admin/providers/{provider_type}/deps",
+        dependencies=[Depends(require_admin_token)],
+    )
+    async def list_provider_deps(
+        provider_type: str,
+        app_container: AppContainer = Depends(get_container),
+    ) -> list[dict]:
+        dependencies = get_provider_deps(provider_type)
+        result: list[dict] = []
+        for dep in dependencies:
+            instances = await app_container.dep_instance_store.list_by_dep_type(dep.dep_id)
+            result.append(
+                {
+                    "dep_type": dep.dep_id,
+                    "hf_repo_id": dep.hf_repo_id,
+                    "description": dep.description,
+                    "instances": instances,
+                }
+            )
+        return result
 
     @app.get(
         "/api/admin/models/{model_id}/deps",
@@ -1826,7 +2070,7 @@ def create_app(
         model = await app_container.model_store.get_model(model_id)
         if model is None:
             raise HTTPException(status_code=404, detail="model not found")
-        dep_rows = await app_container.dep_cache_store.get_all_for_model(model_id)
+        dep_rows = await app_container.dep_instance_store.get_all_for_model(model_id)
         return _build_dep_response_rows(
             provider_type=str(model.get("provider_type") or ""),
             dep_rows=dep_rows,
@@ -1873,6 +2117,7 @@ def create_app(
         weight_source = str(
             payload.get("weightSource", payload.get("weight_source")) or ""
         ).strip().lower()
+        raw_dep_assignments = payload.get("depAssignments", payload.get("dep_assignments"))
         if not model_id:
             raise HTTPException(status_code=422, detail="id is required")
         if not provider_type:
@@ -1909,6 +2154,12 @@ def create_app(
                     status_code=422,
                     detail=f"local model path does not exist: {model_path}",
                 )
+        dep_assignments = await _prepare_dep_assignments(
+            model_id=model_id,
+            provider_type=provider_type,
+            raw_dep_assignments=raw_dep_assignments,
+            dep_instance_store=app_container.dep_instance_store,
+        )
 
         try:
             model = await app_container.model_store.create_model(
@@ -1934,6 +2185,7 @@ def create_app(
                     provider_type=provider_type,
                     weight_source=weight_source,
                     model_path=model_path,
+                    dep_assignments=dep_assignments,
                 )
             except ValueError as exc:
                 raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -1956,6 +2208,7 @@ def create_app(
                 provider_type=provider_type,
                 weight_source=weight_source,
                 model_path=model_path,
+                dep_assignments=dep_assignments,
             ),
             name=f"model-download-{model_id}",
         )
