@@ -36,6 +36,19 @@ Any → FAILED / CANCELLED
 
 Crash recovery: QUEUED/PREPROCESSING → re-enqueue; GPU+ → force FAILED.
 
+## Environments
+
+| Environment | Machine | Purpose |
+|-------------|---------|---------|
+| Dev | Mac or lab (Ubuntu) | Code, tests, AI agents (Orchestrator + Worker) |
+| Deploy | GPU machine (separate) | Docker, actual model inference |
+
+- Orchestrator and Worker both run on dev machines — may be Mac or lab, tooling varies
+- Dev machines are isolated from the deploy machine unless the user explicitly says otherwise
+- Code reaches deploy via git / rsync (tool not fixed)
+- GPU-dependent model calls require the deploy machine — use mocks on dev
+- Worker prompt `Working directory:` must use the project directory name (`gen3d/`), not an absolute path
+
 ## Rules
 
 - Do not modify `ios/`, `server/`, `Hunyuan3D-2/`
@@ -46,6 +59,8 @@ Crash recovery: QUEUED/PREPROCESSING → re-enqueue; GPU+ → force FAILED.
 - Do not upgrade dependencies unless explicitly asked
 
 ## Toolchain
+
+> ⛔ All Python commands MUST go through `uv run`. Never use `.venv/bin/python`, `python`, `pip`, `source .venv/bin/activate`, or any direct venv activation.
 
 ```bash
 uv run python -m pytest tests -q   # tests (baseline: ≥ 163 passed)

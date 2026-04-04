@@ -5,8 +5,16 @@ import argparse
 import os
 import sqlite3
 import sys
+from pathlib import Path
 
 DEFAULT_DATABASE_PATH = "./data/app.sqlite3"
+MODEL_WEIGHT_GLOBS = (
+    "*.safetensors",
+    "pytorch_model*.bin",
+    "model.ckpt*",
+    "tf_model.h5",
+    "flax_model.msgpack",
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -49,7 +57,22 @@ def resolve_local_snapshot(hf_repo_id: str) -> str | None:
         return None
 
 
-def migrate(conn: sqlite3.Connection, dry_run: bool) -> tuple[int, int]:
+def snapshot_has_model_weights(snapshot_path: str | None) -> bool:
+    if not snapshot_path:
+        return False
+    candidate = Path(snapshot_path).expanduser()
+    if not candidate.exists() or not candidate.is_dir():
+        return False
+    for pattern in MODEL_WEIGHT_GLOBS:
+        try:
+            next(candidate.rglob(pattern))
+        except StopIteration:
+            continue
+        return True
+    return False
+
+
+def migrate(conn: sqlite3.Connection, dry_run: bool) -> tuple[int, int, int]:
     conn.execute("CREATE TABLE IF NOT EXISTS dep_cache (dep_id TEXT PRIMARY KEY, hf_repo_id TEXT NOT NULL, resolved_path TEXT, download_status TEXT NOT NULL DEFAULT 'pending', download_progress INTEGER NOT NULL DEFAULT 0, download_speed_bps INTEGER NOT NULL DEFAULT 0, download_error TEXT, revision TEXT DEFAULT NULL)")
     conn.execute("CREATE TABLE IF NOT EXISTS model_dep_requirements (model_id TEXT NOT NULL REFERENCES model_definitions(id) ON DELETE CASCADE, dep_id TEXT NOT NULL REFERENCES dep_cache(dep_id), PRIMARY KEY (model_id, dep_id))")
     model_table_exists = conn.execute(
@@ -57,20 +80,28 @@ def migrate(conn: sqlite3.Connection, dry_run: bool) -> tuple[int, int]:
     ).fetchone()
     if model_table_exists is None:
         print("[WARN] model_definitions table not found; nothing to migrate.")
-        return 0, 0
+        return 0, 0, 0
 
     rows = conn.execute("SELECT id, provider_type FROM model_definitions WHERE LOWER(TRIM(download_status)) = 'done' ORDER BY created_at, id").fetchall()
 
     dep_status_cache: dict[str, tuple[str, str | None]] = {}
     ready_dep_ids: set[str] = set()
     pending_dep_ids: set[str] = set()
+    no_weight_dep_ids: set[str] = set()
     for row in rows:
         model_id = str(row["id"])
         for dep_id, hf_repo_id in provider_dependencies(str(row["provider_type"])):
             status, path = dep_status_cache.get(dep_id, ("", None))
             if not status:
-                path = resolve_local_snapshot(hf_repo_id)
-                status = "done" if path else "pending"
+                resolved_snapshot_path = resolve_local_snapshot(hf_repo_id)
+                if snapshot_has_model_weights(resolved_snapshot_path):
+                    status = "done"
+                    path = resolved_snapshot_path
+                else:
+                    status = "pending"
+                    path = None
+                    if resolved_snapshot_path:
+                        no_weight_dep_ids.add(dep_id)
                 dep_status_cache[dep_id] = (status, path)
             (ready_dep_ids if status == "done" else pending_dep_ids).add(dep_id)
 
@@ -86,7 +117,7 @@ def migrate(conn: sqlite3.Connection, dry_run: bool) -> tuple[int, int]:
 
     if not dry_run:
         conn.commit()
-    return len(ready_dep_ids), len(pending_dep_ids)
+    return len(ready_dep_ids), len(pending_dep_ids), len(no_weight_dep_ids)
 
 
 def main() -> int:
@@ -98,7 +129,7 @@ def main() -> int:
     try:
         conn = sqlite3.connect(db_path)
         conn.row_factory = sqlite3.Row
-        ready_count, pending_count = migrate(conn, dry_run=args.dry_run)
+        ready_count, pending_count, no_weight_count = migrate(conn, dry_run=args.dry_run)
     except sqlite3.Error as exc:
         print(f"[ERROR] sqlite error: {exc}", file=sys.stderr)
         return 1
@@ -110,7 +141,7 @@ def main() -> int:
             conn.close()
 
     mode = "DRY-RUN" if args.dry_run else "APPLY"
-    print(f"[{mode}] ready={ready_count} pending={pending_count}")
+    print(f"[{mode}] ready={ready_count} pending={pending_count} no_model_weights={no_weight_count}")
     return 0
 
 

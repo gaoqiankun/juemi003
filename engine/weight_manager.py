@@ -223,6 +223,8 @@ class WeightManager:
         resolved_candidate = Path(str(resolved_path)).expanduser()
         if not _directory_has_entries(resolved_candidate):
             raise ValueError(f"downloaded dependency repository is empty: {dep.hf_repo_id}")
+        if not _snapshot_has_model_weights(resolved_candidate):
+            raise ValueError(f"downloaded dependency has no model weights: {dep.hf_repo_id}")
         return str(resolved_candidate.resolve())
 
     async def _download_from_huggingface(
@@ -497,6 +499,24 @@ def _directory_has_entries(path: Path) -> bool:
     except (StopIteration, FileNotFoundError):
         return False
     return True
+
+
+def _snapshot_has_model_weights(path: Path) -> bool:
+    if not path.exists() or not path.is_dir():
+        return False
+    for pattern in (
+        "*.safetensors",
+        "pytorch_model*.bin",
+        "model.ckpt*",
+        "tf_model.h5",
+        "flax_model.msgpack",
+    ):
+        try:
+            next(path.rglob(pattern))
+        except StopIteration:
+            continue
+        return True
+    return False
 
 
 def _parse_content_length(value: str | None) -> int | None:
