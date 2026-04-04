@@ -21,11 +21,53 @@ const PROVIDER_OPTIONS = [
   { value: "step1x3d", label: "Step1X-3D" },
 ];
 
-const WEIGHT_SOURCE_OPTIONS: { value: WeightSource; labelKey: string }[] = [
-  { value: "huggingface", labelKey: "models.addModel.sources.huggingface" },
-  { value: "local", labelKey: "models.addModel.sources.local" },
-  { value: "url", labelKey: "models.addModel.sources.url" },
-];
+
+interface WeightSourcePickerProps {
+  source: WeightSource;
+  path: string;
+  onSourceChange: (source: WeightSource) => void;
+  onPathChange: (value: string) => void;
+  disabled?: boolean;
+  radioName: string;
+  label?: string;
+}
+
+function WeightSourcePicker({ source, path, onSourceChange, onPathChange, disabled, radioName, label }: WeightSourcePickerProps) {
+  const { t } = useTranslation();
+  return (
+    <div className="grid gap-2">
+      <div className="flex items-center gap-4">
+        {label && <span className="shrink-0 text-xs font-semibold uppercase tracking-wide text-text-secondary">{label}</span>}
+        {(["huggingface", "local", "url"] as WeightSource[]).map((key) => (
+          <label
+            key={key}
+            className={cn(
+              "flex items-center gap-1.5 text-sm",
+              disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer",
+            )}
+          >
+            <input
+              type="radio"
+              name={radioName}
+              value={key}
+              checked={source === key}
+              onChange={() => onSourceChange(key)}
+              disabled={disabled}
+              className="accent-[var(--accent-strong)]"
+            />
+            {t(`models.addModel.sources.${key}`)}
+          </label>
+        ))}
+      </div>
+      <InputField
+        value={path}
+        onChange={(e) => onPathChange(e.target.value)}
+        placeholder={t(`models.addModel.placeholders.${source}`)}
+        disabled={disabled}
+      />
+    </div>
+  );
+}
 
 const DEP_STATUS_CLASS: Record<DepDownloadStatus, string> = {
   done: "text-success-text",
@@ -260,11 +302,12 @@ export function AddModelDialog({ open, onOpenChange, onSubmit }: AddModelDialogP
     }
   }, [submitting, onOpenChange]);
 
-  const sourceRows: { key: WeightSource; setPath: (v: string) => void; path: string }[] = [
-    { key: "huggingface", setPath: setHfPath, path: hfPath },
-    { key: "local", setPath: setLocalPath, path: localPath },
-    { key: "url", setPath: setUrlPath, path: urlPath },
-  ];
+  const activeMainPath = weightSource === "huggingface" ? hfPath : weightSource === "local" ? localPath : urlPath;
+  const setActiveMainPath = useCallback((value: string) => {
+    if (weightSource === "huggingface") setHfPath(value);
+    else if (weightSource === "local") setLocalPath(value);
+    else setUrlPath(value);
+  }, [weightSource]);
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -286,39 +329,15 @@ export function AddModelDialog({ open, onOpenChange, onSubmit }: AddModelDialogP
             </div>
           </div>
 
-          <div className="grid gap-2">
-            <label className="text-xs font-semibold uppercase tracking-wide text-text-secondary">{t("models.addModel.fields.weightSource")}</label>
-            <div className="grid gap-2">
-              {sourceRows.map(({ key, setPath, path }) => (
-                <label
-                  key={key}
-                  className={cn(
-                    "flex items-center gap-3 rounded-xl border p-3 transition-colors",
-                    !submitting && "cursor-pointer",
-                    weightSource === key ? "border-accent-strong bg-surface-container-low" : "border-outline hover:bg-surface-container-lowest",
-                  )}
-                >
-                  <input
-                    type="radio"
-                    name="weightSource"
-                    value={key}
-                    checked={weightSource === key}
-                    onChange={() => setWeightSource(key)}
-                    className="accent-[var(--accent-strong)] shrink-0"
-                    disabled={submitting}
-                  />
-                  <span className="w-24 shrink-0 text-sm font-medium text-text-primary">{t(`models.addModel.sources.${key}`)}</span>
-                  <InputField
-                    value={path}
-                    onChange={(e) => setPath(e.target.value)}
-                    placeholder={t(`models.addModel.placeholders.${key}`)}
-                    disabled={submitting || weightSource !== key}
-                    className={cn("flex-1", weightSource !== key && "opacity-40")}
-                  />
-                </label>
-              ))}
-            </div>
-          </div>
+          <WeightSourcePicker
+            source={weightSource}
+            path={activeMainPath}
+            onSourceChange={setWeightSource}
+            onPathChange={setActiveMainPath}
+            disabled={submitting}
+            radioName="weightSource"
+            label={t("models.addModel.fields.weightSource")}
+          />
 
           {providerDepsLoading ? (
             <div className="grid gap-1.5 rounded-xl border border-outline bg-surface-container-low p-3">
@@ -378,22 +397,15 @@ export function AddModelDialog({ open, onOpenChange, onSubmit }: AddModelDialogP
                             />
                           </div>
 
-                          <div className="grid gap-1.5">
-                            <label className="text-xs font-semibold uppercase tracking-wide text-text-secondary">{t("models.addModel.deps.sourceLabel")}</label>
-                            <div className="grid gap-2">
-                              <SelectField
-                                value={depSource}
-                                onValueChange={(value) => handleDepSourceChange(dep, value)}
-                                options={WEIGHT_SOURCE_OPTIONS.map((source) => ({ value: source.value, label: t(source.labelKey) }))}
-                              />
-                              <InputField
-                                value={depPath}
-                                onChange={(e) => handleDepPathChange(dep, depSource, e.target.value)}
-                                placeholder={t(`models.addModel.placeholders.${depSource}`)}
-                                disabled={submitting}
-                              />
-                            </div>
-                          </div>
+                          <WeightSourcePicker
+                            source={depSource}
+                            path={depPath}
+                            onSourceChange={(value) => handleDepSourceChange(dep, value)}
+                            onPathChange={(value) => handleDepPathChange(dep, depSource, value)}
+                            disabled={submitting}
+                            radioName={`depSource-${depType}`}
+                            label={t("models.addModel.deps.sourceLabel")}
+                          />
                         </div>
                       ) : null}
                     </div>
