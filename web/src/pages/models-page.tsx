@@ -69,11 +69,6 @@ function formatProgress(value: number): string {
   return `${Math.round(clampProgress(value))}%`;
 }
 
-function truncatePath(path: string, maxLen = 32): string {
-  if (path.length <= maxLen) return path;
-  return `…${path.slice(-(maxLen - 1))}`;
-}
-
 function getDependencyLabel(dep: DepStatus, fallback: string): string {
   const description = String(dep.description || "").trim();
   if (description) return description;
@@ -445,10 +440,6 @@ export function ModelsPage() {
                 const runtimeErrorTooltip = model.runtimeState === "error" && model.errorMessage
                   ? model.errorMessage
                   : undefined;
-                const sourceLabel = sourceLabelMap[model.weightSource] ?? model.weightSource;
-                const providerTypeLabel = providerTypeLabelMap[model.providerType] ?? model.providerType;
-                const resolvedModelPath = model.resolvedPath || model.modelPath;
-                const truncated = truncatePath(resolvedModelPath);
                 return (
                   <tr key={model.id}>
                     <td className={tableCellLeftClassName}>
@@ -457,17 +448,7 @@ export function ModelsPage() {
                         {model.isDefault ? (
                           <Badge tone="accent">{t("models.list.defaultTag")}</Badge>
                         ) : null}
-                        <Badge tone="neutral">{sourceLabel}</Badge>
-                        <Badge tone="neutral">{providerTypeLabel}</Badge>
                       </div>
-                      {resolvedModelPath ? (
-                        <div
-                          className="mt-0.5 truncate text-xs text-text-muted"
-                          title={resolvedModelPath}
-                        >
-                          {truncated}
-                        </div>
-                      ) : null}
                     </td>
                     <td className={tableCellCenterClassName}>
                       <div className="grid justify-items-center">

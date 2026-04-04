@@ -219,7 +219,7 @@ export function GeneratePage() {
             />
             {previewUrl ? (
               <>
-                <img src={previewUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
+                <img src={previewUrl} alt="" className="absolute inset-0 h-full w-full bg-surface-container-low object-contain" />
                 <button
                   type="button"
                   className="absolute right-2 top-2 inline-flex h-7 w-7 items-center justify-center rounded-full bg-surface/80 text-text-primary backdrop-blur transition hover:bg-surface"

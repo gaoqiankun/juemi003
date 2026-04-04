@@ -252,6 +252,11 @@
         "local": "/data/models/my-model",
         "url": "https://example.com/model.tar.gz"
       },
+      "guidance": {
+        "mainWeightSource": "You choose the source for the main model weights here.",
+        "dependencyAutoDownload": "Dependency weights are downloaded automatically by the system before the first model load. No manual setup is required.",
+        "step1x3dDeps": "Step1X-3D needs additional dependencies (for example SDXL and BiRefNet). Before first load, ensure HuggingFace is reachable from this machine, or pre-cache those dependencies."
+      },
       "submit": "Add Model",
       "submitting": "Adding...",
       "cancel": "Cancel",

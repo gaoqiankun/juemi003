@@ -198,6 +198,20 @@ export function AddModelDialog({ open, onOpenChange, onSubmit }: AddModelDialogP
             </div>
           </div>
 
+          <div className="grid gap-1.5 rounded-xl border border-outline bg-surface-container-low p-3">
+            <p className="text-sm text-text-secondary">
+              {t("models.addModel.guidance.mainWeightSource")}
+            </p>
+            <p className="text-sm text-text-secondary">
+              {t("models.addModel.guidance.dependencyAutoDownload")}
+            </p>
+            {providerType === "step1x3d" ? (
+              <p className="text-sm text-warning-text">
+                {t("models.addModel.guidance.step1x3dDeps")}
+              </p>
+            ) : null}
+          </div>
+
           {error ? <p className="text-sm text-danger-text">{error}</p> : null}
 
           <div className="flex justify-end gap-2">
