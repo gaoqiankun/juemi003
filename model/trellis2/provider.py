@@ -103,14 +103,14 @@ class Trellis2Provider:
     def dependencies(cls) -> list[ProviderDependency]:
         return [
             ProviderDependency(
+                dep_id="trellis-image-large",
+                hf_repo_id="microsoft/TRELLIS-image-large",
+                description="TRELLIS sparse structure decoder checkpoint",
+            ),
+            ProviderDependency(
                 dep_id="dinov3-vitl16",
                 hf_repo_id="facebook/dinov3-vitl16-pretrain-lvd1689m",
                 description="DINOv3 ViT-L/16 visual feature extractor",
-            ),
-            ProviderDependency(
-                dep_id="birefnet",
-                hf_repo_id="ZhengPeng7/BiRefNet",
-                description="Background removal (BiRefNet)",
             ),
             ProviderDependency(
                 dep_id="rmbg-2.0",
@@ -473,7 +473,12 @@ class Trellis2Provider:
 
         def replace_values(value: Any) -> Any:
             if isinstance(value, str):
-                return repo_to_local.get(value, value)
+                if value in repo_to_local:
+                    return repo_to_local[value]
+                for repo_id, local_path in repo_to_local.items():
+                    if value.startswith(repo_id + "/"):
+                        return local_path + value[len(repo_id):]
+                return value
             if isinstance(value, list):
                 return [replace_values(item) for item in value]
             if isinstance(value, dict):
