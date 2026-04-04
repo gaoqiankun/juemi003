@@ -40,7 +40,7 @@ class Pipeline:
         for k, v in args['models'].items():
             if hasattr(cls, 'model_names_to_load') and k not in cls.model_names_to_load:
                 continue
-            local_model_path = f"{path}/{v}"
+            local_model_path = v if os.path.isabs(v) else f"{path}/{v}"
             _models[k] = models.from_pretrained(local_model_path)
 
         new_pipeline = cls(_models)
