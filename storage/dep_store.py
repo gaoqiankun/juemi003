@@ -242,6 +242,29 @@ class DepInstanceStore(_SQLiteStore):
         row = await cursor.fetchone()
         return _row_to_dep_instance(row) if row else None
 
+    async def find_duplicate_source(
+        self,
+        dep_type: str,
+        weight_source: str,
+        dep_model_path: str,
+    ) -> dict | None:
+        """Return an existing instance with the same dep_type + weight_source + dep_model_path, or None."""
+        db = self._require_db()
+        normalized_dep_type = _normalize_required_text(dep_type, field="dep_type")
+        normalized_source = _normalize_weight_source(weight_source)
+        normalized_path = _normalize_required_text(dep_model_path, field="dep_model_path")
+        cursor = await db.execute(
+            """
+            SELECT * FROM dep_instances
+            WHERE dep_type = ? AND weight_source = ? AND dep_model_path = ?
+            ORDER BY created_at, id
+            LIMIT 1
+            """,
+            (normalized_dep_type, normalized_source, normalized_path),
+        )
+        row = await cursor.fetchone()
+        return _row_to_dep_instance(row) if row else None
+
     async def create(
         self,
         instance_id: str,

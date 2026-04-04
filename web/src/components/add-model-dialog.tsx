@@ -182,6 +182,14 @@ export function AddModelDialog({ open, onOpenChange, onSubmit }: AddModelDialogP
       if (source === "huggingface" && !HUGGINGFACE_REPO_PATTERN.test(depPath)) return t("models.addModel.errors.depHfInvalid", { depType });
       if (source === "local" && !depPath) return t("models.addModel.errors.depLocalRequired", { depType });
       if (source === "url" && !depPath.match(/^https?:\/\//)) return t("models.addModel.errors.depUrlInvalid", { depType });
+
+      const duplicate = dep.instances.find((inst) => {
+        if (inst.weight_source !== source) return false;
+        const instPath = String(inst.dep_model_path || "").trim() || String(inst.hf_repo_id || "").trim();
+        const newPath = source === "huggingface" ? (String(newDepPaths[depType]?.huggingface || "").trim() || dep.hf_repo_id) : depPath;
+        return instPath === newPath;
+      });
+      if (duplicate) return t("models.addModel.errors.depDuplicate", { depType, name: duplicate.display_name });
     }
 
     return "";
@@ -260,12 +268,13 @@ export function AddModelDialog({ open, onOpenChange, onSubmit }: AddModelDialogP
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="w-[min(92vw,560px)]">
-        <DialogHeader>
+      <DialogContent className="flex max-h-[90vh] w-[min(92vw,560px)] flex-col overflow-hidden">
+        <DialogHeader className="shrink-0">
           <DialogTitle>{t("models.addModel.title")}</DialogTitle>
         </DialogHeader>
 
-        <div className="grid gap-4 pt-1">
+        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pt-1 pr-1">
+        <div className="grid gap-4">
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="grid gap-1.5">
               <label className="text-xs font-semibold uppercase tracking-wide text-text-secondary">{t("models.addModel.fields.displayName")}</label>
@@ -394,16 +403,18 @@ export function AddModelDialog({ open, onOpenChange, onSubmit }: AddModelDialogP
             </div>
           ) : null}
 
-          {error ? <p className="text-sm text-danger-text">{error}</p> : null}
+        </div>
+        </div>
 
-          <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" size="sm" onClick={() => handleOpenChange(false)} disabled={submitting}>
-              {t("models.addModel.cancel")}
-            </Button>
-            <Button type="button" variant="primary" size="sm" onClick={handleSubmit} disabled={submitting}>
-              {submitting ? t("models.addModel.submitting") : t("models.addModel.submit")}
-            </Button>
-          </div>
+        {error ? <p className="shrink-0 pt-1 text-sm text-danger-text">{error}</p> : null}
+
+        <div className="flex shrink-0 justify-end gap-2 pt-2">
+          <Button type="button" variant="outline" size="sm" onClick={() => handleOpenChange(false)} disabled={submitting}>
+            {t("models.addModel.cancel")}
+          </Button>
+          <Button type="button" variant="primary" size="sm" onClick={handleSubmit} disabled={submitting}>
+            {submitting ? t("models.addModel.submitting") : t("models.addModel.submit")}
+          </Button>
         </div>
       </DialogContent>
     </Dialog>

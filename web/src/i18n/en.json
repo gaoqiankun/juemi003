@@ -272,7 +272,8 @@
         "depNameRequired": "Please enter an instance name for dependency {{depType}}.",
         "depHfInvalid": "Dependency {{depType}} HuggingFace repo must be in owner/repo format.",
         "depLocalRequired": "Please enter a local path for dependency {{depType}}.",
-        "depUrlInvalid": "Dependency {{depType}} URL must start with http:// or https://."
+        "depUrlInvalid": "Dependency {{depType}} URL must start with http:// or https://.",
+        "depDuplicate": "Dependency {{depType}} already has an instance \"{{name}}\" with the same source. Select that instance instead."
       }
     },
     "pending": {

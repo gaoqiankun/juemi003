@@ -663,6 +663,18 @@ async def _validate_new_dep_assignment(
         weight_source,
         str(new_cfg.get("dep_model_path") or "").strip(),
     )
+
+    duplicate = await dep_instance_store.find_duplicate_source(dep_type, weight_source, dep_model_path)
+    if duplicate is not None:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"dep {dep_type} already has an instance \"{duplicate['display_name']}\" "
+                f"with the same source ({weight_source}: {dep_model_path}). "
+                f"Use instance_id \"{duplicate['id']}\" instead."
+            ),
+        )
+
     return {
         "instance_id": instance_id,
         "display_name": display_name,

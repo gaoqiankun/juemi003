@@ -272,7 +272,8 @@
         "depNameRequired": "请输入依赖 {{depType}} 的实例名称。",
         "depHfInvalid": "依赖 {{depType}} 的 HuggingFace 仓库格式应为 owner/repo。",
         "depLocalRequired": "请输入依赖 {{depType}} 的本地路径。",
-        "depUrlInvalid": "依赖 {{depType}} 的 URL 须以 http:// 或 https:// 开头。"
+        "depUrlInvalid": "依赖 {{depType}} 的 URL 须以 http:// 或 https:// 开头。",
+        "depDuplicate": "依赖 {{depType}} 已存在完全相同来源的实例「{{name}}」，请直接选择该实例。"
       }
     },
     "pending": {
