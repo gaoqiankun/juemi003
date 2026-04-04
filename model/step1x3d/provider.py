@@ -151,11 +151,6 @@ class Step1X3DProvider:
                 hf_repo_id="ZhengPeng7/BiRefNet",
                 description="Background removal (shared)",
             ),
-            ProviderDependency(
-                dep_id="dinov2-with-registers-large",
-                hf_repo_id="facebook/dinov2-with-registers-large",
-                description="DINOv2 geometry encoder",
-            ),
         ]
 
     @classmethod
@@ -440,13 +435,9 @@ class Step1X3DProvider:
         if load_pipeline:
             geometry_subfolder = "Step1X-3D-Geometry-1300m"
             try:
-                with _temporary_env_var(
-                    "STEP1X3D_DINO_MODEL_PATH_OVERRIDE",
-                    dep_paths.get("dinov2-with-registers-large") if dep_paths else None,
-                ):
-                    geometry_pipeline = geometry_cls.from_pretrained(
-                        model_reference, subfolder=geometry_subfolder,
-                    )
+                geometry_pipeline = geometry_cls.from_pretrained(
+                    model_reference, subfolder=geometry_subfolder,
+                )
                 if hasattr(geometry_pipeline, "to"):
                     geometry_pipeline = geometry_pipeline.to("cuda")
             except Exception as exc:
