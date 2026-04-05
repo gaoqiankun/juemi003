@@ -224,7 +224,18 @@
       "tasksProcessed": "Processed: {{count}}",
       "saving": "Saving model changes...",
       "empty": "No models found.",
-      "toggleLabel": "Toggle access for {{name}}"
+      "toggleLabel": "Toggle access for {{name}}",
+      "delete": "Delete",
+      "deleteConfirmTitle": "Delete model",
+      "deleteConfirmDescription": "Delete \"{{name}}\"? This action cannot be undone.",
+      "deleteConfirmOk": "Delete",
+      "deleteLastError": "Cannot delete the last ready model."
+    },
+    "firstRun": {
+      "title": "No models available",
+      "description": "Download the default model to start generating 3D assets.",
+      "startDownload": "Start Download",
+      "downloading": "Downloading..."
     },
     "runtime": {
       "ready": "Ready",

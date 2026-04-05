@@ -17,7 +17,7 @@ async def store(tmp_path):
 
 @pytest.mark.anyio
 async def test_initialize_seeds_defaults(store: ModelStore):
-    models = await store.list_models()
+    models = await store.list_models(extra_statuses=frozenset({"pending"}))
     assert len(models) == 3
     ids = {m["id"] for m in models}
     assert ids == {"trellis2", "hunyuan3d", "step1x3d"}
@@ -39,7 +39,7 @@ async def test_initialize_seeds_defaults(store: ModelStore):
 
 @pytest.mark.anyio
 async def test_list_models(store: ModelStore):
-    models = await store.list_models()
+    models = await store.list_models(extra_statuses=frozenset({"pending"}))
     assert isinstance(models, list)
     assert len(models) == 3
     # sorted by created_at — all seeded at the same time, order is stable
@@ -108,20 +108,20 @@ async def test_delete_model(store: ModelStore):
     assert await store.get_model("hunyuan3d") is None
     assert await store.delete_model("hunyuan3d") is False
 
-    models = await store.list_models()
+    models = await store.list_models(extra_statuses=frozenset({"pending"}))
     assert len(models) == 2
 
 
 @pytest.mark.anyio
 async def test_get_enabled_models(store: ModelStore):
-    enabled = await store.get_enabled_models()
+    enabled = await store.get_enabled_models(extra_statuses=frozenset({"pending"}))
     # Only trellis2 is enabled by default
     assert len(enabled) == 1
     assert enabled[0]["id"] == "trellis2"
 
     # Enable hunyuan3d
     await store.update_model("hunyuan3d", is_enabled=True)
-    enabled = await store.get_enabled_models()
+    enabled = await store.get_enabled_models(extra_statuses=frozenset({"pending"}))
     assert len(enabled) == 2
 
 

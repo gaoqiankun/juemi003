@@ -794,7 +794,7 @@ async def build_model_runtime(
         )
 
     download_status = str(model_definition.get("download_status") or "done").strip().lower()
-    if download_status != "done":
+    if download_status != "done" and not config.is_mock_provider:
         raise ModelProviderConfigurationError(
             f"model {normalized_model_name} weights are {download_status}; download must complete first"
         )
@@ -1222,7 +1222,9 @@ def create_app(
         await container.model_dep_requirements_store.initialize()
         await container.settings_store.initialize()
         await container.model_scheduler.initialize()
-        default_models = await container.model_store.list_models()
+        default_models = await container.model_store.list_models(
+            extra_statuses=frozenset({"pending"}) if container.config.is_mock_provider else frozenset(),
+        )
         default_model_ids = tuple(
             str(model["id"]).strip().lower()
             for model in default_models
@@ -1534,7 +1536,9 @@ def create_app(
         app_container: AppContainer = Depends(get_container),
     ) -> UserModelListResponse:
         del key_id
-        enabled_models = await app_container.model_store.get_enabled_models()
+        enabled_models = await app_container.model_store.get_enabled_models(
+            extra_statuses=frozenset({"pending"}) if app_container.config.is_mock_provider else frozenset(),
+        )
         runtime_states = app_container.model_registry.runtime_states()
         return UserModelListResponse(
             models=[
@@ -1999,6 +2003,7 @@ def create_app(
     ) -> dict:
         models = await app_container.model_store.list_models(
             include_pending=include_pending,
+            extra_statuses=frozenset({"pending"}) if (not include_pending and app_container.config.is_mock_provider) else frozenset(),
         )
         runtime_states = app_container.model_registry.runtime_states()
         max_tasks_per_slot = app_container.model_scheduler.max_tasks_per_slot
@@ -2280,6 +2285,12 @@ def create_app(
         model = await app_container.model_store.get_model(model_id)
         if model is None:
             raise HTTPException(status_code=404, detail="model not found")
+        if str(model.get("download_status") or "").strip().lower() == "done":
+            ready_count = await app_container.model_store.count_ready_models()
+            if ready_count <= 1:
+                raise HTTPException(
+                    status_code=400, detail="cannot delete the last ready model"
+                )
         if str(model.get("download_status") or "").strip().lower() == "downloading":
             await _cancel_model_download_task(model_id)
         if app_container.model_registry.get_state(model_id) != "not_loaded":
@@ -2408,7 +2419,9 @@ def create_app(
     ) -> dict:
         db_settings = await app_container.settings_store.get_all()
         cfg = app_container.config
-        model_definitions = await app_container.model_store.list_models()
+        model_definitions = await app_container.model_store.list_models(
+            extra_statuses=frozenset({"pending"}) if app_container.config.is_mock_provider else frozenset(),
+        )
         provider_options = [
             {
                 "value": str(model["id"]),

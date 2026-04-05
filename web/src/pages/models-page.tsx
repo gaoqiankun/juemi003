@@ -3,6 +3,7 @@ import { Plus, X, RotateCcw, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { AddModelDialog } from "@/components/add-model-dialog";
+import { FirstRunWizard } from "@/components/first-run-wizard";
 import { Progress } from "@/components/ui/progress";
 import {
   Badge,
@@ -17,6 +18,7 @@ import {
 } from "@/components/ui/primitives";
 import {
   fetchModelDeps,
+  type AdminApiError,
   type DepDownloadStatus,
   type DepStatus,
 } from "@/lib/admin-api";
@@ -297,6 +299,7 @@ export function ModelsPage() {
   } = useModelsData();
   const [actionError, setActionError] = useState("");
   const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [deleteTargetId, setDeleteTargetId] = useState("");
   const [detailModel, setDetailModel] = useState<AdminModelItem | null>(null);
   const [detailDeps, setDetailDeps] = useState<DepStatus[]>([]);
   const [detailDepsLoading, setDetailDepsLoading] = useState(false);
@@ -348,6 +351,42 @@ export function ModelsPage() {
     );
   }, [runModelAction, retryDownload]);
 
+  const handleDeleteRequest = useCallback((id: string) => {
+    setDeleteTargetId(id);
+  }, []);
+
+  const handleDeleteCancel = useCallback(() => {
+    setDeleteTargetId("");
+  }, []);
+
+  const handleDeleteConfirm = useCallback(async () => {
+    const id = deleteTargetId;
+    setDeleteTargetId("");
+    try {
+      setActionError("");
+      await removeModel(id);
+    } catch (err) {
+      const apiErr = err as AdminApiError;
+      if (apiErr.status === 400) {
+        setActionError(t("models.list.deleteLastError"));
+      } else {
+        setActionError(err instanceof Error ? err.message : String(err));
+      }
+    }
+  }, [deleteTargetId, removeModel, t]);
+
+  const handleStartDownload = useCallback((item: AdminPendingItem) => {
+    runModelAction(() =>
+      retryDownload(item.id, {
+        id: item.id,
+        displayName: item.displayName,
+        modelPath: item.modelPath,
+        weightSource: item.weightSource,
+        providerType: item.providerType,
+      }),
+    );
+  }, [runModelAction, retryDownload]);
+
   const handleOpenDetails = useCallback((model: AdminModelItem) => {
     const requestId = detailDepsRequestIdRef.current + 1;
     detailDepsRequestIdRef.current = requestId;
@@ -385,6 +424,8 @@ export function ModelsPage() {
   if (error) return <div className="flex items-center justify-center h-full text-red-500">{error}</div>;
 
   const hasPending = pendingItems.length > 0;
+  const deleteTargetModel = models.find((m) => m.id === deleteTargetId) ?? null;
+  const defaultPendingItem = pendingItems.find((item) => item.isDefault) ?? null;
   const detailProviderLabel = detailModel
     ? providerTypeLabelMap[detailModel.providerType] ?? detailModel.providerType
     : "";
@@ -431,8 +472,11 @@ export function ModelsPage() {
             <tbody>
               {models.length === 0 ? (
                 <tr>
-                  <td className={tableCellLeftClassName} colSpan={4}>
-                    {t("models.list.empty")}
+                  <td colSpan={4}>
+                    <FirstRunWizard
+                      defaultPendingItem={defaultPendingItem}
+                      onStartDownload={handleStartDownload}
+                    />
                   </td>
                 </tr>
               ) : models.map((model) => {
@@ -504,6 +548,16 @@ export function ModelsPage() {
                           onClick={() => handleOpenDetails(model)}
                         >
                           {t("models.list.details")}
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="danger"
+                          disabled={isBusy || models.length === 1}
+                          onClick={() => handleDeleteRequest(model.id)}
+                        >
+                          <Trash2 className="mr-1 h-3.5 w-3.5" />
+                          {t("models.list.delete")}
                         </Button>
                       </div>
                     </td>
@@ -609,6 +663,25 @@ export function ModelsPage() {
               ) : null}
             </div>
           ) : null}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(deleteTargetModel)} onOpenChange={(open) => { if (!open) handleDeleteCancel(); }}>
+        <DialogContent className="w-[min(92vw,420px)] p-4">
+          <DialogHeader className="pr-8">
+            <DialogTitle>{t("models.list.deleteConfirmTitle")}</DialogTitle>
+            <DialogDescription>
+              {t("models.list.deleteConfirmDescription", { name: deleteTargetModel?.displayName ?? "" })}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button type="button" size="sm" variant="outline" onClick={handleDeleteCancel}>
+              {t("models.addModel.cancel")}
+            </Button>
+            <Button type="button" size="sm" variant="danger" onClick={handleDeleteConfirm}>
+              {t("models.list.deleteConfirmOk")}
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
 

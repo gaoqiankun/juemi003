@@ -24,17 +24,18 @@ FROM ${TRELLIS2_IMAGE}
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
+    UV_NO_CACHE=1 \
+    UV_SYSTEM_PYTHON=1
 
 WORKDIR /app
 
-COPY requirements.txt requirements-worker.txt ./
+COPY pyproject.toml uv.lock ./
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends libegl1-mesa && \
     rm -rf /var/lib/apt/lists/* && \
-    python -m pip install --upgrade pip setuptools wheel && \
-    python -m pip install -r requirements-worker.txt
+    pip install uv --break-system-packages && \
+    uv sync --group worker --frozen --no-dev
 
 # Keep the checkout under /app/gen3d so `python serve.py` sees the same
 # package layout as a normal repo checkout (`<parent>/gen3d/...`).

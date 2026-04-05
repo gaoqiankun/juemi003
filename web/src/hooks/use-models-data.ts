@@ -37,6 +37,7 @@ export interface AdminPendingItem {
   modelPath: string;
   weightSource: AdminModelWeightSource;
   providerType: AdminModelProviderType;
+  isDefault: boolean;
   downloadStatus: DepDownloadStatus;
   downloadProgress: number;
   downloadSpeedBps: number;
@@ -110,6 +111,7 @@ function splitModels(payload: RawAdminModelRecord[] | undefined): {
         modelPath: String(item.model_path || "").trim(),
         weightSource: normalizeWeightSource(item.weight_source),
         providerType: normalizeProviderType(String(item.provider_type || item.providerType || "").trim()),
+        isDefault: Boolean(item.is_default),
         downloadStatus,
         downloadProgress: Number(item.download_progress ?? 0),
         downloadSpeedBps: Number(item.download_speed_bps ?? 0),

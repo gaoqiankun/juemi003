@@ -112,15 +112,21 @@ class ModelStore:
                     """
                     INSERT INTO model_definitions
                         (id, provider_type, display_name, model_path,
+                         weight_source, download_status, download_progress,
+                         resolved_path,
                          is_enabled, is_default, min_vram_mb, vram_gb, config_json,
                          created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         seed["id"],
                         seed["provider_type"],
                         seed["display_name"],
                         seed["model_path"],
+                        "huggingface",
+                        "pending",
+                        0,
+                        None,
                         seed["is_enabled"],
                         seed["is_default"],
                         seed["min_vram_mb"],
@@ -141,11 +147,22 @@ class ModelStore:
     # Read
     # ------------------------------------------------------------------
 
-    async def list_models(self, *, include_pending: bool = False) -> list[dict]:
+    async def list_models(
+        self,
+        *,
+        include_pending: bool = False,
+        extra_statuses: frozenset[str] = frozenset(),
+    ) -> list[dict]:
         db = self._require_db()
         if include_pending:
             cursor = await db.execute(
                 "SELECT * FROM model_definitions ORDER BY created_at"
+            )
+        elif extra_statuses:
+            placeholders = ", ".join("?" * (1 + len(extra_statuses)))
+            cursor = await db.execute(
+                f"SELECT * FROM model_definitions WHERE download_status IN ({placeholders}) ORDER BY created_at",
+                tuple(["done", *sorted(extra_statuses)]),
             )
         else:
             cursor = await db.execute(
@@ -174,17 +191,41 @@ class ModelStore:
         row = await cursor.fetchone()
         return _row_to_dict(row) if row else None
 
-    async def get_enabled_models(self) -> list[dict]:
+    async def get_enabled_models(
+        self,
+        *,
+        include_pending: bool = False,
+        extra_statuses: frozenset[str] = frozenset(),
+    ) -> list[dict]:
         db = self._require_db()
-        cursor = await db.execute(
-            """
-            SELECT * FROM model_definitions
-            WHERE is_enabled = 1 AND download_status = 'done'
-            ORDER BY created_at
-            """
-        )
+        if include_pending:
+            cursor = await db.execute(
+                "SELECT * FROM model_definitions WHERE is_enabled = 1 ORDER BY created_at"
+            )
+        elif extra_statuses:
+            placeholders = ", ".join("?" * (1 + len(extra_statuses)))
+            cursor = await db.execute(
+                f"SELECT * FROM model_definitions WHERE is_enabled = 1 AND download_status IN ({placeholders}) ORDER BY created_at",
+                tuple(["done", *sorted(extra_statuses)]),
+            )
+        else:
+            cursor = await db.execute(
+                """
+                SELECT * FROM model_definitions
+                WHERE is_enabled = 1 AND download_status = 'done'
+                ORDER BY created_at
+                """
+            )
         rows = await cursor.fetchall()
         return [_row_to_dict(r) for r in rows]
+
+    async def count_ready_models(self) -> int:
+        db = self._require_db()
+        cursor = await db.execute(
+            "SELECT COUNT(*) AS cnt FROM model_definitions WHERE download_status = 'done'"
+        )
+        row = await cursor.fetchone()
+        return int(row["cnt"])
 
     async def get_all_resolved_paths(self) -> list[str]:
         db = self._require_db()
@@ -544,7 +585,7 @@ def _normalize_weight_source(value: object) -> str:
 
 def _normalize_download_status(value: object) -> str:
     normalized = str(value or "done").strip().lower()
-    if normalized not in {"downloading", "done", "error"}:
+    if normalized not in {"pending", "downloading", "done", "error"}:
         return "done"
     return normalized
 
