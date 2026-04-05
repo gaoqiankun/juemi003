@@ -34,8 +34,9 @@ COPY pyproject.toml uv.lock ./
 RUN apt-get update && \
     apt-get install -y --no-install-recommends libegl1-mesa && \
     rm -rf /var/lib/apt/lists/* && \
-    pip install uv --break-system-packages && \
-    uv sync --group worker --frozen --no-dev
+    pip install uv && \
+    uv export --group worker --no-dev --frozen --no-emit-project -o /tmp/requirements.txt && \
+    pip install -r /tmp/requirements.txt
 
 # Keep the checkout under /app/gen3d so `python serve.py` sees the same
 # package layout as a normal repo checkout (`<parent>/gen3d/...`).
