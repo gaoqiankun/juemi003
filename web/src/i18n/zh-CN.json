@@ -274,6 +274,37 @@
       "submit": "添加模型",
       "submitting": "添加中...",
       "cancel": "取消",
+      "back": "上一步",
+      "next": "下一步",
+      "startDownload": "开始下载",
+      "steps": {
+        "chooseProvider": "选择模型类型",
+        "configWeights": "配置主模型权重",
+        "configureDeps": "配置依赖权重",
+        "confirm": "确认下载"
+      },
+      "providerCard": {
+        "vram": "需要 {{vram}} 显存",
+        "desc": {
+          "trellis2": "基于结构化 3D 潜空间的高质量生成模型",
+          "hunyuan3d": "腾讯多视图感知 3D 生成，支持高精度纹理",
+          "step1x3d": "阶跃星辰轻量高效 3D 生成模型"
+        }
+      },
+      "step2": {
+        "autoDownloadNote": "主模型权重将在添加后自动开始下载"
+      },
+      "step3": {
+        "autoDownloadNote": "以下依赖权重将随主模型一起自动下载",
+        "reusingExisting": "复用已有实例",
+        "noDownloadNeeded": "所有依赖均复用现有实例，无需下载"
+      },
+      "step4": {
+        "title": "确认以下内容将开始下载",
+        "mainModel": "主模型",
+        "dep": "依赖",
+        "reusingExisting": "复用已有实例：{{name}}"
+      },
       "errors": {
         "displayNameRequired": "请输入模型名称。",
         "idRequired": "模型名称无法自动生成模型 ID，请使用英文或数字名称。",

@@ -7,6 +7,7 @@ import numpy as np
 import re
 from einops import rearrange
 from dataclasses import dataclass
+from pathlib import Path
 from torchvision import transforms
 
 from diffusers.models.modeling_utils import ModelMixin
@@ -22,6 +23,9 @@ from .dinov2.modeling_conditional_dinov2 import ConditionalDinov2Model
 from .dinov2_with_registers.modeling_dinov2_with_registers import (
     Dinov2WithRegistersModel,
 )
+
+_CONFIGS_DIR = Path(__file__).parent.parent.parent.parent.parent / "configs"
+_DINO_REG_LARGE_CONFIG_DIR = _CONFIGS_DIR / "facebook--dinov2-with-registers-large"
 
 
 class DINOEmbedOutput(ModelOutput):
@@ -77,10 +81,15 @@ class Dinov2Encoder(BaseVisualEncoder, ModelMixin):
                     ), "The dino_type should be provided"
                     print(f"Loading Dinov2 model from {self.cfg.dino_type}")
                     if "reg" in self.cfg.dino_type:
+                        dino_with_registers_config_source = (
+                            _DINO_REG_LARGE_CONFIG_DIR
+                            if "large" in self.cfg.dino_type
+                            else self.cfg.dino_type
+                        )
                         self.dino_model: Dinov2WithRegistersModel = (
                             Dinov2WithRegistersModel(
                                 config=Dinov2WithRegistersModel.config_class.from_pretrained(
-                                    self.cfg.dino_type,
+                                    dino_with_registers_config_source,
                                 )
                             )
                         )
@@ -140,10 +149,18 @@ class Dinov2Encoder(BaseVisualEncoder, ModelMixin):
                 )
             )
 
-        self.image_preprocess_dino = AutoImageProcessor.from_pretrained(
-            self.cfg.dino_type
+        image_processor_source = (
+            _DINO_REG_LARGE_CONFIG_DIR
+            if self.cfg.pretrained_dino_name_or_path is None
+            and self.cfg.dino_type is not None
+            and "reg" in self.cfg.dino_type
+            and "large" in self.cfg.dino_type
+            else self.cfg.dino_type
             if self.cfg.pretrained_dino_name_or_path is None
             else self.cfg.pretrained_dino_name_or_path
+        )
+        self.image_preprocess_dino = AutoImageProcessor.from_pretrained(
+            image_processor_source
         )
         self.transform_dino = transforms.Compose(
             [

@@ -274,6 +274,37 @@
       "submit": "Add Model",
       "submitting": "Adding...",
       "cancel": "Cancel",
+      "back": "Back",
+      "next": "Next",
+      "startDownload": "Start Download",
+      "steps": {
+        "chooseProvider": "Choose Model Type",
+        "configWeights": "Configure Main Weights",
+        "configureDeps": "Configure Dependencies",
+        "confirm": "Confirm Download"
+      },
+      "providerCard": {
+        "vram": "{{vram}} VRAM",
+        "desc": {
+          "trellis2": "High-quality 3D generation via structured latent space",
+          "hunyuan3d": "Tencent multi-view 3D generation with high-fidelity textures",
+          "step1x3d": "StepFun lightweight and efficient 3D generation"
+        }
+      },
+      "step2": {
+        "autoDownloadNote": "Main model weights will start downloading automatically after adding"
+      },
+      "step3": {
+        "autoDownloadNote": "Dependency weights will be downloaded together with the main model",
+        "reusingExisting": "Reusing existing instance",
+        "noDownloadNeeded": "All dependencies are reused — no new downloads needed"
+      },
+      "step4": {
+        "title": "The following will be downloaded",
+        "mainModel": "Main model",
+        "dep": "Dependency",
+        "reusingExisting": "Reusing existing: {{name}}"
+      },
       "errors": {
         "displayNameRequired": "Model name is required.",
         "idRequired": "Unable to generate a model ID from the model name. Use letters or numbers.",
