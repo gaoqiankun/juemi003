@@ -497,6 +497,15 @@
       "success": "设置已保存。"
     }
   },
+  "storage": {
+    "diskUsage": "磁盘使用",
+    "cache": "缓存",
+    "orphaned": "孤儿缓存",
+    "cleanOrphans": "清理孤儿",
+    "alert": "磁盘剩余 {{free}}，有 {{orphan}} 可释放",
+    "cleaning": "清理中…",
+    "cleaned": "已释放 {{freed}}"
+  },
   "user": {
     "shell": {
       "brandEyebrow": "创作工作台",

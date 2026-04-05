@@ -311,6 +311,21 @@ export interface KeysStatsResponse {
 }
 export const fetchKeysStats = () => adminFetch<KeysStatsResponse>("/api/admin/keys/stats");
 
+// Storage
+export interface StorageStats {
+  disk_free_bytes: number;
+  disk_total_bytes: number;
+  cache_bytes: number;
+  orphan_bytes: number;
+  orphan_count: number;
+}
+
+export const getStorageStats = () => adminFetch<StorageStats>("/api/admin/storage/stats");
+export const cleanOrphans = () =>
+  adminFetch<{ freed_bytes: number; count: number }>("/api/admin/storage/orphans", {
+    method: "DELETE",
+  });
+
 // Settings
 export const fetchSettings = () => adminFetch<SettingsData>("/api/admin/settings");
 export const updateSettings = (data: Record<string, unknown>) =>

@@ -44,6 +44,9 @@ class _ModelStoreProtocol(Protocol):
     ) -> dict | None:
         ...
 
+    async def get_all_resolved_paths(self) -> list[str]:
+        ...
+
 
 class _DepInstanceStoreProtocol(Protocol):
     async def create(
@@ -68,6 +71,9 @@ class _DepInstanceStoreProtocol(Protocol):
         ...
 
     async def update_error(self, instance_id: str, error: str) -> dict | None:
+        ...
+
+    async def get_all_resolved_paths(self) -> list[str]:
         ...
 
 
@@ -434,6 +440,72 @@ class WeightManager:
             last_time = current_time
             last_completed = completed_bytes
 
+    async def get_storage_stats(self) -> dict:
+        disk = shutil.disk_usage(self._cache_dir if self._cache_dir.exists() else Path("/"))
+        model_paths = await self._model_store.get_all_resolved_paths()
+        dep_paths: list[str] = []
+        if self._dep_store is not None:
+            dep_paths = await self._dep_store.get_all_resolved_paths()
+        resolved = {str(Path(p).resolve()) for p in model_paths + dep_paths}
+
+        scan_dirs: list[Path] = []
+        if self._cache_dir.exists():
+            for d in self._cache_dir.iterdir():
+                if d.is_dir() and d.name != "deps":
+                    scan_dirs.append(d)
+        deps_dir = self._cache_dir / "deps"
+        if deps_dir.exists():
+            for d in deps_dir.iterdir():
+                if d.is_dir():
+                    scan_dirs.append(d)
+
+        cache_bytes = 0
+        orphan_bytes = 0
+        orphan_count = 0
+        for d in scan_dirs:
+            size = await asyncio.to_thread(_compute_dir_size, d)
+            cache_bytes += size
+            if str(d.resolve()) not in resolved:
+                orphan_bytes += size
+                orphan_count += 1
+
+        return {
+            "disk_free_bytes": disk.free,
+            "disk_total_bytes": disk.total,
+            "cache_bytes": cache_bytes,
+            "orphan_bytes": orphan_bytes,
+            "orphan_count": orphan_count,
+        }
+
+    async def clean_orphans(self) -> dict:
+        model_paths = await self._model_store.get_all_resolved_paths()
+        dep_paths: list[str] = []
+        if self._dep_store is not None:
+            dep_paths = await self._dep_store.get_all_resolved_paths()
+        resolved = {str(Path(p).resolve()) for p in model_paths + dep_paths}
+
+        orphan_dirs: list[Path] = []
+        if self._cache_dir.exists():
+            for d in self._cache_dir.iterdir():
+                if d.is_dir() and d.name != "deps" and str(d.resolve()) not in resolved:
+                    orphan_dirs.append(d)
+        deps_dir = self._cache_dir / "deps"
+        if deps_dir.exists():
+            for d in deps_dir.iterdir():
+                if d.is_dir() and str(d.resolve()) not in resolved:
+                    orphan_dirs.append(d)
+
+        freed_bytes = 0
+        count = 0
+        for d in orphan_dirs:
+            size = await asyncio.to_thread(_compute_dir_size, d)
+            freed_bytes += size
+            await asyncio.to_thread(shutil.rmtree, str(d), True)
+            count += 1
+            self._logger.info("orphan_cleaned", path=str(d), size_bytes=size)
+
+        return {"freed_bytes": freed_bytes, "count": count}
+
     def _prepare_target_dir(self, model_id: str) -> Path:
         self._cache_dir.mkdir(parents=True, exist_ok=True)
         target_dir = self._cache_dir / _cache_key(model_id)
@@ -596,6 +668,17 @@ def _is_relative_to(path: Path, parent: Path) -> bool:
         return True
     except ValueError:
         return False
+
+
+def _compute_dir_size(path: Path) -> int:
+    total = 0
+    for f in path.rglob("*"):
+        if f.is_file():
+            try:
+                total += f.stat().st_size
+            except OSError:
+                pass
+    return total
 
 
 def _directory_has_entries(path: Path) -> bool:

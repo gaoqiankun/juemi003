@@ -6,13 +6,20 @@ import type { SettingField, SettingsData } from "@/data/admin-mocks";
 import { Button, Card, SelectField, TextField, ToggleSwitch } from "@/components/ui/primitives";
 import { useSettingsData } from "@/hooks/use-settings-data";
 import {
+  cleanOrphans,
   connectHf,
   disconnectHf,
   fetchHfStatus,
+  getStorageStats,
   updateHfEndpoint,
   updateSettings,
   type HfStatusResponse,
+  type StorageStats,
 } from "@/lib/admin-api";
+
+function formatBytes(bytes: number): string {
+  return `${(bytes / (1024 ** 3)).toFixed(1)} GB`;
+}
 
 type SettingValue = boolean | number | string;
 const DEFAULT_HF_ENDPOINT = "https://huggingface.co";
@@ -132,6 +139,37 @@ export function SettingsPage() {
   const [hfToken, setHfToken] = useState("");
   const [hfError, setHfError] = useState("");
   const [hfSuccess, setHfSuccess] = useState("");
+  const [storageStats, setStorageStats] = useState<StorageStats | null>(null);
+  const [isCleaning, setIsCleaning] = useState(false);
+  const [cleanResult, setCleanResult] = useState("");
+
+  const refreshStorageStats = useCallback(async () => {
+    try {
+      const stats = await getStorageStats();
+      setStorageStats(stats);
+    } catch {
+      // ignore — non-critical
+    }
+  }, []);
+
+  const handleCleanOrphans = useCallback(async () => {
+    if (isCleaning) return;
+    setIsCleaning(true);
+    setCleanResult("");
+    try {
+      const result = await cleanOrphans();
+      setCleanResult(t("storage.cleaned", { freed: formatBytes(result.freed_bytes) }));
+      await refreshStorageStats();
+    } catch {
+      // ignore
+    } finally {
+      setIsCleaning(false);
+    }
+  }, [isCleaning, refreshStorageStats, t]);
+
+  useEffect(() => {
+    refreshStorageStats().catch(() => undefined);
+  }, [refreshStorageStats]);
 
   useEffect(() => {
     if (source) {
@@ -499,6 +537,60 @@ export function SettingsPage() {
 
           {hfSuccess ? <p className="text-sm text-success-text">{hfSuccess}</p> : null}
           {hfError ? <p className="text-sm text-danger-text">{hfError}</p> : null}
+        </Card>
+      </section>
+
+      <section>
+        <Card tone="low" className="grid gap-3 p-4">
+          <h2 className="text-lg font-semibold tracking-[-0.02em] text-text-primary">
+            {t("storage.diskUsage")}
+          </h2>
+
+          {storageStats ? (
+            <>
+              <div className="grid gap-1.5">
+                <div className="flex items-center justify-between text-xs text-text-secondary">
+                  <span>{formatBytes(storageStats.disk_total_bytes - storageStats.disk_free_bytes)} / {formatBytes(storageStats.disk_total_bytes)}</span>
+                  <span>{Math.round(((storageStats.disk_total_bytes - storageStats.disk_free_bytes) / storageStats.disk_total_bytes) * 100)}%</span>
+                </div>
+                <div className="h-2 w-full overflow-hidden rounded-full bg-surface-container-highest">
+                  <div
+                    className="h-full rounded-full bg-primary transition-all"
+                    style={{ width: `${Math.min(100, ((storageStats.disk_total_bytes - storageStats.disk_free_bytes) / storageStats.disk_total_bytes) * 100).toFixed(1)}%` }}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="grid gap-1 rounded-lg border border-outline bg-surface-container-low p-3">
+                  <span className="font-display text-[0.6875rem] font-semibold uppercase tracking-[0.05em] text-text-muted">
+                    {t("storage.cache")}
+                  </span>
+                  <span className="text-sm font-medium text-text-primary">{formatBytes(storageStats.cache_bytes)}</span>
+                </div>
+                <div className="grid gap-1 rounded-lg border border-outline bg-surface-container-low p-3">
+                  <span className="font-display text-[0.6875rem] font-semibold uppercase tracking-[0.05em] text-text-muted">
+                    {t("storage.orphaned")}
+                  </span>
+                  <span className="text-sm font-medium text-text-primary">{formatBytes(storageStats.orphan_bytes)}</span>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-1.5">
+                <Button
+                  type="button"
+                  size="xs"
+                  disabled={isCleaning}
+                  onClick={handleCleanOrphans}
+                >
+                  {isCleaning ? t("storage.cleaning") : t("storage.cleanOrphans")}
+                </Button>
+                {cleanResult ? <p className="text-sm text-success-text">{cleanResult}</p> : null}
+              </div>
+            </>
+          ) : (
+            <p className="text-sm text-text-muted">...</p>
+          )}
         </Card>
       </section>
 

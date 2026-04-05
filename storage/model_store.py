@@ -186,6 +186,17 @@ class ModelStore:
         rows = await cursor.fetchall()
         return [_row_to_dict(r) for r in rows]
 
+    async def get_all_resolved_paths(self) -> list[str]:
+        db = self._require_db()
+        cursor = await db.execute(
+            """
+            SELECT resolved_path FROM model_definitions
+            WHERE weight_source != 'local' AND resolved_path IS NOT NULL
+            """
+        )
+        rows = await cursor.fetchall()
+        return [str(row["resolved_path"]) for row in rows if row["resolved_path"]]
+
     # ------------------------------------------------------------------
     # Write
     # ------------------------------------------------------------------

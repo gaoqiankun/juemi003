@@ -8,6 +8,7 @@ import {
   MoonStar,
   Settings2,
   SunMedium,
+  TriangleAlert,
   Workflow,
 } from "lucide-react";
 import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
@@ -20,11 +21,18 @@ import { useTheme } from "@/hooks/use-theme";
 import {
   ADMIN_AUTH_INVALID_EVENT,
   clearAdminToken,
+  cleanOrphans,
   getAdminToken,
+  getStorageStats,
   setAdminToken,
   verifyAdminToken,
   type AdminApiError,
+  type StorageStats,
 } from "@/lib/admin-api";
+
+function formatBytes(bytes: number): string {
+  return `${(bytes / (1024 ** 3)).toFixed(1)} GB`;
+}
 
 const navigation = [
   { key: "tasks", path: "/admin/tasks", icon: Workflow },
@@ -46,7 +54,29 @@ export function AdminShell() {
   const [authError, setAuthError] = useState("");
   const [isSubmittingAuth, setIsSubmittingAuth] = useState(false);
   const [isLanguageMenuOpen, setIsLanguageMenuOpen] = useState(false);
+  const [storageStats, setStorageStats] = useState<StorageStats | null>(null);
+  const [isCleaning, setIsCleaning] = useState(false);
   const currentThemeLabel = theme === "dark" ? t("shell.themeDark") : t("shell.themeLight");
+
+  const refreshStorageStats = useCallback(async () => {
+    try {
+      const stats = await getStorageStats();
+      setStorageStats(stats);
+    } catch {
+      // silently ignore — banner is non-critical
+    }
+  }, []);
+
+  const handleCleanOrphans = useCallback(async () => {
+    if (isCleaning) return;
+    setIsCleaning(true);
+    try {
+      await cleanOrphans();
+      await refreshStorageStats();
+    } finally {
+      setIsCleaning(false);
+    }
+  }, [isCleaning, refreshStorageStats]);
   const activeItem = navigation.find((item) => location.pathname.startsWith(item.path))
     ?? navigation[0];
 
@@ -127,6 +157,11 @@ export function AdminShell() {
   useEffect(() => {
     setIsLanguageMenuOpen(false);
   }, [location.pathname]);
+
+  useEffect(() => {
+    if (authState !== "ready") return;
+    refreshStorageStats().catch(() => undefined);
+  }, [authState, refreshStorageStats]);
 
   const handleAdminTokenSubmit = useCallback(async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -330,6 +365,27 @@ export function AdminShell() {
               </div>
             </div>
           </div>
+          {storageStats && storageStats.disk_free_bytes < 20 * 1024 ** 3 ? (
+            <div className="flex items-center gap-3 border-t border-warning/30 bg-warning/10 px-6 py-2.5 text-sm text-warning-text">
+              <TriangleAlert className="h-4 w-4 shrink-0" />
+              <span>
+                {t("storage.alert", {
+                  free: formatBytes(storageStats.disk_free_bytes),
+                  orphan: formatBytes(storageStats.orphan_bytes),
+                })}
+              </span>
+              {storageStats.orphan_count > 0 ? (
+                <button
+                  type="button"
+                  className="ml-auto shrink-0 rounded-md border border-warning/40 bg-warning/20 px-2.5 py-1 text-xs font-medium text-warning-text transition-colors hover:bg-warning/30 disabled:opacity-50"
+                  disabled={isCleaning}
+                  onClick={handleCleanOrphans}
+                >
+                  {isCleaning ? t("storage.cleaning") : t("storage.cleanOrphans")}
+                </button>
+              ) : null}
+            </div>
+          ) : null}
         </header>
 
         <main className="flex w-full flex-col gap-4 px-6 py-4">

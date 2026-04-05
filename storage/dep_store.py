@@ -387,6 +387,17 @@ class DepInstanceStore(_SQLiteStore):
             await db.commit()
         return await self.get(normalized_instance_id)
 
+    async def get_all_resolved_paths(self) -> list[str]:
+        db = self._require_db()
+        cursor = await db.execute(
+            """
+            SELECT resolved_path FROM dep_instances
+            WHERE weight_source != 'local' AND resolved_path IS NOT NULL
+            """
+        )
+        rows = await cursor.fetchall()
+        return [str(row["resolved_path"]) for row in rows if row["resolved_path"]]
+
     async def get_all_for_model(self, model_id: str) -> list[dict]:
         db = self._require_db()
         normalized_model_id = _normalize_required_text(model_id, field="model_id")

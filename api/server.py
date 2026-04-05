@@ -2282,10 +2282,30 @@ def create_app(
             raise HTTPException(status_code=404, detail="model not found")
         if str(model.get("download_status") or "").strip().lower() == "downloading":
             await _cancel_model_download_task(model_id)
+        if app_container.model_registry.get_state(model_id) != "not_loaded":
+            await app_container.model_registry.unload(model_id)
         deleted = await app_container.model_store.delete_model(model_id)
         if not deleted:
             raise HTTPException(status_code=404, detail="model not found")
         return {"ok": True}
+
+    @app.get(
+        "/api/admin/storage/stats",
+        dependencies=[Depends(require_admin_token)],
+    )
+    async def get_storage_stats(
+        app_container: AppContainer = Depends(get_container),
+    ) -> dict:
+        return await app_container.weight_manager.get_storage_stats()
+
+    @app.delete(
+        "/api/admin/storage/orphans",
+        dependencies=[Depends(require_admin_token)],
+    )
+    async def clean_storage_orphans(
+        app_container: AppContainer = Depends(get_container),
+    ) -> dict:
+        return await app_container.weight_manager.clean_orphans()
 
     @app.get(
         "/api/admin/keys/stats",

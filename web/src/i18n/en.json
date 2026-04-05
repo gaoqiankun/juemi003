@@ -497,6 +497,15 @@
       "success": "Settings saved."
     }
   },
+  "storage": {
+    "diskUsage": "Disk Usage",
+    "cache": "Cache",
+    "orphaned": "Orphaned Cache",
+    "cleanOrphans": "Clean Orphaned",
+    "alert": "{{free}} disk space left, {{orphan}} can be freed",
+    "cleaning": "Cleaning…",
+    "cleaned": "Freed {{freed}}"
+  },
   "user": {
     "shell": {
       "brandEyebrow": "Creator workspace",
