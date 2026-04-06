@@ -130,11 +130,15 @@ class WeightManager:
             if normalized_source == "local":
                 resolved_path = await self._resolve_local_path(normalized_model_path)
             else:
-                resolved_path = await self._download_main(
-                    model_id=model_id,
-                    weight_source=normalized_source,
-                    model_path=normalized_model_path,
-                )
+                target_dir = self._cache_dir / _cache_key(model_id)
+                if target_dir.is_dir() and _snapshot_has_model_weights(target_dir):
+                    resolved_path = str(target_dir.resolve())
+                else:
+                    resolved_path = await self._download_main(
+                        model_id=model_id,
+                        weight_source=normalized_source,
+                        model_path=normalized_model_path,
+                    )
             await self._download_model_dependencies(
                 model_id,
                 normalized_provider_type,
@@ -590,6 +594,8 @@ class _ProgressTracker:
 
 def _build_hf_progress_class(tracker: _ProgressTracker):
     class _HFProgressTqdm:
+        _lock = threading.RLock()
+
         def __init__(self, *args, **kwargs) -> None:
             del args
             self.total = kwargs.get("total")
@@ -604,6 +610,14 @@ def _build_hf_progress_class(tracker: _ProgressTracker):
 
         def close(self) -> None:
             tracker.close_hf_bar(self._bar_id)
+
+        @classmethod
+        def get_lock(cls):
+            return cls._lock
+
+        @classmethod
+        def set_lock(cls, lock):
+            cls._lock = lock
 
         def __enter__(self):
             return self

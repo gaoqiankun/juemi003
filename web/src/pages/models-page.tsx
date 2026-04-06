@@ -190,18 +190,18 @@ function PendingRow({
                 size="sm"
                 variant="outline"
                 onClick={() => onRetry(item)}
+                title={t("models.pending.retry")}
               >
-                <RotateCcw className="mr-1 h-3.5 w-3.5" />
-                {t("models.pending.retry")}
+                <RotateCcw className="h-3.5 w-3.5" />
               </Button>
               <Button
                 type="button"
                 size="sm"
                 variant="danger"
                 onClick={() => onRemove(item.id)}
+                title={t("models.pending.remove")}
               >
-                <Trash2 className="mr-1 h-3.5 w-3.5" />
-                {t("models.pending.remove")}
+                <Trash2 className="h-3.5 w-3.5" />
               </Button>
             </>
           )}
@@ -456,10 +456,10 @@ export function ModelsPage() {
         <div className="overflow-x-auto">
           <table className="w-full min-w-[980px] table-fixed border-separate border-spacing-y-2">
             <colgroup>
-              <col className="w-[34%]" />
-              <col className="w-[20%]" />
-              <col className="w-[14%]" />
-              <col className="w-[32%]" />
+              <col className="w-[30%]" />
+              <col className="w-[10%]" />
+              <col className="w-[8%]" />
+              <col className="w-[52%]" />
             </colgroup>
             <thead>
               <tr>
@@ -555,9 +555,9 @@ export function ModelsPage() {
                           variant="danger"
                           disabled={isBusy || models.length === 1}
                           onClick={() => handleDeleteRequest(model.id)}
+                          title={t("models.list.delete")}
                         >
-                          <Trash2 className="mr-1 h-3.5 w-3.5" />
-                          {t("models.list.delete")}
+                          <Trash2 className="h-3.5 w-3.5" />
                         </Button>
                       </div>
                     </td>
