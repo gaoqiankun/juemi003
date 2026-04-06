@@ -178,7 +178,6 @@ class WeightManager:
                 return await self._download_from_huggingface(
                     model_id=model_id,
                     repo_id=model_path,
-                    tracker=tracker,
                 )
             if weight_source == "url":
                 return await self._download_from_url_archive(
@@ -338,30 +337,14 @@ class WeightManager:
         *,
         model_id: str,
         repo_id: str,
-        tracker: "_ProgressTracker",
     ) -> str:
         if snapshot_download is None:
             raise RuntimeError("huggingface_hub is not available")
         target_dir = self._prepare_target_dir(model_id)
-        progress_factory = _build_hf_progress_class(tracker)
 
-        def _run_download() -> None:
-            kwargs = {
-                "repo_id": repo_id,
-                "local_dir": str(target_dir),
-                "tqdm_class": progress_factory,
-            }
-            try:
-                snapshot_download(**kwargs)
-            except TypeError as exc:
-                if "tqdm_class" not in str(exc):
-                    raise
-                snapshot_download(
-                    repo_id=repo_id,
-                    local_dir=str(target_dir),
-                )
-
-        await asyncio.to_thread(_run_download)
+        await asyncio.to_thread(
+            lambda: snapshot_download(repo_id=repo_id, local_dir=str(target_dir))
+        )
         if not _directory_has_entries(target_dir):
             raise ValueError(f"downloaded HuggingFace repository is empty: {repo_id}")
         return str(target_dir)
@@ -591,51 +574,6 @@ class _ProgressTracker:
         self._total_bytes = sum(totals) if totals else None
         self._completed_bytes = completed_sum
 
-
-def _build_hf_progress_class(tracker: _ProgressTracker):
-    class _HFProgressTqdm:
-        _lock = threading.RLock()
-
-        def __init__(self, *args, **kwargs) -> None:
-            del args
-            self.total = kwargs.get("total")
-            self.n = 0
-            self._bar_id = tracker.add_hf_bar(self.total)
-
-        def update(self, value=1):
-            delta = _normalize_positive_int(value)
-            self.n += delta
-            tracker.update_hf_bar(self._bar_id, delta)
-            return self.n
-
-        def close(self) -> None:
-            tracker.close_hf_bar(self._bar_id)
-
-        @classmethod
-        def get_lock(cls):
-            return cls._lock
-
-        @classmethod
-        def set_lock(cls, lock):
-            cls._lock = lock
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb) -> None:
-            del exc_type, exc, tb
-            self.close()
-
-        def set_description(self, *args, **kwargs) -> None:
-            del args, kwargs
-
-        def set_postfix(self, *args, **kwargs) -> None:
-            del args, kwargs
-
-        def refresh(self, *args, **kwargs) -> None:
-            del args, kwargs
-
-    return _HFProgressTqdm
 
 
 def _extract_archive(archive_path: Path, destination: Path) -> None:
