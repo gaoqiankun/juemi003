@@ -239,6 +239,7 @@ export function SettingsPage() {
     setSettings((current) => {
       if (!current) return current;
       return {
+        ...current,
         sections: current.sections.map((section) => (
           section.key !== sectionKey
             ? section
