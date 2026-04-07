@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import {
+  Badge,
   Button,
   Card,
   Dialog,
@@ -300,25 +301,27 @@ export function SystemPage() {
                     : entry.kind === "dep"
                       ? t("storage.breakdown.kindDep")
                       : t("storage.breakdown.kindResidual");
-                  const isResidual = entry.kind === "residual";
+                  const badgeTone = entry.kind === "model"
+                    ? "accent" as const
+                    : entry.kind === "dep"
+                      ? "neutral" as const
+                      : "warning" as const;
                   const dirName = entry.path.split("/").pop() ?? entry.path;
                   return (
                     <div
                       key={entry.path}
-                      className="flex items-center gap-3 border-b border-outline px-3 py-2 last:border-b-0 bg-surface-container-low"
+                      className="flex items-start gap-3 border-b border-outline px-3 py-2.5 last:border-b-0 bg-surface-container-low"
                     >
-                      <span className={`shrink-0 font-display text-[0.625rem] font-semibold uppercase tracking-[0.05em] w-12 text-right ${isResidual ? "text-text-muted" : "text-primary"}`}>
-                        {kindLabel}
-                      </span>
+                      <Badge tone={badgeTone} className="mt-0.5 shrink-0">{kindLabel}</Badge>
                       <div className="min-w-0 flex-1 grid gap-0.5">
-                        <span className={`truncate text-sm font-medium ${isResidual ? "text-text-secondary" : "text-text-primary"}`}>
+                        <span className="truncate text-sm font-medium text-text-primary">
                           {entry.label ?? dirName}
                         </span>
-                        {isResidual && (
-                          <span className="truncate font-mono text-xs text-text-muted" title={entry.path}>{dirName}</span>
-                        )}
+                        <span className="truncate font-mono text-xs text-text-muted" title={entry.path}>
+                          {entry.path}
+                        </span>
                       </div>
-                      <span className="shrink-0 text-xs text-text-secondary tabular-nums">{formatBytes(entry.size_bytes)}</span>
+                      <span className="shrink-0 text-xs text-text-secondary tabular-nums mt-0.5">{formatBytes(entry.size_bytes)}</span>
                     </div>
                   );
                 })
