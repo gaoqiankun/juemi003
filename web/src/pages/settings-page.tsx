@@ -120,21 +120,21 @@ function parseMaxLoadedModelsUpperBound(field: SettingField | null): number | nu
   return Number.isFinite(upperBound) ? upperBound : null;
 }
 
-function validateMaxLoadedModels(settings: SettingsData | null): string {
+function validateMaxLoadedModels(settings: SettingsData | null, t: (key: string, opts?: Record<string, unknown>) => string): string {
   const field = findSettingField(settings, "maxLoadedModels");
   if (!field) {
     return "";
   }
   const value = typeof field.value === "number" ? field.value : Number(field.value);
   if (!Number.isInteger(value)) {
-    return "maxLoadedModels must be an integer";
+    return t("settings.fields.maxLoadedModels.errorNotInteger");
   }
   const upperBound = parseMaxLoadedModelsUpperBound(field);
   if (upperBound !== null && (value < 1 || value > upperBound)) {
-    return `maxLoadedModels must be between 1 and ${upperBound}`;
+    return t("settings.fields.maxLoadedModels.errorOutOfRange", { max: upperBound });
   }
   if (value < 1) {
-    return "maxLoadedModels must be >= 1";
+    return t("settings.fields.maxLoadedModels.errorTooSmall");
   }
   return "";
 }
@@ -199,7 +199,7 @@ export function SettingsPage() {
     if (!maxLoadedModelsError) {
       return;
     }
-    setMaxLoadedModelsError(validateMaxLoadedModels(settings));
+    setMaxLoadedModelsError(validateMaxLoadedModels(settings, t));
   }, [maxLoadedModelsError, settings]);
 
   const refreshHfStatus = useCallback(async () => {
@@ -264,7 +264,7 @@ export function SettingsPage() {
     if (!settings || isSaving || !hasChanges) {
       return;
     }
-    const validationError = validateMaxLoadedModels(settings);
+    const validationError = validateMaxLoadedModels(settings, t);
     if (validationError) {
       setMaxLoadedModelsError(validationError);
       toast.error(validationError);

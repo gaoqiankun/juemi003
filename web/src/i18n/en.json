@@ -434,7 +434,10 @@
       },
       "maxLoadedModels": {
         "label": "Max loaded models",
-        "description": "Maximum models allowed to stay loaded in VRAM."
+        "description": "Maximum models allowed to stay loaded in VRAM.",
+        "errorNotInteger": "Max loaded models must be an integer",
+        "errorOutOfRange": "Max loaded models must be between 1 and {{max}}",
+        "errorTooSmall": "Max loaded models must be >= 1"
       },
       "maxTasksPerSlot": {
         "label": "Max tasks per slot",

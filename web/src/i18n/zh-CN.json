@@ -434,7 +434,10 @@
       },
       "maxLoadedModels": {
         "label": "最大驻留模型数",
-        "description": "允许同时驻留在显存中的模型上限。"
+        "description": "允许同时驻留在显存中的模型上限。",
+        "errorNotInteger": "最大驻留模型数必须为整数",
+        "errorOutOfRange": "最大驻留模型数必须在 1 到 {{max}} 之间",
+        "errorTooSmall": "最大驻留模型数必须 >= 1"
       },
       "maxTasksPerSlot": {
         "label": "单槽处理任务上限",
