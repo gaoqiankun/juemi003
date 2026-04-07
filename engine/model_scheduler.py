@@ -64,6 +64,7 @@ class ModelScheduler:
         settings_store: _SettingsStoreProtocol,
         enabled: bool,
         vram_detection_enabled: bool = True,
+        gpu_device_count: int = 1,
     ) -> None:
         self._model_registry = model_registry
         self._task_store = task_store
@@ -71,7 +72,8 @@ class ModelScheduler:
         self._settings_store = settings_store
         self._enabled = bool(enabled)
         self._vram_detection_enabled = bool(vram_detection_enabled)
-        self._max_possible_loaded = 1
+        self._gpu_device_count = max(1, int(gpu_device_count))
+        self._max_possible_loaded = self._gpu_device_count
         self._max_loaded_models = self.DEFAULT_MAX_LOADED_MODELS
         self._max_tasks_per_slot = self.DEFAULT_MAX_TASKS_PER_SLOT
         self._tasks_processed: dict[str, int] = {}
@@ -112,6 +114,7 @@ class ModelScheduler:
         self._max_possible_loaded = _compute_max_possible_loaded(
             total_vram_gb=total_vram_gb,
             known_model_vram_gb=known_model_vram,
+            gpu_device_count=self._gpu_device_count,
         )
 
         configured_max_loaded_models = await self._settings_store.get(MAX_LOADED_MODELS_KEY)
@@ -362,15 +365,15 @@ def _compute_max_possible_loaded(
     *,
     total_vram_gb: float | None,
     known_model_vram_gb: tuple[float, ...],
+    gpu_device_count: int = 1,
 ) -> int:
-    if total_vram_gb is None or total_vram_gb <= 0:
-        return 1
-    if not known_model_vram_gb:
-        return 1
+    gpu_count = max(1, gpu_device_count)
+    if total_vram_gb is None or total_vram_gb <= 0 or not known_model_vram_gb:
+        return gpu_count
     largest_model = max(known_model_vram_gb)
     if largest_model <= 0:
-        return 1
-    return max(1, math.floor(total_vram_gb / largest_model))
+        return gpu_count
+    return max(gpu_count, math.floor(total_vram_gb / largest_model))
 
 
 def _parse_iso_datetime(value: str) -> datetime:

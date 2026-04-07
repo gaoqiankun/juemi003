@@ -1192,6 +1192,7 @@ def create_app(
         settings_store=settings_store,
         enabled=not config.is_mock_provider,
         vram_detection_enabled=config.vram_detection_enabled,
+        gpu_device_count=len(all_device_ids),
     )
     weight_manager = WeightManager(
         model_store=model_store,

@@ -503,9 +503,6 @@ export function SettingsPage() {
           <h2 className="text-lg font-semibold tracking-[-0.02em] text-text-primary">
             {t("settings.gpuDevices.title")}
           </h2>
-          <p className="text-sm text-text-secondary">
-            {t("settings.gpuDevices.description")}
-          </p>
 
           <div className="grid gap-3">
             {settings.gpuDevices && settings.gpuDevices.length > 0 ? settings.gpuDevices.map((device) => (
