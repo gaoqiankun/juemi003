@@ -488,6 +488,37 @@ class WeightManager:
             result.append({"path": str(d), "size_bytes": size})
         return result
 
+    async def get_storage_breakdown(self) -> dict:
+        models = await self._model_store.list_models(include_pending=False)
+        model_entries = []
+        for m in models:
+            resolved = m.get("resolved_path") or ""
+            size = await asyncio.to_thread(_compute_dir_size, Path(resolved)) if resolved else 0
+            model_entries.append({
+                "id": m.get("id", ""),
+                "display_name": m.get("display_name", ""),
+                "size_bytes": size,
+            })
+        model_entries.sort(key=lambda x: x["size_bytes"], reverse=True)
+
+        dep_entries = []
+        if self._dep_store is not None:
+            deps = await self._dep_store.list_all()
+            for d in deps:
+                if d.get("download_status") != "done":
+                    continue
+                resolved = d.get("resolved_path") or ""
+                size = await asyncio.to_thread(_compute_dir_size, Path(resolved)) if resolved else 0
+                dep_entries.append({
+                    "id": d.get("id", ""),
+                    "display_name": d.get("display_name", ""),
+                    "dep_type": d.get("dep_type", ""),
+                    "size_bytes": size,
+                })
+            dep_entries.sort(key=lambda x: x["size_bytes"], reverse=True)
+
+        return {"models": model_entries, "deps": dep_entries}
+
     async def clean_orphans(self) -> dict:
         model_paths = await self._model_store.get_all_resolved_paths()
         dep_paths: list[str] = []

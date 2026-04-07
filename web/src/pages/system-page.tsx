@@ -14,11 +14,13 @@ import {
 import {
   cleanOrphans,
   fetchSettings,
+  getStorageBreakdown,
   getStorageStats,
   listOrphans,
   updateSettings,
   type GpuDeviceSetting,
   type OrphanEntry,
+  type StorageBreakdown,
   type StorageStats,
 } from "@/lib/admin-api";
 function formatBytes(bytes: number): string {
@@ -55,6 +57,9 @@ export function SystemPage() {
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [orphanList, setOrphanList] = useState<OrphanEntry[] | null>(null);
   const [isLoadingOrphans, setIsLoadingOrphans] = useState(false);
+  const [breakdown, setBreakdown] = useState<StorageBreakdown | null>(null);
+  const [isBreakdownOpen, setIsBreakdownOpen] = useState(false);
+  const [isLoadingBreakdown, setIsLoadingBreakdown] = useState(false);
 
   const refreshStorageStats = useCallback(async () => {
     try {
@@ -148,6 +153,20 @@ export function SystemPage() {
       setIsCleaning(false);
     }
   }, [isCleaning, refreshStorageStats, t]);
+
+  const handleOpenBreakdown = useCallback(async () => {
+    if (isLoadingBreakdown) return;
+    setIsLoadingBreakdown(true);
+    try {
+      const data = await getStorageBreakdown();
+      setBreakdown(data);
+      setIsBreakdownOpen(true);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsLoadingBreakdown(false);
+    }
+  }, [isLoadingBreakdown]);
 
   const usedBytes = useMemo(
     () => (storageStats ? Math.max(0, storageStats.disk_total_bytes - storageStats.disk_free_bytes) : 0),
@@ -243,6 +262,15 @@ export function SystemPage() {
                 <Button
                   type="button"
                   size="sm"
+                  variant="outline"
+                  disabled={isLoadingBreakdown}
+                  onClick={() => { void handleOpenBreakdown(); }}
+                >
+                  {t("storage.breakdown.action")}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
                   disabled={isCleaning || isLoadingOrphans || orphanCount <= 0}
                   onClick={() => { void handleOpenCleanConfirm(); }}
                 >
@@ -255,6 +283,62 @@ export function SystemPage() {
           )}
         </Card>
       </section>
+
+      <Dialog open={isBreakdownOpen} onOpenChange={setIsBreakdownOpen}>
+        <DialogContent className="w-[min(92vw,540px)] p-4">
+          <DialogHeader className="pr-8">
+            <DialogTitle>{t("storage.breakdown.title")}</DialogTitle>
+          </DialogHeader>
+          {breakdown && (
+            <div className="grid gap-4 max-h-[60vh] overflow-y-auto pr-1">
+              {breakdown.models.length > 0 && (
+                <div className="grid gap-1.5">
+                  <span className="font-display text-[0.6875rem] font-semibold uppercase tracking-[0.05em] text-text-muted">
+                    {t("storage.breakdown.models")}
+                  </span>
+                  <div className="rounded-lg border border-outline overflow-hidden">
+                    {breakdown.models.map((entry) => (
+                      <div
+                        key={entry.id}
+                        className="flex items-center justify-between gap-3 border-b border-outline px-3 py-2 last:border-b-0 bg-surface-container-low"
+                      >
+                        <span className="truncate text-sm text-text-primary">{entry.display_name}</span>
+                        <span className="shrink-0 text-xs text-text-secondary tabular-nums">{formatBytes(entry.size_bytes)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {breakdown.deps.length > 0 && (
+                <div className="grid gap-1.5">
+                  <span className="font-display text-[0.6875rem] font-semibold uppercase tracking-[0.05em] text-text-muted">
+                    {t("storage.breakdown.deps")}
+                  </span>
+                  <div className="rounded-lg border border-outline overflow-hidden">
+                    {breakdown.deps.map((entry) => (
+                      <div
+                        key={entry.id}
+                        className="flex items-center justify-between gap-3 border-b border-outline px-3 py-2 last:border-b-0 bg-surface-container-low"
+                      >
+                        <div className="min-w-0 grid gap-0.5">
+                          <span className="truncate text-sm text-text-primary">{entry.display_name}</span>
+                          {entry.dep_type && (
+                            <span className="text-xs text-text-muted">{entry.dep_type}</span>
+                          )}
+                        </div>
+                        <span className="shrink-0 text-xs text-text-secondary tabular-nums">{formatBytes(entry.size_bytes)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {breakdown.models.length === 0 && breakdown.deps.length === 0 && (
+                <p className="text-sm text-text-muted">{t("storage.breakdown.noData")}</p>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={isConfirmOpen}

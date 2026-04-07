@@ -551,17 +551,24 @@
   "storage": {
     "diskUsage": "Disk Usage",
     "cache": "Cache",
-    "orphaned": "Orphaned Cache",
+    "orphaned": "Residual Cache",
     "cleanOrphans": {
-      "action": "Clean Orphaned",
-      "confirmTitle": "Delete orphaned cache?",
-      "confirmDescription": "This will permanently delete {{count}} orphaned cache items ({{size}}). This action cannot be undone.",
+      "action": "Clean Residual",
+      "confirmTitle": "Delete residual cache?",
+      "confirmDescription": "This will permanently delete {{count}} residual cache items ({{size}}). This action cannot be undone.",
       "cancel": "Cancel",
       "confirm": "Delete"
     },
     "alert": "{{free}} disk space left, {{orphan}} can be freed",
     "cleaning": "Cleaning…",
-    "cleaned": "Freed {{freed}}"
+    "cleaned": "Freed {{freed}}",
+    "breakdown": {
+      "action": "View Details",
+      "title": "Storage Details",
+      "models": "Model Weights",
+      "deps": "Dependencies",
+      "noData": "No data"
+    }
   },
   "user": {
     "shell": {

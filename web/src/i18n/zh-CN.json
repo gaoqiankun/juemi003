@@ -551,17 +551,24 @@
   "storage": {
     "diskUsage": "磁盘使用",
     "cache": "缓存",
-    "orphaned": "孤儿缓存",
+    "orphaned": "残留缓存",
     "cleanOrphans": {
-      "action": "清理孤儿",
-      "confirmTitle": "确认清理孤儿缓存？",
-      "confirmDescription": "将永久删除 {{count}} 个孤儿缓存（{{size}}），此操作不可恢复。",
+      "action": "清理残留",
+      "confirmTitle": "确认清理残留缓存？",
+      "confirmDescription": "将永久删除 {{count}} 个残留缓存（{{size}}），此操作不可恢复。",
       "cancel": "取消",
       "confirm": "确认删除"
     },
     "alert": "磁盘剩余 {{free}}，有 {{orphan}} 可释放",
     "cleaning": "清理中…",
-    "cleaned": "已释放 {{freed}}"
+    "cleaned": "已释放 {{freed}}",
+    "breakdown": {
+      "action": "查看详情",
+      "title": "存储详情",
+      "models": "模型权重",
+      "deps": "依赖",
+      "noData": "暂无数据"
+    }
   },
   "user": {
     "shell": {

@@ -336,8 +336,21 @@ export interface OrphanEntry {
   size_bytes: number;
 }
 
+export interface StorageBreakdownEntry {
+  id: string;
+  display_name: string;
+  size_bytes: number;
+  dep_type?: string;
+}
+
+export interface StorageBreakdown {
+  models: StorageBreakdownEntry[];
+  deps: StorageBreakdownEntry[];
+}
+
 export const getStorageStats = () => adminFetch<StorageStats>("/api/admin/storage/stats");
 export const listOrphans = () => adminFetch<OrphanEntry[]>("/api/admin/storage/orphans");
+export const getStorageBreakdown = () => adminFetch<StorageBreakdown>("/api/admin/storage/breakdown");
 export const cleanOrphans = () =>
   adminFetch<{ freed_bytes: number; count: number }>("/api/admin/storage/orphans", {
     method: "DELETE",

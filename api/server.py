@@ -2451,6 +2451,15 @@ def create_app(
     ) -> list:
         return await app_container.weight_manager.list_orphans()
 
+    @app.get(
+        "/api/admin/storage/breakdown",
+        dependencies=[Depends(require_admin_token)],
+    )
+    async def get_storage_breakdown(
+        app_container: AppContainer = Depends(get_container),
+    ) -> dict:
+        return await app_container.weight_manager.get_storage_breakdown()
+
     @app.delete(
         "/api/admin/storage/orphans",
         dependencies=[Depends(require_admin_token)],
