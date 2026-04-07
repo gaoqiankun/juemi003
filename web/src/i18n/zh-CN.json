@@ -494,6 +494,11 @@
       "count": "个",
       "tasks": "任务"
     },
+    "gpuDevices": {
+      "title": "GPU 设备",
+      "description": "可按设备启用或停用新任务调度。已在运行的任务会先执行完成，再停放被禁用设备。",
+      "device": "设备 {{deviceId}}"
+    },
     "hf": {
       "title": "HuggingFace",
       "loading": "正在检查连接状态...",

@@ -123,6 +123,7 @@ from gen3d.storage.artifact_store import (
 from gen3d.storage.dep_store import DepInstanceStore, ModelDepRequirementsStore
 from gen3d.storage.model_store import ModelStore
 from gen3d.storage.settings_store import (
+    GPU_DISABLED_DEVICES_KEY,
     MAX_LOADED_MODELS_KEY,
     MAX_TASKS_PER_SLOT_KEY,
     SettingsStore,
@@ -304,6 +305,8 @@ _logger = structlog.get_logger(__name__)
 @dataclass(slots=True)
 class AppContainer:
     config: ServingConfig
+    all_device_ids: tuple[str, ...]
+    disabled_devices: set[str]
     task_store: TaskStore
     api_key_store: ApiKeyStore
     rate_limiter: TokenRateLimiter
@@ -771,10 +774,78 @@ def build_artifact_store(config: ServingConfig) -> ArtifactStore:
     )
 
 
+def _resolve_device_ids(config: ServingConfig) -> tuple[str, ...]:
+    configured_device_ids = tuple(
+        str(device_id).strip()
+        for device_id in config.gpu_device_ids
+        if str(device_id).strip()
+    )
+    if configured_device_ids:
+        return configured_device_ids
+
+    try:
+        import torch  # type: ignore[import-not-found]
+    except Exception:
+        return ("0",)
+
+    try:
+        if not torch.cuda.is_available():
+            return ("0",)
+        detected_count = int(torch.cuda.device_count())
+    except Exception:
+        return ("0",)
+    if detected_count <= 0:
+        return ("0",)
+    return tuple(str(index) for index in range(detected_count))
+
+
+def _normalize_persisted_disabled_devices(
+    raw_value: Any,
+    all_device_ids: tuple[str, ...],
+) -> set[str]:
+    if not isinstance(raw_value, (list, tuple, set)):
+        return set()
+    valid_device_ids = set(all_device_ids)
+    normalized: set[str] = set()
+    for value in raw_value:
+        device_id = str(value).strip()
+        if device_id and device_id in valid_device_ids:
+            normalized.add(device_id)
+    return normalized
+
+
+def _ordered_disabled_devices(
+    disabled_devices: set[str],
+    all_device_ids: tuple[str, ...],
+) -> list[str]:
+    return [device_id for device_id in all_device_ids if device_id in disabled_devices]
+
+
+def _parse_gpu_disabled_devices_update(
+    value: Any,
+    *,
+    all_device_ids: tuple[str, ...],
+) -> set[str]:
+    if not isinstance(value, (list, tuple, set)):
+        raise ValueError("gpuDisabledDevices must be an array of device IDs")
+    valid_device_ids = set(all_device_ids)
+    normalized: set[str] = set()
+    for item in value:
+        device_id = str(item).strip()
+        if not device_id:
+            raise ValueError("gpuDisabledDevices must not contain empty device IDs")
+        if device_id not in valid_device_ids:
+            raise ValueError(f"gpuDisabledDevices has unknown deviceId: {device_id}")
+        normalized.add(device_id)
+    return normalized
+
+
 async def build_model_runtime(
     model_store: ModelStore,
     config: ServingConfig,
     model_name: str,
+    device_ids: tuple[str, ...] | None = None,
+    disabled_devices: set[str] | None = None,
 ) -> ModelRuntime:
     normalized_model_name = str(model_name).strip().lower()
     model_definition = await model_store.get_model(normalized_model_name)
@@ -839,19 +910,31 @@ async def build_model_runtime(
         model_path=provider_model_path,
         mock_delay_ms=config.mock_gpu_stage_delay_ms,
     )
+    resolved_device_ids = tuple(device_ids) if device_ids is not None else _resolve_device_ids(config)
+    if not resolved_device_ids:
+        resolved_device_ids = ("0",)
+    resolved_device_id_set = set(resolved_device_ids)
+    scheduler_disabled_devices = {
+        device_id
+        for device_id in (disabled_devices or set())
+        if device_id in resolved_device_id_set
+    }
     workers = build_gpu_workers(
         provider=provider,
         provider_mode=config.provider_mode,
         provider_name=provider_name,
         model_path=provider_model_path,
-        device_ids=config.gpu_device_ids,
+        device_ids=resolved_device_ids,
         dep_paths=dep_paths,
     )
     return ModelRuntime(
         model_name=normalized_model_name,
         provider=provider,
         workers=workers,
-        scheduler=GPUSlotScheduler(workers),
+        scheduler=GPUSlotScheduler(
+            workers,
+            disabled_device_ids=scheduler_disabled_devices,
+        ),
     )
 
 
@@ -1071,6 +1154,8 @@ def create_app(
 ) -> FastAPI:
     config = config or ServingConfig()
     validate_runtime_security_config(config)
+    all_device_ids = _resolve_device_ids(config)
+    disabled_devices: set[str] = set()
     task_store = TaskStore(config.database_path)
     api_key_store = ApiKeyStore(config.database_path)
     model_store = ModelStore(config.database_path)
@@ -1081,7 +1166,23 @@ def create_app(
     preview_renderer_service = preview_renderer_service or PreviewRendererService()
 
     async def runtime_loader(model_name: str) -> ModelRuntime:
-        return await build_model_runtime(model_store, config, model_name)
+        loader = build_model_runtime
+        try:
+            return await loader(
+                model_store,
+                config,
+                model_name,
+                device_ids=all_device_ids,
+                disabled_devices=disabled_devices,
+            )
+        except TypeError as exc:
+            message = str(exc)
+            if (
+                "unexpected keyword argument 'device_ids'" not in message
+                and "unexpected keyword argument 'disabled_devices'" not in message
+            ):
+                raise
+            return await loader(model_store, config, model_name)
 
     model_registry = ModelRegistry(runtime_loader)
     model_scheduler = ModelScheduler(
@@ -1131,7 +1232,7 @@ def create_app(
         ],
         task_timeout_seconds=config.task_timeout_seconds,
         queue_max_size=config.queue_max_size,
-        worker_count=len(config.gpu_device_ids),
+        worker_count=len(all_device_ids),
     )
     engine = AsyncGen3DEngine(
         task_store=task_store,
@@ -1145,12 +1246,14 @@ def create_app(
         provider_mode=config.provider_mode,
         allowed_callback_domains=config.allowed_callback_domains,
         rate_limiter=rate_limiter,
-        parallel_slots=len(config.gpu_device_ids),
+        parallel_slots=len(all_device_ids),
         queue_max_size=config.queue_max_size,
         uploads_dir=config.uploads_dir,
     )
     container = AppContainer(
         config=config,
+        all_device_ids=all_device_ids,
+        disabled_devices=disabled_devices,
         task_store=task_store,
         api_key_store=api_key_store,
         rate_limiter=rate_limiter,
@@ -1221,6 +1324,25 @@ def create_app(
         await container.dep_instance_store.initialize()
         await container.model_dep_requirements_store.initialize()
         await container.settings_store.initialize()
+        persisted_disabled_devices = await container.settings_store.get(
+            GPU_DISABLED_DEVICES_KEY
+        )
+        normalized_disabled_devices = _normalize_persisted_disabled_devices(
+            persisted_disabled_devices,
+            container.all_device_ids,
+        )
+        container.disabled_devices.clear()
+        container.disabled_devices.update(normalized_disabled_devices)
+        if persisted_disabled_devices is not None:
+            normalized_disabled_list = _ordered_disabled_devices(
+                normalized_disabled_devices,
+                container.all_device_ids,
+            )
+            if persisted_disabled_devices != normalized_disabled_list:
+                await container.settings_store.set(
+                    GPU_DISABLED_DEVICES_KEY,
+                    normalized_disabled_list,
+                )
         await container.model_scheduler.initialize()
         default_models = await container.model_store.list_models(
             extra_statuses=frozenset({"pending"}) if container.config.is_mock_provider else frozenset(),
@@ -2518,7 +2640,17 @@ def create_app(
                 ],
             },
         ]
-        return {"sections": sections}
+        gpu_devices = [
+            {
+                "deviceId": device_id,
+                "enabled": device_id not in app_container.disabled_devices,
+            }
+            for device_id in app_container.all_device_ids
+        ]
+        return {
+            "sections": sections,
+            "gpuDevices": gpu_devices,
+        }
 
     @app.patch(
         "/api/admin/settings",
@@ -2535,6 +2667,7 @@ def create_app(
             "defaultProvider",
             "maxLoadedModels",
             "maxTasksPerSlot",
+            "gpuDisabledDevices",
         }
         updates = {k: v for k, v in payload.items() if k in allowed_keys}
         if not updates:
@@ -2604,6 +2737,24 @@ def create_app(
             normalized_updates["maxTasksPerSlot"] = max_tasks_per_slot
             persisted_updates[MAX_TASKS_PER_SLOT_KEY] = max_tasks_per_slot
 
+        if "gpuDisabledDevices" in updates:
+            try:
+                parsed_disabled_devices = _parse_gpu_disabled_devices_update(
+                    updates["gpuDisabledDevices"],
+                    all_device_ids=app_container.all_device_ids,
+                )
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=422,
+                    detail=str(exc),
+                ) from exc
+            ordered_disabled_devices = _ordered_disabled_devices(
+                parsed_disabled_devices,
+                app_container.all_device_ids,
+            )
+            normalized_updates["gpuDisabledDevices"] = ordered_disabled_devices
+            persisted_updates[GPU_DISABLED_DEVICES_KEY] = ordered_disabled_devices
+
         if "rateLimitPerHour" in updates:
             try:
                 rate_limit_per_hour = int(updates["rateLimitPerHour"])
@@ -2637,6 +2788,22 @@ def create_app(
             persisted_updates["rateLimitConcurrent"] = rate_limit_concurrent
 
         await app_container.settings_store.set_many(persisted_updates)
+
+        if "gpuDisabledDevices" in normalized_updates:
+            next_disabled_devices = set(normalized_updates["gpuDisabledDevices"])
+            current_disabled_devices = set(app_container.disabled_devices)
+            to_disable = next_disabled_devices - current_disabled_devices
+            to_enable = current_disabled_devices - next_disabled_devices
+
+            app_container.disabled_devices.clear()
+            app_container.disabled_devices.update(next_disabled_devices)
+
+            active_schedulers = tuple(app_container.model_registry.iter_schedulers())
+            for scheduler in active_schedulers:
+                for device_id in to_disable:
+                    scheduler.disable(device_id)
+                for device_id in to_enable:
+                    scheduler.enable(device_id)
 
         if "queueMaxSize" in normalized_updates:
             app_container.engine.update_queue_capacity(normalized_updates["queueMaxSize"])

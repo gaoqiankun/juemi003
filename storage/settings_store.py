@@ -10,6 +10,7 @@ import aiosqlite
 
 MAX_LOADED_MODELS_KEY = "max_loaded_models"
 MAX_TASKS_PER_SLOT_KEY = "max_tasks_per_slot"
+GPU_DISABLED_DEVICES_KEY = "gpu_disabled_devices"
 
 
 def _utcnow_iso() -> str:

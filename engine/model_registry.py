@@ -4,7 +4,7 @@ import asyncio
 import gc
 import inspect
 from dataclasses import dataclass, field
-from typing import Awaitable, Callable
+from typing import Awaitable, Callable, Iterable
 
 import structlog
 from gen3d.model.base import BaseModelProvider
@@ -79,6 +79,13 @@ class ModelRegistry:
             model_name
             for model_name, entry in self._entries.items()
             if entry.state == "ready"
+        )
+
+    def iter_schedulers(self) -> Iterable[GPUSlotScheduler]:
+        return tuple(
+            entry.runtime.scheduler
+            for entry in self._entries.values()
+            if entry.state == "ready" and entry.runtime is not None
         )
 
     def add_model_loaded_listener(self, listener: ModelLoadedListener) -> None:

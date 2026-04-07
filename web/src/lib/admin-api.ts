@@ -1,5 +1,5 @@
 import type {
-  SettingsData,
+  SettingsData as MockSettingsData,
   TaskOverviewMetric,
 } from "@/data/admin-mocks";
 import { buildApiUrl, extractErrorMessage, getDefaultBaseUrl } from "@/lib/api";
@@ -9,6 +9,15 @@ export const ADMIN_AUTH_INVALID_EVENT = "cubie-admin-auth-invalid";
 
 export interface AdminApiError extends Error {
   status?: number;
+}
+
+export interface GpuDeviceSetting {
+  deviceId: string;
+  enabled: boolean;
+}
+
+export interface SettingsData extends MockSettingsData {
+  gpuDevices?: GpuDeviceSetting[];
 }
 
 export function getAdminToken(): string {
@@ -328,7 +337,11 @@ export const cleanOrphans = () =>
 
 // Settings
 export const fetchSettings = () => adminFetch<SettingsData>("/api/admin/settings");
-export const updateSettings = (data: Record<string, unknown>) =>
+export interface UpdateSettingsPayload extends Record<string, unknown> {
+  gpuDisabledDevices?: string[];
+}
+
+export const updateSettings = (data: UpdateSettingsPayload) =>
   adminFetch<unknown>("/api/admin/settings", { method: "PATCH", body: JSON.stringify(data) });
 
 // HuggingFace

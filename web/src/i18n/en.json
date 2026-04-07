@@ -494,6 +494,11 @@
       "count": "jobs",
       "tasks": "tasks"
     },
+    "gpuDevices": {
+      "title": "GPU Devices",
+      "description": "Enable or disable detected CUDA devices for new tasks. Running tasks complete before disabled devices park.",
+      "device": "Device {{deviceId}}"
+    },
     "hf": {
       "title": "HuggingFace",
       "loading": "Checking connection status...",

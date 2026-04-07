@@ -93,7 +93,7 @@ class ServingConfig(BaseSettings):
     queue_delay_ms: int = Field(default=20, alias="QUEUE_DELAY_MS")
     # Comma-separated GPU device identifiers. One logical worker/slot is created per device.
     gpu_device_ids: tuple[str, ...] = Field(
-        default_factory=lambda: ("0",),
+        default_factory=tuple,
         alias="GPU_DEVICE_IDS",
     )
     # Maximum number of tasks allowed to wait in the coordinator queue before new requests
@@ -217,7 +217,7 @@ class ServingConfig(BaseSettings):
     @classmethod
     def _parse_gpu_device_ids(cls, value: Any) -> tuple[str, ...]:
         if value is None:
-            return ("0",)
+            return ()
         if isinstance(value, str):
             parts = [part.strip() for part in value.split(",")]
         elif isinstance(value, (list, tuple, set)):
@@ -225,4 +225,4 @@ class ServingConfig(BaseSettings):
         else:
             raise TypeError("GPU_DEVICE_IDS must be a string or a list")
         normalized = tuple(dict.fromkeys(part for part in parts if part))
-        return normalized or ("0",)
+        return normalized

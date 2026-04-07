@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
-import type { SettingField, SettingsData } from "@/data/admin-mocks";
+import type { SettingField } from "@/data/admin-mocks";
 import { Button, Card, SelectField, TextField, ToggleSwitch } from "@/components/ui/primitives";
 import { useSettingsData } from "@/hooks/use-settings-data";
 import {
@@ -13,7 +13,9 @@ import {
   getStorageStats,
   updateHfEndpoint,
   updateSettings,
+  type GpuDeviceSetting,
   type HfStatusResponse,
+  type SettingsData,
   type StorageStats,
 } from "@/lib/admin-api";
 
@@ -22,6 +24,7 @@ function formatBytes(bytes: number): string {
 }
 
 type SettingValue = boolean | number | string;
+type SettingsPayloadValue = SettingValue | string[];
 const DEFAULT_HF_ENDPOINT = "https://huggingface.co";
 
 const UPDATABLE_SETTING_KEYS = new Set([
@@ -32,6 +35,18 @@ const UPDATABLE_SETTING_KEYS = new Set([
   "rateLimitPerHour",
   "rateLimitConcurrent",
 ]);
+
+function normalizeGpuDevices(devices: GpuDeviceSetting[] | undefined): GpuDeviceSetting[] {
+  if (!Array.isArray(devices)) {
+    return [];
+  }
+  return devices
+    .map((device) => ({
+      deviceId: String(device.deviceId || "").trim(),
+      enabled: Boolean(device.enabled),
+    }))
+    .filter((device) => Boolean(device.deviceId));
+}
 
 function normalizeSettings(source: SettingsData): SettingsData {
   return {
@@ -50,14 +65,15 @@ function normalizeSettings(source: SettingsData): SettingsData {
         };
       }),
     })),
+    gpuDevices: normalizeGpuDevices(source.gpuDevices),
   };
 }
 
-function extractPayload(data: SettingsData | null): Record<string, SettingValue> {
+function extractPayload(data: SettingsData | null): Record<string, SettingsPayloadValue> {
   if (!data) {
     return {};
   }
-  const payload: Record<string, SettingValue> = {};
+  const payload: Record<string, SettingsPayloadValue> = {};
   for (const section of data.sections) {
     for (const field of section.fields) {
       if (UPDATABLE_SETTING_KEYS.has(field.key)) {
@@ -65,10 +81,14 @@ function extractPayload(data: SettingsData | null): Record<string, SettingValue>
       }
     }
   }
+  payload.gpuDisabledDevices = data.gpuDevices
+    ?.filter((device) => !device.enabled)
+    .map((device) => device.deviceId)
+    .sort() || [];
   return payload;
 }
 
-function payloadFingerprint(payload: Record<string, SettingValue>) {
+function payloadFingerprint(payload: Record<string, SettingsPayloadValue>) {
   return JSON.stringify(payload);
 }
 
@@ -229,6 +249,21 @@ export function SettingsPage() {
               )),
             }
         )),
+      };
+    });
+    setSaveSuccess("");
+  }, []);
+
+  const updateGpuDevice = useCallback((deviceId: string, enabled: boolean) => {
+    setSettings((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        gpuDevices: current.gpuDevices?.map((device) => (
+          device.deviceId === deviceId
+            ? { ...device, enabled }
+            : device
+        )) || [],
       };
     });
     setSaveSuccess("");
@@ -461,6 +496,48 @@ export function SettingsPage() {
             ) : null}
           </Card>
         ))}
+      </section>
+
+      <section>
+        <Card className="grid gap-3 p-4">
+          <h2 className="text-lg font-semibold tracking-[-0.02em] text-text-primary">
+            {t("settings.gpuDevices.title")}
+          </h2>
+          <p className="text-sm text-text-secondary">
+            {t("settings.gpuDevices.description")}
+          </p>
+
+          <div className="grid gap-3">
+            {settings.gpuDevices && settings.gpuDevices.length > 0 ? settings.gpuDevices.map((device) => (
+              <div
+                key={device.deviceId}
+                className="grid gap-1.5 rounded-lg border border-outline bg-surface-container-low p-3"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="grid gap-1">
+                    <span className="font-display text-[0.6875rem] font-semibold uppercase tracking-[0.05em] text-text-muted">
+                      {t("settings.gpuDevices.device", { deviceId: device.deviceId })}
+                    </span>
+                    <span className="text-sm font-medium text-text-primary">
+                      {device.deviceId}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-medium text-text-secondary">
+                      {t(device.enabled ? "common.status.active" : "common.status.paused")}
+                    </span>
+                    <ToggleSwitch
+                      checked={device.enabled}
+                      onChange={(nextValue) => updateGpuDevice(device.deviceId, nextValue)}
+                      label={t("settings.gpuDevices.device", { deviceId: device.deviceId })}
+                    />
+                  </div>
+                </div>
+              </div>
+            )) : null}
+          </div>
+        </Card>
       </section>
 
       <section>
