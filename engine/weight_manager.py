@@ -464,6 +464,30 @@ class WeightManager:
             "orphan_count": orphan_count,
         }
 
+    async def list_orphans(self) -> list[dict]:
+        model_paths = await self._model_store.get_all_resolved_paths()
+        dep_paths: list[str] = []
+        if self._dep_store is not None:
+            dep_paths = await self._dep_store.get_all_resolved_paths()
+        resolved = {str(Path(p).resolve()) for p in model_paths + dep_paths}
+
+        orphan_dirs: list[Path] = []
+        if self._cache_dir.exists():
+            for d in self._cache_dir.iterdir():
+                if d.is_dir() and d.name != "deps" and str(d.resolve()) not in resolved:
+                    orphan_dirs.append(d)
+        deps_dir = self._cache_dir / "deps"
+        if deps_dir.exists():
+            for d in deps_dir.iterdir():
+                if d.is_dir() and str(d.resolve()) not in resolved:
+                    orphan_dirs.append(d)
+
+        result = []
+        for d in sorted(orphan_dirs):
+            size = await asyncio.to_thread(_compute_dir_size, d)
+            result.append({"path": str(d), "size_bytes": size})
+        return result
+
     async def clean_orphans(self) -> dict:
         model_paths = await self._model_store.get_all_resolved_paths()
         dep_paths: list[str] = []

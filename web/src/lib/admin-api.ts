@@ -331,7 +331,13 @@ export interface StorageStats {
   orphan_count: number;
 }
 
+export interface OrphanEntry {
+  path: string;
+  size_bytes: number;
+}
+
 export const getStorageStats = () => adminFetch<StorageStats>("/api/admin/storage/stats");
+export const listOrphans = () => adminFetch<OrphanEntry[]>("/api/admin/storage/orphans");
 export const cleanOrphans = () =>
   adminFetch<{ freed_bytes: number; count: number }>("/api/admin/storage/orphans", {
     method: "DELETE",

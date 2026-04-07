@@ -2442,6 +2442,15 @@ def create_app(
     ) -> dict:
         return await app_container.weight_manager.get_storage_stats()
 
+    @app.get(
+        "/api/admin/storage/orphans",
+        dependencies=[Depends(require_admin_token)],
+    )
+    async def list_storage_orphans(
+        app_container: AppContainer = Depends(get_container),
+    ) -> list:
+        return await app_container.weight_manager.list_orphans()
+
     @app.delete(
         "/api/admin/storage/orphans",
         dependencies=[Depends(require_admin_token)],

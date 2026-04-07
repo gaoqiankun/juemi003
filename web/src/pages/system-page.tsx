@@ -15,8 +15,10 @@ import {
   cleanOrphans,
   fetchSettings,
   getStorageStats,
+  listOrphans,
   updateSettings,
   type GpuDeviceSetting,
+  type OrphanEntry,
   type StorageStats,
 } from "@/lib/admin-api";
 function formatBytes(bytes: number): string {
@@ -51,6 +53,8 @@ export function SystemPage() {
   const [storageStats, setStorageStats] = useState<StorageStats | null>(null);
   const [isCleaning, setIsCleaning] = useState(false);
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
+  const [orphanList, setOrphanList] = useState<OrphanEntry[] | null>(null);
+  const [isLoadingOrphans, setIsLoadingOrphans] = useState(false);
 
   const refreshStorageStats = useCallback(async () => {
     try {
@@ -111,12 +115,21 @@ export function SystemPage() {
     }
   }, [gpuDevices, isGpuSaving]);
 
-  const handleOpenCleanConfirm = useCallback(() => {
-    if (!storageStats || storageStats.orphan_count <= 0 || isCleaning) {
+  const handleOpenCleanConfirm = useCallback(async () => {
+    if (!storageStats || storageStats.orphan_count <= 0 || isCleaning || isLoadingOrphans) {
       return;
     }
-    setIsConfirmOpen(true);
-  }, [isCleaning, storageStats]);
+    setIsLoadingOrphans(true);
+    try {
+      const items = await listOrphans();
+      setOrphanList(items);
+      setIsConfirmOpen(true);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsLoadingOrphans(false);
+    }
+  }, [isCleaning, isLoadingOrphans, storageStats]);
 
   const handleConfirmCleanOrphans = useCallback(async () => {
     if (isCleaning) {
@@ -127,6 +140,7 @@ export function SystemPage() {
       const result = await cleanOrphans();
       toast.success(t("storage.cleaned", { freed: formatBytes(result.freed_bytes) }));
       setIsConfirmOpen(false);
+      setOrphanList(null);
       await refreshStorageStats();
     } catch (cleanError) {
       toast.error(cleanError instanceof Error ? cleanError.message : String(cleanError));
@@ -158,37 +172,33 @@ export function SystemPage() {
           <h2 className="text-lg font-semibold tracking-[-0.02em] text-text-primary">
             {t("settings.gpuDevices.title")}
           </h2>
-          <div className="grid gap-3">
+          <div className="grid gap-2">
             {gpuDevices.map((device) => (
               <div
                 key={device.deviceId}
-                className="grid gap-1.5 rounded-lg border border-outline bg-surface-container-low p-3"
+                className="flex items-center gap-3 rounded-lg border border-outline bg-surface-container-low px-3 py-2.5"
               >
-                <div className="flex items-start justify-between gap-4">
-                  <div className="grid gap-1">
-                    <span className="font-display text-[0.6875rem] font-semibold uppercase tracking-[0.05em] text-text-muted">
-                      {t("settings.gpuDevices.device", { deviceId: device.deviceId })}
-                    </span>
-                    <span className="text-sm font-medium text-text-primary">
-                      {device.name ?? device.deviceId}
-                    </span>
-                    {device.totalMemoryGb != null ? (
-                      <span className="text-xs text-text-secondary">{device.totalMemoryGb} GB</span>
-                    ) : null}
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-xs font-medium text-text-secondary">
-                      {t(device.enabled ? "common.status.active" : "common.status.paused")}
-                    </span>
-                    <ToggleSwitch
-                      checked={device.enabled}
-                      onChange={(nextValue) => {
-                        void handleGpuToggle(device.deviceId, nextValue);
-                      }}
-                      label={t("settings.gpuDevices.device", { deviceId: device.deviceId })}
-                      className={isGpuSaving ? "opacity-60" : undefined}
-                    />
-                  </div>
+                <span className="font-display text-[0.6875rem] font-semibold uppercase tracking-[0.05em] text-text-muted shrink-0">
+                  {t("settings.gpuDevices.device", { deviceId: device.deviceId })}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-sm font-medium text-text-primary">
+                  {device.name ?? device.deviceId}
+                </span>
+                {device.totalMemoryGb != null ? (
+                  <span className="shrink-0 text-xs text-text-secondary">{device.totalMemoryGb} GB</span>
+                ) : null}
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <span className="text-xs font-medium text-text-secondary">
+                    {t(device.enabled ? "common.status.active" : "common.status.paused")}
+                  </span>
+                  <ToggleSwitch
+                    checked={device.enabled}
+                    onChange={(nextValue) => {
+                      void handleGpuToggle(device.deviceId, nextValue);
+                    }}
+                    label={t("settings.gpuDevices.device", { deviceId: device.deviceId })}
+                    className={isGpuSaving ? "opacity-60" : undefined}
+                  />
                 </div>
               </div>
             ))}
@@ -233,10 +243,10 @@ export function SystemPage() {
                 <Button
                   type="button"
                   size="sm"
-                  disabled={isCleaning || orphanCount <= 0}
-                  onClick={handleOpenCleanConfirm}
+                  disabled={isCleaning || isLoadingOrphans || orphanCount <= 0}
+                  onClick={() => { void handleOpenCleanConfirm(); }}
                 >
-                  {isCleaning ? t("storage.cleaning") : t("storage.cleanOrphans.action")}
+                  {isCleaning || isLoadingOrphans ? t("storage.cleaning") : t("storage.cleanOrphans.action")}
                 </Button>
               </div>
             </>
@@ -251,23 +261,39 @@ export function SystemPage() {
         onOpenChange={(open) => {
           if (!isCleaning) {
             setIsConfirmOpen(open);
+            if (!open) setOrphanList(null);
           }
         }}
       >
-        <DialogContent className="w-[min(92vw,420px)] p-4">
+        <DialogContent className="w-[min(92vw,520px)] p-4">
           <DialogHeader className="pr-8">
             <DialogTitle>{t("storage.cleanOrphans.confirmTitle")}</DialogTitle>
             <DialogDescription>
               {t("storage.cleanOrphans.confirmDescription", { count: orphanCount, size: orphanSize })}
             </DialogDescription>
           </DialogHeader>
+          {orphanList && orphanList.length > 0 && (
+            <div className="max-h-48 overflow-y-auto rounded-lg border border-outline bg-surface-container-low">
+              {orphanList.map((entry) => (
+                <div
+                  key={entry.path}
+                  className="flex items-center justify-between gap-3 border-b border-outline px-3 py-1.5 last:border-b-0"
+                >
+                  <span className="truncate font-mono text-xs text-text-secondary" title={entry.path}>
+                    {entry.path}
+                  </span>
+                  <span className="shrink-0 text-xs text-text-muted">{formatBytes(entry.size_bytes)}</span>
+                </div>
+              ))}
+            </div>
+          )}
           <div className="flex justify-end gap-2 pt-2">
             <Button
               type="button"
               size="sm"
               variant="outline"
               disabled={isCleaning}
-              onClick={() => setIsConfirmOpen(false)}
+              onClick={() => { setIsConfirmOpen(false); setOrphanList(null); }}
             >
               {t("storage.cleanOrphans.cancel")}
             </Button>
