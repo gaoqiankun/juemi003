@@ -290,50 +290,38 @@ export function SystemPage() {
             <DialogTitle>{t("storage.breakdown.title")}</DialogTitle>
           </DialogHeader>
           {breakdown && (
-            <div className="grid gap-4 max-h-[60vh] overflow-y-auto pr-1">
-              {breakdown.models.length > 0 && (
-                <div className="grid gap-1.5">
-                  <span className="font-display text-[0.6875rem] font-semibold uppercase tracking-[0.05em] text-text-muted">
-                    {t("storage.breakdown.models")}
-                  </span>
-                  <div className="rounded-lg border border-outline overflow-hidden">
-                    {breakdown.models.map((entry) => (
-                      <div
-                        key={entry.id}
-                        className="flex items-center justify-between gap-3 border-b border-outline px-3 py-2 last:border-b-0 bg-surface-container-low"
-                      >
-                        <span className="truncate text-sm text-text-primary">{entry.display_name}</span>
-                        <span className="shrink-0 text-xs text-text-secondary tabular-nums">{formatBytes(entry.size_bytes)}</span>
+            <div className="max-h-[60vh] overflow-y-auto rounded-lg border border-outline">
+              {breakdown.entries.length === 0 ? (
+                <p className="px-3 py-4 text-sm text-text-muted">{t("storage.breakdown.noData")}</p>
+              ) : (
+                breakdown.entries.map((entry) => {
+                  const kindLabel = entry.kind === "model"
+                    ? t("storage.breakdown.kindModel")
+                    : entry.kind === "dep"
+                      ? t("storage.breakdown.kindDep")
+                      : t("storage.breakdown.kindResidual");
+                  const isResidual = entry.kind === "residual";
+                  const dirName = entry.path.split("/").pop() ?? entry.path;
+                  return (
+                    <div
+                      key={entry.path}
+                      className="flex items-center gap-3 border-b border-outline px-3 py-2 last:border-b-0 bg-surface-container-low"
+                    >
+                      <span className={`shrink-0 font-display text-[0.625rem] font-semibold uppercase tracking-[0.05em] w-12 text-right ${isResidual ? "text-text-muted" : "text-primary"}`}>
+                        {kindLabel}
+                      </span>
+                      <div className="min-w-0 flex-1 grid gap-0.5">
+                        <span className={`truncate text-sm font-medium ${isResidual ? "text-text-secondary" : "text-text-primary"}`}>
+                          {entry.label ?? dirName}
+                        </span>
+                        {isResidual && (
+                          <span className="truncate font-mono text-xs text-text-muted" title={entry.path}>{dirName}</span>
+                        )}
                       </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {breakdown.deps.length > 0 && (
-                <div className="grid gap-1.5">
-                  <span className="font-display text-[0.6875rem] font-semibold uppercase tracking-[0.05em] text-text-muted">
-                    {t("storage.breakdown.deps")}
-                  </span>
-                  <div className="rounded-lg border border-outline overflow-hidden">
-                    {breakdown.deps.map((entry) => (
-                      <div
-                        key={entry.id}
-                        className="flex items-center justify-between gap-3 border-b border-outline px-3 py-2 last:border-b-0 bg-surface-container-low"
-                      >
-                        <div className="min-w-0 grid gap-0.5">
-                          <span className="truncate text-sm text-text-primary">{entry.display_name}</span>
-                          {entry.dep_type && (
-                            <span className="text-xs text-text-muted">{entry.dep_type}</span>
-                          )}
-                        </div>
-                        <span className="shrink-0 text-xs text-text-secondary tabular-nums">{formatBytes(entry.size_bytes)}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {breakdown.models.length === 0 && breakdown.deps.length === 0 && (
-                <p className="text-sm text-text-muted">{t("storage.breakdown.noData")}</p>
+                      <span className="shrink-0 text-xs text-text-secondary tabular-nums">{formatBytes(entry.size_bytes)}</span>
+                    </div>
+                  );
+                })
               )}
             </div>
           )}

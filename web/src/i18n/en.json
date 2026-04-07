@@ -565,9 +565,10 @@
     "breakdown": {
       "action": "View Details",
       "title": "Storage Details",
-      "models": "Model Weights",
-      "deps": "Dependencies",
-      "noData": "No data"
+      "noData": "No data",
+      "kindModel": "Model",
+      "kindDep": "Dep",
+      "kindResidual": "Residual"
     }
   },
   "user": {

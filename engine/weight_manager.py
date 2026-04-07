@@ -489,35 +489,47 @@ class WeightManager:
         return result
 
     async def get_storage_breakdown(self) -> dict:
+        # Build resolved-path → label maps
         models = await self._model_store.list_models(include_pending=False)
-        model_entries = []
+        path_to_model: dict[str, str] = {}
         for m in models:
             resolved = m.get("resolved_path") or ""
-            size = await asyncio.to_thread(_compute_dir_size, Path(resolved)) if resolved else 0
-            model_entries.append({
-                "id": m.get("id", ""),
-                "display_name": m.get("display_name", ""),
-                "size_bytes": size,
-            })
-        model_entries.sort(key=lambda x: x["size_bytes"], reverse=True)
+            if resolved:
+                path_to_model[str(Path(resolved).resolve())] = m.get("display_name", "")
 
-        dep_entries = []
+        path_to_dep: dict[str, str] = {}
         if self._dep_store is not None:
-            deps = await self._dep_store.list_all()
-            for d in deps:
-                if d.get("download_status") != "done":
-                    continue
+            for d in await self._dep_store.list_all():
                 resolved = d.get("resolved_path") or ""
-                size = await asyncio.to_thread(_compute_dir_size, Path(resolved)) if resolved else 0
-                dep_entries.append({
-                    "id": d.get("id", ""),
-                    "display_name": d.get("display_name", ""),
-                    "dep_type": d.get("dep_type", ""),
-                    "size_bytes": size,
-                })
-            dep_entries.sort(key=lambda x: x["size_bytes"], reverse=True)
+                if resolved:
+                    path_to_dep[str(Path(resolved).resolve())] = d.get("display_name", "")
 
-        return {"models": model_entries, "deps": dep_entries}
+        # Scan every directory under cache root
+        scan_dirs: list[Path] = []
+        if self._cache_dir.exists():
+            for d in self._cache_dir.iterdir():
+                if d.is_dir() and d.name != "deps":
+                    scan_dirs.append(d)
+        deps_dir = self._cache_dir / "deps"
+        if deps_dir.exists():
+            for d in deps_dir.iterdir():
+                if d.is_dir():
+                    scan_dirs.append(d)
+
+        entries = []
+        for d in scan_dirs:
+            resolved_str = str(d.resolve())
+            size = await asyncio.to_thread(_compute_dir_size, d)
+            if resolved_str in path_to_model:
+                kind, label = "model", path_to_model[resolved_str]
+            elif resolved_str in path_to_dep:
+                kind, label = "dep", path_to_dep[resolved_str]
+            else:
+                kind, label = "residual", None
+            entries.append({"path": str(d), "size_bytes": size, "label": label, "kind": kind})
+
+        entries.sort(key=lambda x: x["size_bytes"], reverse=True)
+        return {"entries": entries}
 
     async def clean_orphans(self) -> dict:
         model_paths = await self._model_store.get_all_resolved_paths()

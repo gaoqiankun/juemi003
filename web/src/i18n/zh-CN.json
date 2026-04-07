@@ -565,9 +565,10 @@
     "breakdown": {
       "action": "查看详情",
       "title": "存储详情",
-      "models": "模型权重",
-      "deps": "依赖",
-      "noData": "暂无数据"
+      "noData": "暂无数据",
+      "kindModel": "模型",
+      "kindDep": "依赖",
+      "kindResidual": "残留"
     }
   },
   "user": {

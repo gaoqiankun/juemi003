@@ -337,15 +337,14 @@ export interface OrphanEntry {
 }
 
 export interface StorageBreakdownEntry {
-  id: string;
-  display_name: string;
+  path: string;
   size_bytes: number;
-  dep_type?: string;
+  label: string | null;
+  kind: "model" | "dep" | "residual";
 }
 
 export interface StorageBreakdown {
-  models: StorageBreakdownEntry[];
-  deps: StorageBreakdownEntry[];
+  entries: StorageBreakdownEntry[];
 }
 
 export const getStorageStats = () => adminFetch<StorageStats>("/api/admin/storage/stats");
