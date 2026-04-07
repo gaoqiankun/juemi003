@@ -208,8 +208,7 @@ export function SettingsPage() {
       const status = await fetchHfStatus();
       setHfStatus(status);
       setHfEndpoint(status.endpoint || DEFAULT_HF_ENDPOINT);
-    } catch (hfStatusError) {
-      toast.error(hfStatusError instanceof Error ? hfStatusError.message : String(hfStatusError));
+    } catch {
       setHfStatus(null);
       setHfEndpoint(DEFAULT_HF_ENDPOINT);
     } finally {
