@@ -799,6 +799,16 @@ def _resolve_device_ids(config: ServingConfig) -> tuple[str, ...]:
     return tuple(str(index) for index in range(detected_count))
 
 
+def _get_gpu_device_info(device_id: str) -> dict:
+    try:
+        import torch  # type: ignore[import-not-found]
+        props = torch.cuda.get_device_properties(int(device_id))
+        total_memory_gb = round(props.total_memory / (1024 ** 3), 1)
+        return {"name": props.name, "totalMemoryGb": total_memory_gb}
+    except Exception:
+        return {"name": None, "totalMemoryGb": None}
+
+
 def _normalize_persisted_disabled_devices(
     raw_value: Any,
     all_device_ids: tuple[str, ...],
@@ -2645,6 +2655,7 @@ def create_app(
             {
                 "deviceId": device_id,
                 "enabled": device_id not in app_container.disabled_devices,
+                **_get_gpu_device_info(device_id),
             }
             for device_id in app_container.all_device_ids
         ]

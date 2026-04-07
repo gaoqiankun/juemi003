@@ -499,8 +499,11 @@ export function SettingsPage() {
                       {t("settings.gpuDevices.device", { deviceId: device.deviceId })}
                     </span>
                     <span className="text-sm font-medium text-text-primary">
-                      {device.deviceId}
+                      {device.name ?? device.deviceId}
                     </span>
+                    {device.totalMemoryGb != null ? (
+                      <span className="text-xs text-text-secondary">{device.totalMemoryGb} GB</span>
+                    ) : null}
                   </div>
 
                   <div className="flex items-center gap-1.5">

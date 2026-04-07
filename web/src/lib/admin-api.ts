@@ -14,6 +14,8 @@ export interface AdminApiError extends Error {
 export interface GpuDeviceSetting {
   deviceId: string;
   enabled: boolean;
+  name?: string | null;
+  totalMemoryGb?: number | null;
 }
 
 export interface SettingsData extends MockSettingsData {
