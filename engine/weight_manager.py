@@ -489,22 +489,37 @@ class WeightManager:
         return result
 
     async def get_storage_breakdown(self) -> dict:
-        # Build resolved-path → label maps
-        models = await self._model_store.list_models(include_pending=False)
-        path_to_model: dict[str, str] = {}
-        for m in models:
-            resolved = m.get("resolved_path") or ""
-            if resolved:
-                path_to_model[str(Path(resolved).resolve())] = m.get("display_name", "")
+        seen: set[str] = set()
+        entries = []
 
-        path_to_dep: dict[str, str] = {}
+        # Known model paths (including local weight_source outside cache_dir)
+        for m in await self._model_store.list_models(include_pending=False):
+            resolved = m.get("resolved_path") or ""
+            if not resolved:
+                continue
+            p = Path(resolved)
+            key = str(p.resolve())
+            if key in seen or not p.exists():
+                continue
+            seen.add(key)
+            size = await asyncio.to_thread(_compute_dir_size, p)
+            entries.append({"path": resolved, "size_bytes": size, "label": m.get("display_name", ""), "kind": "model"})
+
+        # Known dep paths
         if self._dep_store is not None:
             for d in await self._dep_store.list_all():
                 resolved = d.get("resolved_path") or ""
-                if resolved:
-                    path_to_dep[str(Path(resolved).resolve())] = d.get("display_name", "")
+                if not resolved:
+                    continue
+                p = Path(resolved)
+                key = str(p.resolve())
+                if key in seen or not p.exists():
+                    continue
+                seen.add(key)
+                size = await asyncio.to_thread(_compute_dir_size, p)
+                entries.append({"path": resolved, "size_bytes": size, "label": d.get("display_name", ""), "kind": "dep"})
 
-        # Scan every directory under cache root
+        # Residual dirs in cache_dir not matched above
         scan_dirs: list[Path] = []
         if self._cache_dir.exists():
             for d in self._cache_dir.iterdir():
@@ -515,18 +530,11 @@ class WeightManager:
             for d in deps_dir.iterdir():
                 if d.is_dir():
                     scan_dirs.append(d)
-
-        entries = []
         for d in scan_dirs:
-            resolved_str = str(d.resolve())
+            if str(d.resolve()) in seen:
+                continue
             size = await asyncio.to_thread(_compute_dir_size, d)
-            if resolved_str in path_to_model:
-                kind, label = "model", path_to_model[resolved_str]
-            elif resolved_str in path_to_dep:
-                kind, label = "dep", path_to_dep[resolved_str]
-            else:
-                kind, label = "residual", None
-            entries.append({"path": str(d), "size_bytes": size, "label": label, "kind": kind})
+            entries.append({"path": str(d), "size_bytes": size, "label": None, "kind": "residual"})
 
         entries.sort(key=lambda x: x["size_bytes"], reverse=True)
         return {"entries": entries}
