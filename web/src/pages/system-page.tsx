@@ -286,7 +286,7 @@ export function SystemPage() {
       </section>
 
       <Dialog open={isBreakdownOpen} onOpenChange={setIsBreakdownOpen}>
-        <DialogContent className="w-[min(92vw,540px)] p-4">
+        <DialogContent className="w-[min(92vw,720px)] p-4">
           <DialogHeader className="pr-8">
             <DialogTitle>{t("storage.breakdown.title")}</DialogTitle>
           </DialogHeader>
