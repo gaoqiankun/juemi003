@@ -150,7 +150,6 @@ export function SettingsPage() {
   const [baselineFingerprint, setBaselineFingerprint] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [maxLoadedModelsError, setMaxLoadedModelsError] = useState("");
-  const [saveSuccess, setSaveSuccess] = useState("");
   const [hfStatus, setHfStatus] = useState<HfStatusResponse | null>(null);
   const [hfLoading, setHfLoading] = useState(true);
   const [hfBusy, setHfBusy] = useState(false);
@@ -197,7 +196,6 @@ export function SettingsPage() {
       setSettings(normalizedSettings);
       setBaselineFingerprint(payloadFingerprint(extractPayload(normalizedSettings)));
       setMaxLoadedModelsError("");
-      setSaveSuccess("");
     }
   }, [source]);
 
@@ -252,7 +250,6 @@ export function SettingsPage() {
         )),
       };
     });
-    setSaveSuccess("");
   }, []);
 
   const updateGpuDevice = useCallback((deviceId: string, enabled: boolean) => {
@@ -267,7 +264,6 @@ export function SettingsPage() {
         )) || [],
       };
     });
-    setSaveSuccess("");
   }, []);
 
   const handleSave = useCallback(async () => {
@@ -282,12 +278,11 @@ export function SettingsPage() {
     }
 
     setIsSaving(true);
-    setSaveSuccess("");
     try {
       await updateSettings(currentPayload);
       setBaselineFingerprint(currentFingerprint);
       setMaxLoadedModelsError("");
-      setSaveSuccess(t("settings.save.success"));
+      toast.success(t("settings.save.success"));
     } catch (saveRequestError) {
       const message = saveRequestError instanceof Error ? saveRequestError.message : String(saveRequestError);
       if (isMaxLoadedModelsError(message)) {
@@ -492,7 +487,6 @@ export function SettingsPage() {
                 >
                   {isSaving ? t("settings.save.saving") : t("common.saveChanges")}
                 </Button>
-                {saveSuccess ? <p className="text-sm text-success-text">{saveSuccess}</p> : null}
               </div>
             ) : null}
           </Card>
