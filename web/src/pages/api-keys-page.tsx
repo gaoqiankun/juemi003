@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 
 import { Badge, Button, Card, TextField } from "@/components/ui/primitives";
 import type { AdminLocale } from "@/data/admin-mocks";
@@ -30,7 +31,6 @@ export function ApiKeysPage() {
   } = useApiKeysData();
   const [label, setLabel] = useState("");
   const [createError, setCreateError] = useState("");
-  const [actionError, setActionError] = useState("");
   const [createdKey, setCreatedKey] = useState<CreatedApiKey | null>(null);
 
   const handleCreateKey = useCallback(async () => {
@@ -51,10 +51,9 @@ export function ApiKeysPage() {
 
   const handleSetKeyActive = useCallback(async (keyId: string, isActive: boolean) => {
     try {
-      setActionError("");
       await setKeyActive(keyId, isActive);
     } catch (setActiveError) {
-      setActionError(setActiveError instanceof Error ? setActiveError.message : String(setActiveError));
+      toast.error(setActiveError instanceof Error ? setActiveError.message : String(setActiveError));
     }
   }, [setKeyActive]);
 
@@ -63,10 +62,9 @@ export function ApiKeysPage() {
       return;
     }
     try {
-      setActionError("");
       await removeKey(keyId);
     } catch (deleteKeyError) {
-      setActionError(deleteKeyError instanceof Error ? deleteKeyError.message : String(deleteKeyError));
+      toast.error(deleteKeyError instanceof Error ? deleteKeyError.message : String(deleteKeyError));
     }
   }, [removeKey, t]);
 
@@ -147,7 +145,6 @@ export function ApiKeysPage() {
               </tbody>
             </table>
           </div>
-          {actionError ? <p className="text-sm text-danger-text">{actionError}</p> : null}
         </Card>
 
         <Card tone="low" className="grid content-start gap-3 p-4">

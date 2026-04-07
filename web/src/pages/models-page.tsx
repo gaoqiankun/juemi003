@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import { Plus, X, RotateCcw, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
 
 import { AddModelDialog } from "@/components/add-model-dialog";
 import { FirstRunWizard } from "@/components/first-run-wizard";
@@ -297,7 +298,6 @@ export function ModelsPage() {
     removeModel,
     retryDownload,
   } = useModelsData();
-  const [actionError, setActionError] = useState("");
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [deleteTargetId, setDeleteTargetId] = useState("");
   const [detailModel, setDetailModel] = useState<AdminModelItem | null>(null);
@@ -308,10 +308,9 @@ export function ModelsPage() {
 
   const runModelAction = useCallback(async (action: () => Promise<void>) => {
     try {
-      setActionError("");
       await action();
     } catch (modelActionError) {
-      setActionError(modelActionError instanceof Error ? modelActionError.message : String(modelActionError));
+      toast.error(modelActionError instanceof Error ? modelActionError.message : String(modelActionError));
     }
   }, []);
 
@@ -363,14 +362,13 @@ export function ModelsPage() {
     const id = deleteTargetId;
     setDeleteTargetId("");
     try {
-      setActionError("");
       await removeModel(id);
     } catch (err) {
       const apiErr = err as AdminApiError;
       if (apiErr.status === 400) {
-        setActionError(t("models.list.deleteLastError"));
+        toast.error(t("models.list.deleteLastError"));
       } else {
-        setActionError(err instanceof Error ? err.message : String(err));
+        toast.error(err instanceof Error ? err.message : String(err));
       }
     }
   }, [deleteTargetId, removeModel, t]);
@@ -568,7 +566,6 @@ export function ModelsPage() {
           </table>
         </div>
 
-        {actionError ? <p className="text-sm text-danger-text">{actionError}</p> : null}
       </Card>
 
       {hasPending ? (

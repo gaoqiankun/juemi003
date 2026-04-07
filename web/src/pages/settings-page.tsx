@@ -156,11 +156,8 @@ export function SettingsPage() {
   const [hfEndpointBusy, setHfEndpointBusy] = useState(false);
   const [hfEndpoint, setHfEndpoint] = useState(DEFAULT_HF_ENDPOINT);
   const [hfToken, setHfToken] = useState("");
-  const [hfError, setHfError] = useState("");
-  const [hfSuccess, setHfSuccess] = useState("");
   const [storageStats, setStorageStats] = useState<StorageStats | null>(null);
   const [isCleaning, setIsCleaning] = useState(false);
-  const [cleanResult, setCleanResult] = useState("");
 
   const refreshStorageStats = useCallback(async () => {
     try {
@@ -174,10 +171,9 @@ export function SettingsPage() {
   const handleCleanOrphans = useCallback(async () => {
     if (isCleaning) return;
     setIsCleaning(true);
-    setCleanResult("");
     try {
       const result = await cleanOrphans();
-      setCleanResult(t("storage.cleaned", { freed: formatBytes(result.freed_bytes) }));
+      toast.success(t("storage.cleaned", { freed: formatBytes(result.freed_bytes) }));
       await refreshStorageStats();
     } catch {
       // ignore
@@ -212,9 +208,8 @@ export function SettingsPage() {
       const status = await fetchHfStatus();
       setHfStatus(status);
       setHfEndpoint(status.endpoint || DEFAULT_HF_ENDPOINT);
-      setHfError("");
     } catch (hfStatusError) {
-      setHfError(hfStatusError instanceof Error ? hfStatusError.message : String(hfStatusError));
+      toast.error(hfStatusError instanceof Error ? hfStatusError.message : String(hfStatusError));
       setHfStatus(null);
       setHfEndpoint(DEFAULT_HF_ENDPOINT);
     } finally {
@@ -300,19 +295,17 @@ export function SettingsPage() {
     }
     const token = hfToken.trim();
     if (!token) {
-      setHfError(t("settings.hf.tokenRequired"));
+      toast.error(t("settings.hf.tokenRequired"));
       return;
     }
     setHfBusy(true);
-    setHfError("");
-    setHfSuccess("");
     try {
       const status = await connectHf(token);
       setHfStatus(status);
       setHfToken("");
-      setHfSuccess(t("settings.hf.connectSuccess"));
+      toast.success(t("settings.hf.connectSuccess"));
     } catch (hfConnectError) {
-      setHfError(hfConnectError instanceof Error ? hfConnectError.message : String(hfConnectError));
+      toast.error(hfConnectError instanceof Error ? hfConnectError.message : String(hfConnectError));
     } finally {
       setHfBusy(false);
     }
@@ -323,14 +316,12 @@ export function SettingsPage() {
       return;
     }
     setHfBusy(true);
-    setHfError("");
-    setHfSuccess("");
     try {
       const status = await disconnectHf();
       setHfStatus(status);
-      setHfSuccess(t("settings.hf.disconnectSuccess"));
+      toast.success(t("settings.hf.disconnectSuccess"));
     } catch (hfDisconnectError) {
-      setHfError(hfDisconnectError instanceof Error ? hfDisconnectError.message : String(hfDisconnectError));
+      toast.error(hfDisconnectError instanceof Error ? hfDisconnectError.message : String(hfDisconnectError));
     } finally {
       setHfBusy(false);
     }
@@ -341,8 +332,6 @@ export function SettingsPage() {
       return;
     }
     setHfEndpointBusy(true);
-    setHfError("");
-    setHfSuccess("");
     try {
       const result = await updateHfEndpoint(hfEndpoint);
       const nextEndpoint = result.endpoint || DEFAULT_HF_ENDPOINT;
@@ -350,9 +339,9 @@ export function SettingsPage() {
       setHfStatus((current) => (
         current ? { ...current, endpoint: nextEndpoint } : current
       ));
-      setHfSuccess(t("settings.hf.endpointSaveSuccess"));
+      toast.success(t("settings.hf.endpointSaveSuccess"));
     } catch (hfEndpointError) {
-      setHfError(hfEndpointError instanceof Error ? hfEndpointError.message : String(hfEndpointError));
+      toast.error(hfEndpointError instanceof Error ? hfEndpointError.message : String(hfEndpointError));
     } finally {
       setHfEndpointBusy(false);
     }
@@ -604,8 +593,6 @@ export function SettingsPage() {
             )}
           </div>
 
-          {hfSuccess ? <p className="text-sm text-success-text">{hfSuccess}</p> : null}
-          {hfError ? <p className="text-sm text-danger-text">{hfError}</p> : null}
         </Card>
       </section>
 
@@ -654,7 +641,6 @@ export function SettingsPage() {
                 >
                   {isCleaning ? t("storage.cleaning") : t("storage.cleanOrphans")}
                 </Button>
-                {cleanResult ? <p className="text-sm text-success-text">{cleanResult}</p> : null}
               </div>
             </>
           ) : (
