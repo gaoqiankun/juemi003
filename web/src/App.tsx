@@ -8,6 +8,7 @@ import { GalleryPage } from "@/pages/gallery-page";
 import { GeneratePage } from "@/pages/generate-page";
 import { ModelsPage } from "@/pages/models-page";
 import { SettingsPage } from "@/pages/settings-page";
+import { SystemPage } from "@/pages/system-page";
 import { SetupPage } from "@/pages/setup-page";
 import { TasksPage } from "@/pages/tasks-page";
 import { ViewerPage } from "@/pages/viewer-page";
@@ -41,6 +42,7 @@ export default function App() {
           <Route path="tasks" element={<TasksPage />} />
           <Route path="models" element={<ModelsPage />} />
           <Route path="api-keys" element={<ApiKeysPage />} />
+          <Route path="system" element={<SystemPage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/admin/tasks" replace />} />
         </Route>

@@ -33,6 +33,7 @@
       "tasks": "任务",
       "models": "模型",
       "apiKeys": "密钥",
+      "system": "系统",
       "settings": "设置",
       "generate": "工作台",
       "gallery": "资产"
@@ -551,7 +552,13 @@
     "diskUsage": "磁盘使用",
     "cache": "缓存",
     "orphaned": "孤儿缓存",
-    "cleanOrphans": "清理孤儿",
+    "cleanOrphans": {
+      "action": "清理孤儿",
+      "confirmTitle": "确认清理孤儿缓存？",
+      "confirmDescription": "将永久删除 {{count}} 个孤儿缓存（{{size}}），此操作不可恢复。",
+      "cancel": "取消",
+      "confirm": "确认删除"
+    },
     "alert": "磁盘剩余 {{free}}，有 {{orphan}} 可释放",
     "cleaning": "清理中…",
     "cleaned": "已释放 {{freed}}"

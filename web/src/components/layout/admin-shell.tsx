@@ -6,6 +6,7 @@ import {
   KeyRound,
   LogOut,
   MoonStar,
+  Server,
   Settings2,
   SunMedium,
   TriangleAlert,
@@ -38,6 +39,7 @@ const navigation = [
   { key: "tasks", path: "/admin/tasks", icon: Workflow },
   { key: "models", path: "/admin/models", icon: Boxes },
   { key: "apiKeys", path: "/admin/api-keys", icon: KeyRound },
+  { key: "system", path: "/admin/system", icon: Server },
   { key: "settings", path: "/admin/settings", icon: Settings2 },
 ];
 
@@ -381,7 +383,7 @@ export function AdminShell() {
                   disabled={isCleaning}
                   onClick={handleCleanOrphans}
                 >
-                  {isCleaning ? t("storage.cleaning") : t("storage.cleanOrphans")}
+                  {isCleaning ? t("storage.cleaning") : t("storage.cleanOrphans.action")}
                 </button>
               ) : null}
             </div>

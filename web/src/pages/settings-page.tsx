@@ -6,25 +6,17 @@ import type { SettingField } from "@/data/admin-mocks";
 import { Button, Card, SelectField, TextField, ToggleSwitch } from "@/components/ui/primitives";
 import { useSettingsData } from "@/hooks/use-settings-data";
 import {
-  cleanOrphans,
   connectHf,
   disconnectHf,
   fetchHfStatus,
-  getStorageStats,
   updateHfEndpoint,
   updateSettings,
-  type GpuDeviceSetting,
   type HfStatusResponse,
   type SettingsData,
-  type StorageStats,
 } from "@/lib/admin-api";
 
-function formatBytes(bytes: number): string {
-  return `${(bytes / (1024 ** 3)).toFixed(1)} GB`;
-}
-
 type SettingValue = boolean | number | string;
-type SettingsPayloadValue = SettingValue | string[];
+type SettingsPayloadValue = SettingValue;
 const DEFAULT_HF_ENDPOINT = "https://huggingface.co";
 
 const UPDATABLE_SETTING_KEYS = new Set([
@@ -35,18 +27,6 @@ const UPDATABLE_SETTING_KEYS = new Set([
   "rateLimitPerHour",
   "rateLimitConcurrent",
 ]);
-
-function normalizeGpuDevices(devices: GpuDeviceSetting[] | undefined): GpuDeviceSetting[] {
-  if (!Array.isArray(devices)) {
-    return [];
-  }
-  return devices
-    .map((device) => ({
-      deviceId: String(device.deviceId || "").trim(),
-      enabled: Boolean(device.enabled),
-    }))
-    .filter((device) => Boolean(device.deviceId));
-}
 
 function normalizeSettings(source: SettingsData): SettingsData {
   return {
@@ -65,7 +45,6 @@ function normalizeSettings(source: SettingsData): SettingsData {
         };
       }),
     })),
-    gpuDevices: normalizeGpuDevices(source.gpuDevices),
   };
 }
 
@@ -81,10 +60,6 @@ function extractPayload(data: SettingsData | null): Record<string, SettingsPaylo
       }
     }
   }
-  payload.gpuDisabledDevices = data.gpuDevices
-    ?.filter((device) => !device.enabled)
-    .map((device) => device.deviceId)
-    .sort() || [];
   return payload;
 }
 
@@ -156,35 +131,6 @@ export function SettingsPage() {
   const [hfEndpointBusy, setHfEndpointBusy] = useState(false);
   const [hfEndpoint, setHfEndpoint] = useState(DEFAULT_HF_ENDPOINT);
   const [hfToken, setHfToken] = useState("");
-  const [storageStats, setStorageStats] = useState<StorageStats | null>(null);
-  const [isCleaning, setIsCleaning] = useState(false);
-
-  const refreshStorageStats = useCallback(async () => {
-    try {
-      const stats = await getStorageStats();
-      setStorageStats(stats);
-    } catch {
-      // ignore — non-critical
-    }
-  }, []);
-
-  const handleCleanOrphans = useCallback(async () => {
-    if (isCleaning) return;
-    setIsCleaning(true);
-    try {
-      const result = await cleanOrphans();
-      toast.success(t("storage.cleaned", { freed: formatBytes(result.freed_bytes) }));
-      await refreshStorageStats();
-    } catch {
-      // ignore
-    } finally {
-      setIsCleaning(false);
-    }
-  }, [isCleaning, refreshStorageStats, t]);
-
-  useEffect(() => {
-    refreshStorageStats().catch(() => undefined);
-  }, [refreshStorageStats]);
 
   useEffect(() => {
     if (source) {
@@ -242,20 +188,6 @@ export function SettingsPage() {
               )),
             }
         )),
-      };
-    });
-  }, []);
-
-  const updateGpuDevice = useCallback((deviceId: string, enabled: boolean) => {
-    setSettings((current) => {
-      if (!current) return current;
-      return {
-        ...current,
-        gpuDevices: current.gpuDevices?.map((device) => (
-          device.deviceId === deviceId
-            ? { ...device, enabled }
-            : device
-        )) || [],
       };
     });
   }, []);
@@ -482,48 +414,6 @@ export function SettingsPage() {
       </section>
 
       <section>
-        <Card className="grid gap-3 p-4">
-          <h2 className="text-lg font-semibold tracking-[-0.02em] text-text-primary">
-            {t("settings.gpuDevices.title")}
-          </h2>
-
-          <div className="grid gap-3">
-            {settings.gpuDevices && settings.gpuDevices.length > 0 ? settings.gpuDevices.map((device) => (
-              <div
-                key={device.deviceId}
-                className="grid gap-1.5 rounded-lg border border-outline bg-surface-container-low p-3"
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div className="grid gap-1">
-                    <span className="font-display text-[0.6875rem] font-semibold uppercase tracking-[0.05em] text-text-muted">
-                      {t("settings.gpuDevices.device", { deviceId: device.deviceId })}
-                    </span>
-                    <span className="text-sm font-medium text-text-primary">
-                      {device.name ?? device.deviceId}
-                    </span>
-                    {device.totalMemoryGb != null ? (
-                      <span className="text-xs text-text-secondary">{device.totalMemoryGb} GB</span>
-                    ) : null}
-                  </div>
-
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-xs font-medium text-text-secondary">
-                      {t(device.enabled ? "common.status.active" : "common.status.paused")}
-                    </span>
-                    <ToggleSwitch
-                      checked={device.enabled}
-                      onChange={(nextValue) => updateGpuDevice(device.deviceId, nextValue)}
-                      label={t("settings.gpuDevices.device", { deviceId: device.deviceId })}
-                    />
-                  </div>
-                </div>
-              </div>
-            )) : null}
-          </div>
-        </Card>
-      </section>
-
-      <section>
         <Card tone="low" className="grid gap-3 p-4">
           <div className="flex items-center gap-2">
             <h2 className="text-lg font-semibold tracking-[-0.02em] text-text-primary">
@@ -595,59 +485,6 @@ export function SettingsPage() {
             )}
           </div>
 
-        </Card>
-      </section>
-
-      <section>
-        <Card tone="low" className="grid gap-3 p-4">
-          <h2 className="text-lg font-semibold tracking-[-0.02em] text-text-primary">
-            {t("storage.diskUsage")}
-          </h2>
-
-          {storageStats ? (
-            <>
-              <div className="grid gap-1.5">
-                <div className="flex items-center justify-between text-xs text-text-secondary">
-                  <span>{formatBytes(storageStats.disk_total_bytes - storageStats.disk_free_bytes)} / {formatBytes(storageStats.disk_total_bytes)}</span>
-                  <span>{Math.round(((storageStats.disk_total_bytes - storageStats.disk_free_bytes) / storageStats.disk_total_bytes) * 100)}%</span>
-                </div>
-                <div className="h-2 w-full overflow-hidden rounded-full bg-surface-container-highest">
-                  <div
-                    className="h-full rounded-full bg-primary transition-all"
-                    style={{ width: `${Math.min(100, ((storageStats.disk_total_bytes - storageStats.disk_free_bytes) / storageStats.disk_total_bytes) * 100).toFixed(1)}%` }}
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div className="grid gap-1 rounded-lg border border-outline bg-surface-container-low p-3">
-                  <span className="font-display text-[0.6875rem] font-semibold uppercase tracking-[0.05em] text-text-muted">
-                    {t("storage.cache")}
-                  </span>
-                  <span className="text-sm font-medium text-text-primary">{formatBytes(storageStats.cache_bytes)}</span>
-                </div>
-                <div className="grid gap-1 rounded-lg border border-outline bg-surface-container-low p-3">
-                  <span className="font-display text-[0.6875rem] font-semibold uppercase tracking-[0.05em] text-text-muted">
-                    {t("storage.orphaned")}
-                  </span>
-                  <span className="text-sm font-medium text-text-primary">{formatBytes(storageStats.orphan_bytes)}</span>
-                </div>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-1.5">
-                <Button
-                  type="button"
-                  size="xs"
-                  disabled={isCleaning}
-                  onClick={handleCleanOrphans}
-                >
-                  {isCleaning ? t("storage.cleaning") : t("storage.cleanOrphans")}
-                </Button>
-              </div>
-            </>
-          ) : (
-            <p className="text-sm text-text-muted">...</p>
-          )}
         </Card>
       </section>
 

@@ -33,6 +33,7 @@
       "tasks": "Tasks",
       "models": "Models",
       "apiKeys": "Keys",
+      "system": "System",
       "settings": "Settings",
       "generate": "Workspace",
       "gallery": "Assets"
@@ -551,7 +552,13 @@
     "diskUsage": "Disk Usage",
     "cache": "Cache",
     "orphaned": "Orphaned Cache",
-    "cleanOrphans": "Clean Orphaned",
+    "cleanOrphans": {
+      "action": "Clean Orphaned",
+      "confirmTitle": "Delete orphaned cache?",
+      "confirmDescription": "This will permanently delete {{count}} orphaned cache items ({{size}}). This action cannot be undone.",
+      "cancel": "Cancel",
+      "confirm": "Delete"
+    },
     "alert": "{{free}} disk space left, {{orphan}} can be freed",
     "cleaning": "Cleaning…",
     "cleaned": "Freed {{freed}}"
