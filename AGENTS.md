@@ -76,6 +76,39 @@ Architecture: **API → Engine (async worker) → Stage Pipeline → Provider**.
 
 **Node version:** `export PATH="$HOME/.nvm/versions/node/v24.14.0/bin:$PATH"`
 
+## Git Workflow
+
+### Branching
+
+- `main` — 稳定分支，只接受 squash merge
+- `dev` — 开发分支，从 `main` 切出，合并后删除
+- `archive/<version>` — 版本归档，保留开发完整历史供 debug 追溯
+- `archive/fix-<slug>` — fix 归档，统一在 archive/ namespace 下
+
+### Commit 规范
+
+- 每个任务的 plan 文件（status: done）必须和代码在**同一个 commit** 里提交
+- 不要把 plan 更新攒到最后集中处理
+
+### Squash Merge 流程
+
+按顺序执行，每步完成后再进入下一步：
+
+1. **确认 dev 上所有工作完成** — 代码、测试、plan 文件都已提交，所有 plan status: done
+2. **`dotai snapshot`** — 吸收所有已完成 plan 到 snapshot.md，删除 plan 文件
+3. **验证 dev 干净** — 无残留 plan 文件，snapshot 内容正确
+4. **提交 snapshot** — `chore: snapshot — absorb all completed plans`
+5. **归档开发分支** — `git branch archive/<version> dev`
+6. **Squash merge** — `git checkout main && git merge --squash dev && git commit`
+7. **删除 dev** — `git branch -D dev`
+8. **用户 push** — Orchestrator 不 push
+
+### 注意
+
+- 不要在 squash merge 后再 amend — 所有收尾在 merge 前完成
+- 后续新开发从 main 切出新的 dev 分支
+- 任何修改都要切分支，不直接在 main 上改
+
 ## Toolchain
 
 > ⛔ All Python commands MUST go through `uv run`. Never use `.venv/bin/python`, `python`, `pip`, `source .venv/bin/activate`, or any direct venv activation.
