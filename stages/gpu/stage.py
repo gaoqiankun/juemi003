@@ -74,9 +74,12 @@ class GPUStage(BaseStage):
                     )
                     return latest
 
-                slot = await runtime.scheduler.acquire()
-                sequence.assigned_worker_id = slot.worker.worker_id
                 prepared_inputs = [sequence.prepared_input or {"image_url": sequence.input_url}]
+                slot = await runtime.scheduler.acquire(
+                    batch_size=len(prepared_inputs),
+                    options=sequence.options,
+                )
+                sequence.assigned_worker_id = slot.worker.worker_id
                 timings = _GPUStageTiming(stage_started_at=time.perf_counter())
                 try:
                     self._logger.info(

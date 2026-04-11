@@ -1300,6 +1300,20 @@ def create_app(
             vram_allocator.release(normalized_model_name)
             raise
 
+        def estimate_inference_vram_mb(batch_size: int, options: dict[str, Any]) -> int:
+            if config.is_mock_provider:
+                return 1
+            return runtime.provider.estimate_inference_vram_mb(
+                batch_size=max(int(batch_size), 1),
+                options=options,
+            )
+
+        runtime.scheduler.configure_inference_admission(
+            allocator=vram_allocator,
+            model_name=normalized_model_name,
+            device_id=assigned_device_id,
+            estimate_inference_vram_mb=estimate_inference_vram_mb,
+        )
         runtime.assigned_device_id = assigned_device_id
         runtime.weight_vram_mb = weight_vram_mb
         return runtime

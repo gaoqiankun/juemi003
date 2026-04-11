@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from collections import deque
 from dataclasses import dataclass
-from typing import Generic, Iterable, TypeVar
+from typing import Any, Callable, Generic, Iterable, Protocol, TypeVar
 
 from gen3d.observability.metrics import initialize_gpu_slots, set_gpu_slot_active
 from gen3d.stages.gpu.worker import GPUWorkerHandle
@@ -33,6 +33,23 @@ class GPUSlot:
     worker: GPUWorkerHandle
 
 
+class _InferenceAllocatorProtocol(Protocol):
+    async def acquire_inference(
+        self,
+        *,
+        model_name: str,
+        device_id: str,
+        inference_vram_mb: int,
+    ) -> str:
+        ...
+
+    def release_inference(self, allocation_id: str) -> None:
+        ...
+
+
+InferenceVRAMEstimator = Callable[[int, dict[str, Any]], int]
+
+
 class GPUSlotScheduler:
     def __init__(
         self,
@@ -47,6 +64,11 @@ class GPUSlotScheduler:
         self._disabled: set[str] = set()
         self._parked: set[str] = set()
         self._waiting_count = 0
+        self._inference_allocator: _InferenceAllocatorProtocol | None = None
+        self._inference_model_name: str | None = None
+        self._inference_device_id: str | None = None
+        self._estimate_inference_vram_mb: InferenceVRAMEstimator | None = None
+        self._inference_allocations_by_device: dict[str, str] = {}
         for device_id in disabled_device_ids or ():
             normalized = str(device_id).strip()
             if normalized in self._slots:
@@ -58,14 +80,55 @@ class GPUSlotScheduler:
                 continue
             self._available.put_nowait(device_id)
 
-    async def acquire(self) -> GPUSlot:
-        self._waiting_count += 1
-        device_id = await self._available.get()
-        self._waiting_count -= 1
-        set_gpu_slot_active(device=device_id, active=True)
-        return self._slots[device_id]
+    def configure_inference_admission(
+        self,
+        *,
+        allocator: _InferenceAllocatorProtocol,
+        model_name: str,
+        device_id: str,
+        estimate_inference_vram_mb: InferenceVRAMEstimator,
+    ) -> None:
+        normalized_device = str(device_id).strip()
+        if normalized_device not in self._slots:
+            raise ValueError(f"unknown scheduler device: {normalized_device}")
+        normalized_model = str(model_name).strip().lower()
+        if not normalized_model:
+            raise ValueError("model_name must not be empty")
+        self._inference_allocator = allocator
+        self._inference_model_name = normalized_model
+        self._inference_device_id = normalized_device
+        self._estimate_inference_vram_mb = estimate_inference_vram_mb
+
+    async def acquire(
+        self,
+        *,
+        batch_size: int = 1,
+        options: dict[str, Any] | None = None,
+    ) -> GPUSlot:
+        inference_allocation_id = await self._acquire_inference_allocation(
+            batch_size=batch_size,
+            options=options or {},
+        )
+        try:
+            self._waiting_count += 1
+            try:
+                device_id = await self._available.get()
+            finally:
+                self._waiting_count = max(self._waiting_count - 1, 0)
+
+            if inference_allocation_id is not None:
+                self._inference_allocations_by_device[device_id] = inference_allocation_id
+            set_gpu_slot_active(device=device_id, active=True)
+            return self._slots[device_id]
+        except Exception:
+            if inference_allocation_id is not None and self._inference_allocator is not None:
+                self._inference_allocator.release_inference(inference_allocation_id)
+            raise
 
     async def release(self, device_id: str) -> None:
+        inference_allocation_id = self._inference_allocations_by_device.pop(device_id, None)
+        if inference_allocation_id is not None and self._inference_allocator is not None:
+            self._inference_allocator.release_inference(inference_allocation_id)
         set_gpu_slot_active(device=device_id, active=False)
         if device_id in self._disabled:
             self._parked.add(device_id)
@@ -114,3 +177,28 @@ class GPUSlotScheduler:
 
     def device_ids(self) -> tuple[str, ...]:
         return tuple(self._slots)
+
+    async def _acquire_inference_allocation(
+        self,
+        *,
+        batch_size: int,
+        options: dict[str, Any],
+    ) -> str | None:
+        if (
+            self._inference_allocator is None
+            or self._inference_model_name is None
+            or self._inference_device_id is None
+            or self._estimate_inference_vram_mb is None
+        ):
+            return None
+
+        normalized_batch_size = max(int(batch_size), 1)
+        required_inference_vram_mb = self._estimate_inference_vram_mb(
+            normalized_batch_size,
+            options,
+        )
+        return await self._inference_allocator.acquire_inference(
+            model_name=self._inference_model_name,
+            device_id=self._inference_device_id,
+            inference_vram_mb=required_inference_vram_mb,
+        )

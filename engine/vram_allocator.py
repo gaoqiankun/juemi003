@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from typing import Iterable
 
@@ -26,10 +27,19 @@ class DeviceBudget:
     total_vram_mb: int
     reserved_vram_mb: int = 0
     allocations: dict[str, int] = field(default_factory=dict)
+    inference_allocations: dict[str, int] = field(default_factory=dict)
+
+    @property
+    def used_weight_vram_mb(self) -> int:
+        return sum(self.allocations.values())
+
+    @property
+    def used_inference_vram_mb(self) -> int:
+        return sum(self.inference_allocations.values())
 
     @property
     def used_vram_mb(self) -> int:
-        return sum(self.allocations.values())
+        return self.used_weight_vram_mb + self.used_inference_vram_mb
 
     @property
     def free_vram_mb(self) -> int:
@@ -41,6 +51,8 @@ class VRAMAllocatorError(RuntimeError):
 
 
 class VRAMAllocator:
+    _INFERENCE_WAIT_SECONDS = 0.01
+
     def __init__(
         self,
         *,
@@ -67,6 +79,9 @@ class VRAMAllocator:
                 reserved_vram_mb=reserved_vram_mb,
             )
         self._model_to_device: dict[str, str] = {}
+        self._inference_to_device: dict[str, str] = {}
+        self._inference_to_model: dict[str, str] = {}
+        self._next_inference_allocation_id = 1
 
     @property
     def device_ids(self) -> tuple[str, ...]:
@@ -128,6 +143,51 @@ class VRAMAllocator:
         if budget is None:
             return
         budget.allocations.pop(normalized_model, None)
+        for allocation_id, allocated_model in tuple(self._inference_to_model.items()):
+            if allocated_model != normalized_model:
+                continue
+            self._inference_to_model.pop(allocation_id, None)
+            inference_device = self._inference_to_device.pop(allocation_id, None)
+            if inference_device is None:
+                continue
+            inference_budget = self._budgets.get(inference_device)
+            if inference_budget is not None:
+                inference_budget.inference_allocations.pop(allocation_id, None)
+
+    async def acquire_inference(
+        self,
+        *,
+        model_name: str,
+        device_id: str,
+        inference_vram_mb: int,
+    ) -> str:
+        normalized_model = _normalize_model_name(model_name)
+        normalized_device = _normalize_device_id(device_id)
+        required_mb = _normalize_vram_mb(inference_vram_mb)
+
+        while True:
+            allocation_id = self._try_acquire_inference(
+                model_name=normalized_model,
+                device_id=normalized_device,
+                inference_vram_mb=required_mb,
+            )
+            if allocation_id is not None:
+                return allocation_id
+            await asyncio.sleep(self._INFERENCE_WAIT_SECONDS)
+
+    def release_inference(self, allocation_id: str) -> None:
+        normalized_allocation_id = str(allocation_id).strip()
+        if not normalized_allocation_id:
+            return
+
+        device_id = self._inference_to_device.pop(normalized_allocation_id, None)
+        self._inference_to_model.pop(normalized_allocation_id, None)
+        if device_id is None:
+            return
+        budget = self._budgets.get(device_id)
+        if budget is None:
+            return
+        budget.inference_allocations.pop(normalized_allocation_id, None)
 
     def snapshot(self) -> dict[str, dict[str, object]]:
         result: dict[str, dict[str, object]] = {}
@@ -135,8 +195,11 @@ class VRAMAllocator:
             result[device_id] = {
                 "total_vram_mb": budget.total_vram_mb,
                 "reserved_vram_mb": budget.reserved_vram_mb,
+                "used_weight_vram_mb": budget.used_weight_vram_mb,
+                "used_inference_vram_mb": budget.used_inference_vram_mb,
                 "free_vram_mb": budget.free_vram_mb,
                 "allocations": dict(budget.allocations),
+                "inference_allocations": dict(budget.inference_allocations),
             }
         return result
 
@@ -166,3 +229,32 @@ class VRAMAllocator:
         if preferred not in set(allowed):
             raise VRAMAllocatorError(f"preferred GPU device is not allocatable: {preferred}")
         return (preferred,)
+
+    def _try_acquire_inference(
+        self,
+        *,
+        model_name: str,
+        device_id: str,
+        inference_vram_mb: int,
+    ) -> str | None:
+        budget = self._budgets.get(device_id)
+        if budget is None:
+            raise VRAMAllocatorError(f"unknown GPU device: {device_id}")
+
+        assigned_device = self._model_to_device.get(model_name)
+        if assigned_device is None:
+            raise VRAMAllocatorError(f"model {model_name} is not assigned to a GPU device")
+        if assigned_device != device_id:
+            raise VRAMAllocatorError(
+                f"model {model_name} is assigned to GPU {assigned_device}, not {device_id}"
+            )
+
+        if budget.free_vram_mb < inference_vram_mb:
+            return None
+
+        allocation_id = f"{model_name}:inference:{self._next_inference_allocation_id}"
+        self._next_inference_allocation_id += 1
+        budget.inference_allocations[allocation_id] = inference_vram_mb
+        self._inference_to_device[allocation_id] = device_id
+        self._inference_to_model[allocation_id] = model_name
+        return allocation_id
