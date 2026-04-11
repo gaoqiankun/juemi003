@@ -22,6 +22,8 @@ _SEED_MODELS = [
         "is_default": 1,
         "min_vram_mb": 24000,
         "vram_gb": 24.0,
+        "weight_vram_mb": 16000,
+        "inference_vram_mb": 8000,
         "config_json": "{}",
     },
     {
@@ -33,6 +35,8 @@ _SEED_MODELS = [
         "is_default": 0,
         "min_vram_mb": 24000,
         "vram_gb": 24.0,
+        "weight_vram_mb": 16000,
+        "inference_vram_mb": 8000,
         "config_json": "{}",
     },
     {
@@ -44,6 +48,8 @@ _SEED_MODELS = [
         "is_default": 0,
         "min_vram_mb": 27000,
         "vram_gb": 27.0,
+        "weight_vram_mb": 18000,
+        "inference_vram_mb": 9000,
         "config_json": "{}",
     },
 ]
@@ -56,6 +62,8 @@ _UPDATABLE_FIELDS = frozenset(
         "model_path",
         "min_vram_mb",
         "vram_gb",
+        "weight_vram_mb",
+        "inference_vram_mb",
         "config",
     }
 )
@@ -90,6 +98,8 @@ class ModelStore:
                 is_default INTEGER NOT NULL DEFAULT 0,
                 min_vram_mb INTEGER NOT NULL DEFAULT 24000,
                 vram_gb REAL,
+                weight_vram_mb INTEGER,
+                inference_vram_mb INTEGER,
                 config_json TEXT NOT NULL DEFAULT '{}',
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
@@ -97,6 +107,7 @@ class ModelStore:
             """
         )
         await self._ensure_vram_gb_column()
+        await self._ensure_vram_split_columns()
         await self._ensure_download_columns()
         await self._db.commit()
 
@@ -114,9 +125,10 @@ class ModelStore:
                         (id, provider_type, display_name, model_path,
                          weight_source, download_status, download_progress,
                          resolved_path,
-                         is_enabled, is_default, min_vram_mb, vram_gb, config_json,
+                         is_enabled, is_default, min_vram_mb, vram_gb,
+                         weight_vram_mb, inference_vram_mb, config_json,
                          created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         seed["id"],
@@ -131,6 +143,8 @@ class ModelStore:
                         seed["is_default"],
                         seed["min_vram_mb"],
                         seed["vram_gb"],
+                        seed["weight_vram_mb"],
+                        seed["inference_vram_mb"],
                         seed["config_json"],
                         now,
                         now,
@@ -257,12 +271,16 @@ class ModelStore:
         resolved_path: str | None = None,
         min_vram_mb: int = 24000,
         vram_gb: float | None = None,
+        weight_vram_mb: int | None = None,
+        inference_vram_mb: int | None = None,
         config: dict | None = None,
     ) -> dict:
         db = self._require_db()
         now = _utcnow_iso()
         config_json = json.dumps(config or {})
         normalized_vram_gb = _normalize_vram_gb(vram_gb)
+        normalized_weight_vram_mb = _normalize_optional_vram_mb(weight_vram_mb)
+        normalized_inference_vram_mb = _normalize_optional_vram_mb(inference_vram_mb)
         normalized_weight_source = _normalize_weight_source(weight_source)
         normalized_download_status = _normalize_download_status(download_status)
         normalized_download_progress = _normalize_download_progress(download_progress)
@@ -277,9 +295,10 @@ class ModelStore:
                         (id, provider_type, display_name, model_path,
                          weight_source, download_status, download_progress,
                          download_speed_bps, download_error, resolved_path,
-                         is_enabled, is_default, min_vram_mb, vram_gb, config_json,
+                         is_enabled, is_default, min_vram_mb, vram_gb,
+                         weight_vram_mb, inference_vram_mb, config_json,
                          created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         id,
@@ -294,6 +313,8 @@ class ModelStore:
                         normalized_resolved_path,
                         min_vram_mb,
                         normalized_vram_gb,
+                        normalized_weight_vram_mb,
+                        normalized_inference_vram_mb,
                         config_json,
                         now,
                         now,
@@ -328,6 +349,9 @@ class ModelStore:
                 elif key == "vram_gb":
                     set_clauses.append("vram_gb = ?")
                     params.append(_normalize_vram_gb(value))
+                elif key in {"weight_vram_mb", "inference_vram_mb"}:
+                    set_clauses.append(f"{key} = ?")
+                    params.append(_normalize_optional_vram_mb(value))
                 elif key in ("is_enabled", "is_default"):
                     set_clauses.append(f"{key} = ?")
                     params.append(1 if value else 0)
@@ -470,6 +494,56 @@ class ModelStore:
                 """
             )
 
+    async def _ensure_vram_split_columns(self) -> None:
+        db = self._require_db()
+        cursor = await db.execute("PRAGMA table_info(model_definitions)")
+        columns = {str(row["name"]) for row in await cursor.fetchall()}
+        if "weight_vram_mb" not in columns:
+            await db.execute(
+                "ALTER TABLE model_definitions ADD COLUMN weight_vram_mb INTEGER"
+            )
+        if "inference_vram_mb" not in columns:
+            await db.execute(
+                "ALTER TABLE model_definitions ADD COLUMN inference_vram_mb INTEGER"
+            )
+
+        await db.execute(
+            """
+            UPDATE model_definitions
+            SET weight_vram_mb = CAST(
+                ROUND(
+                    CASE
+                        WHEN min_vram_mb > 0 THEN min_vram_mb * 0.75
+                        WHEN vram_gb IS NOT NULL AND vram_gb > 0 THEN vram_gb * 1024.0 * 0.75
+                        ELSE 0
+                    END
+                ) AS INTEGER
+            )
+            WHERE weight_vram_mb IS NULL
+            """
+        )
+        await db.execute(
+            """
+            UPDATE model_definitions
+            SET inference_vram_mb = MAX(
+                COALESCE(
+                    CAST(
+                        ROUND(
+                            CASE
+                                WHEN min_vram_mb > 0 THEN min_vram_mb
+                                WHEN vram_gb IS NOT NULL AND vram_gb > 0 THEN vram_gb * 1024.0
+                                ELSE 0
+                            END
+                        ) AS INTEGER
+                    ),
+                    0
+                ) - COALESCE(weight_vram_mb, 0),
+                1
+            )
+            WHERE inference_vram_mb IS NULL
+            """
+        )
+
     async def _ensure_download_columns(self) -> None:
         db = self._require_db()
         cursor = await db.execute("PRAGMA table_info(model_definitions)")
@@ -537,6 +611,8 @@ class ModelStore:
 def _row_to_dict(row: aiosqlite.Row) -> dict:
     config = json.loads(row["config_json"]) if row["config_json"] else {}
     vram_gb = _normalize_vram_gb(row["vram_gb"])
+    weight_vram_mb = _normalize_optional_vram_mb(row["weight_vram_mb"])
+    inference_vram_mb = _normalize_optional_vram_mb(row["inference_vram_mb"])
     weight_source = _normalize_weight_source(row["weight_source"])
     download_status = _normalize_download_status(row["download_status"])
     download_progress = _normalize_download_progress(row["download_progress"])
@@ -558,6 +634,8 @@ def _row_to_dict(row: aiosqlite.Row) -> dict:
         "is_default": bool(row["is_default"]),
         "min_vram_mb": int(row["min_vram_mb"]),
         "vram_gb": vram_gb,
+        "weight_vram_mb": weight_vram_mb,
+        "inference_vram_mb": inference_vram_mb,
         "config": config,
         "created_at": str(row["created_at"]),
         "updated_at": str(row["updated_at"]),
@@ -574,6 +652,18 @@ def _normalize_vram_gb(value: object) -> float | None:
     if normalized <= 0:
         return None
     return round(normalized, 3)
+
+
+def _normalize_optional_vram_mb(value: object) -> int | None:
+    if value is None:
+        return None
+    try:
+        normalized = int(float(value))  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    if normalized <= 0:
+        return None
+    return normalized
 
 
 def _normalize_weight_source(value: object) -> str:

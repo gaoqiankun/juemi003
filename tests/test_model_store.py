@@ -29,12 +29,16 @@ async def test_initialize_seeds_defaults(store: ModelStore):
     assert trellis["is_enabled"] is True
     assert trellis["is_default"] is True
     assert trellis["vram_gb"] == 24.0
+    assert trellis["weight_vram_mb"] == 16000
+    assert trellis["inference_vram_mb"] == 8000
 
     hunyuan = await store.get_model("hunyuan3d")
     assert hunyuan is not None
     assert hunyuan["is_enabled"] is False
     assert hunyuan["is_default"] is False
     assert hunyuan["vram_gb"] == 24.0
+    assert hunyuan["weight_vram_mb"] == 16000
+    assert hunyuan["inference_vram_mb"] == 8000
 
 
 @pytest.mark.anyio
@@ -57,6 +61,8 @@ async def test_create_and_get_model(store: ModelStore):
         model_path="org/test-model",
         min_vram_mb=16000,
         vram_gb=16.0,
+        weight_vram_mb=12000,
+        inference_vram_mb=4000,
         config={"key": "value"},
     )
     assert created["id"] == "test-model"
@@ -65,6 +71,8 @@ async def test_create_and_get_model(store: ModelStore):
     assert created["is_default"] is False
     assert created["min_vram_mb"] == 16000
     assert created["vram_gb"] == 16.0
+    assert created["weight_vram_mb"] == 12000
+    assert created["inference_vram_mb"] == 4000
     assert created["config"] == {"key": "value"}
     assert created["weight_source"] == "huggingface"
     assert created["download_status"] == "done"
@@ -144,6 +152,18 @@ async def test_update_model_vram_gb(store: ModelStore):
 
 
 @pytest.mark.anyio
+async def test_update_model_weight_and_inference_vram(store: ModelStore):
+    updated = await store.update_model(
+        "hunyuan3d",
+        weight_vram_mb=17000,
+        inference_vram_mb=5000,
+    )
+    assert updated is not None
+    assert updated["weight_vram_mb"] == 17000
+    assert updated["inference_vram_mb"] == 5000
+
+
+@pytest.mark.anyio
 async def test_initialize_migrates_vram_gb_using_1024_divisor(tmp_path):
     db_path = tmp_path / "legacy-models.db"
     conn = sqlite3.connect(db_path)
@@ -198,6 +218,8 @@ async def test_initialize_migrates_vram_gb_using_1024_divisor(tmp_path):
         assert migrated["download_progress"] == 100
         assert migrated["download_speed_bps"] == 0
         assert migrated["resolved_path"] is None
+        assert migrated["weight_vram_mb"] == 18000
+        assert migrated["inference_vram_mb"] == 6000
     finally:
         await store.close()
 

@@ -5,6 +5,12 @@
 
 ---
 
+## 2026-04-11
+
+- **模型加载改为按显存分配单卡启动 worker**：新增 `engine/vram_allocator.py`（`DeviceBudget` + `VRAMAllocator`）并接入 `api/server.py` 的 `runtime_loader`，加载时按 `weight_vram_mb` 选择单个 GPU，再把该 `device_id` 传给 `build_model_runtime(..., device_ids=(assigned_device,))`，不再为每个模型在所有 GPU 上各起一个 worker；卸载/加载失败会回收分配，避免后续模型被错误占用。（plan: 2026-04-11-gpu-device-assignment.md）
+
+- **模型显存声明拆分为常驻权重与推理临时占用**：`storage/model_store.py` schema 增加 `weight_vram_mb` 与 `inference_vram_mb`（含迁移与 API 写入字段），`model/*/provider.py` 与 `model/base.py` 增加 `estimate_weight_vram_mb()` / `estimate_inference_vram_mb()`，`estimate_vram_mb()` 保持兼容输出总量；`engine/model_scheduler.py` 在估算可加载上限时优先使用 `weight_vram_mb`。（plan: 2026-04-11-gpu-device-assignment.md）
+
 ## 2026-03-30
 
 - **模型运行时改为强依赖 dep_cache 就绪状态**：`api/server.py` 的 `build_model_runtime()` 在加载模型前会按 `model_dep_requirements -> dep_cache` 解析 `dep_paths`，任何依赖 `download_status != done`、`resolved_path` 为空或路径不存在都会直接抛 `ModelProviderConfigurationError`，避免运行时隐式联网或加载半成品依赖。（plan: 2026-03-30-weight-dep-b3.md）

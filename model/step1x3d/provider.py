@@ -44,9 +44,19 @@ class MockStep1X3DProvider:
         _ = dep_paths
         return cls()
 
-    def estimate_vram_mb(self, batch_size: int, options: dict) -> int:
+    def estimate_weight_vram_mb(self, options: dict[str, Any]) -> int:
         _ = options
-        return batch_size * 27_000
+        return 20_250
+
+    def estimate_inference_vram_mb(self, batch_size: int, options: dict[str, Any]) -> int:
+        _ = options
+        return max(batch_size, 1) * 27_000 - self.estimate_weight_vram_mb(options)
+
+    def estimate_vram_mb(self, batch_size: int, options: dict[str, Any]) -> int:
+        return self.estimate_weight_vram_mb(options) + self.estimate_inference_vram_mb(
+            batch_size,
+            options,
+        )
 
     @property
     def stages(self) -> list[dict[str, float | str]]:
@@ -203,10 +213,20 @@ class Step1X3DProvider:
         )
         return report
 
-    def estimate_vram_mb(self, batch_size: int, options: dict[str, Any]) -> int:
+    def estimate_weight_vram_mb(self, options: dict[str, Any]) -> int:
         _ = options
-        # Step1X-3D: geometry 1.3B + texture 3.5B ≈ 27 GB VRAM
-        return int(27_000 * 1.2 * max(batch_size, 1))
+        return int(27_000 * 1.2 * 0.75)
+
+    def estimate_inference_vram_mb(self, batch_size: int, options: dict[str, Any]) -> int:
+        _ = options
+        total = int(27_000 * 1.2 * max(batch_size, 1))
+        return max(total - self.estimate_weight_vram_mb(options), 1)
+
+    def estimate_vram_mb(self, batch_size: int, options: dict[str, Any]) -> int:
+        return self.estimate_weight_vram_mb(options) + self.estimate_inference_vram_mb(
+            batch_size,
+            options,
+        )
 
     @property
     def stages(self) -> list[dict[str, float | str]]:

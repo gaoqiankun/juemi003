@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Generic, Literal, TypeVar
+from typing import Generic, Literal, TypeVar
 
 from gen3d.engine.sequence import RequestSequence, TaskStatus, TaskType
 from gen3d.pagination import DEFAULT_CURSOR_PAGE_LIMIT, MAX_CURSOR_PAGE_LIMIT
@@ -255,6 +255,8 @@ class AdminModelDetail(BaseModel):
     is_default: bool
     min_vram_mb: int
     vram_gb: float | None = None
+    weight_vram_mb: int | None = None
+    inference_vram_mb: int | None = None
     runtime_state: Literal["not_loaded", "loading", "ready", "error", "unknown"] = "unknown"
     tasks_processed: int = 0
     max_tasks_per_slot: int = 0

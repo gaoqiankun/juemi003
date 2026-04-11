@@ -88,6 +88,7 @@ from gen3d.engine.model_registry import ModelRegistry, ModelRuntime
 from gen3d.engine.model_scheduler import ModelScheduler
 from gen3d.engine.pipeline import PipelineCoordinator, PipelineQueueFullError
 from gen3d.engine.sequence import TERMINAL_STATUSES, TaskStatus
+from gen3d.engine.vram_allocator import VRAMAllocator, VRAMAllocatorError
 from gen3d.engine.weight_manager import WeightManager, get_provider_deps
 from gen3d.model.base import ModelProviderConfigurationError
 from gen3d.model.hunyuan3d.provider import Hunyuan3DProvider, MockHunyuan3DProvider
@@ -809,6 +810,79 @@ def _get_gpu_device_info(device_id: str) -> dict:
         return {"name": None, "totalMemoryGb": None}
 
 
+_DEFAULT_DEVICE_TOTAL_VRAM_MB = 24 * 1024
+_DEFAULT_WEIGHT_RATIO = 0.75
+
+
+def _normalize_vram_mb(value: object) -> int | None:
+    if value is None:
+        return None
+    try:
+        normalized = int(float(value))  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    if normalized <= 0:
+        return None
+    return normalized
+
+
+def _resolve_total_vram_mb(model_definition: dict[str, Any]) -> int | None:
+    vram_gb = model_definition.get("vram_gb")
+    if vram_gb is not None:
+        try:
+            parsed_gb = float(vram_gb)
+        except (TypeError, ValueError):
+            parsed_gb = 0.0
+        if parsed_gb > 0:
+            return int(round(parsed_gb * 1024.0))
+    return _normalize_vram_mb(model_definition.get("min_vram_mb"))
+
+
+def _resolve_weight_vram_mb(model_definition: dict[str, Any]) -> int:
+    explicit_weight = _normalize_vram_mb(model_definition.get("weight_vram_mb"))
+    if explicit_weight is not None:
+        return explicit_weight
+    total_vram_mb = _resolve_total_vram_mb(model_definition)
+    if total_vram_mb is None:
+        return 1
+    return max(int(round(total_vram_mb * _DEFAULT_WEIGHT_RATIO)), 1)
+
+
+def _detect_device_total_vram_mb(
+    device_ids: tuple[str, ...],
+) -> dict[str, int]:
+    totals: dict[str, int] = {}
+    for device_id in device_ids:
+        info = _get_gpu_device_info(device_id)
+        total_gb = info.get("totalMemoryGb")
+        total_mb: int | None = None
+        if total_gb is not None:
+            try:
+                parsed = float(total_gb)
+            except (TypeError, ValueError):
+                parsed = 0.0
+            if parsed > 0:
+                total_mb = int(round(parsed * 1024.0))
+        totals[device_id] = total_mb or _DEFAULT_DEVICE_TOTAL_VRAM_MB
+    return totals
+
+
+async def _resolve_model_definition_for_runtime(
+    model_store: ModelStore,
+    normalized_model_name: str,
+) -> dict[str, Any]:
+    model_definition = await model_store.get_model(normalized_model_name)
+    if model_definition is None and normalized_model_name == "trellis":
+        # Backward compatibility: legacy tasks that still send "trellis"
+        # resolve to the current default model in model_definitions.
+        model_definition = await model_store.get_default_model()
+    if model_definition is None:
+        raise ModelProviderConfigurationError(
+            f"model definition not found: {normalized_model_name}"
+        )
+    return model_definition
+
+
 def _normalize_persisted_disabled_devices(
     raw_value: Any,
     all_device_ids: tuple[str, ...],
@@ -858,15 +932,10 @@ async def build_model_runtime(
     disabled_devices: set[str] | None = None,
 ) -> ModelRuntime:
     normalized_model_name = str(model_name).strip().lower()
-    model_definition = await model_store.get_model(normalized_model_name)
-    if model_definition is None and normalized_model_name == "trellis":
-        # Backward compatibility: legacy tasks that still send "trellis"
-        # resolve to the current default model in model_definitions.
-        model_definition = await model_store.get_default_model()
-    if model_definition is None:
-        raise ModelProviderConfigurationError(
-            f"model definition not found: {normalized_model_name}"
-        )
+    model_definition = await _resolve_model_definition_for_runtime(
+        model_store,
+        normalized_model_name,
+    )
 
     provider_name = str(model_definition.get("provider_type") or "").strip().lower()
     if not provider_name:
@@ -1165,6 +1234,9 @@ def create_app(
     config = config or ServingConfig()
     validate_runtime_security_config(config)
     all_device_ids = _resolve_device_ids(config)
+    vram_allocator = VRAMAllocator(
+        device_totals_mb=_detect_device_total_vram_mb(all_device_ids),
+    )
     disabled_devices: set[str] = set()
     task_store = TaskStore(config.database_path)
     api_key_store = ApiKeyStore(config.database_path)
@@ -1175,26 +1247,65 @@ def create_app(
     artifact_store = build_artifact_store(config)
     preview_renderer_service = preview_renderer_service or PreviewRendererService()
 
-    async def runtime_loader(model_name: str) -> ModelRuntime:
-        loader = build_model_runtime
+    async def runtime_loader(
+        model_name: str,
+        device_id: str | None = None,
+    ) -> ModelRuntime:
+        normalized_model_name = str(model_name).strip().lower()
+        model_definition = await _resolve_model_definition_for_runtime(
+            model_store,
+            normalized_model_name,
+        )
+        weight_vram_mb = _resolve_weight_vram_mb(model_definition)
+        required_weight_vram_mb = 1 if config.is_mock_provider else weight_vram_mb
+        allocatable_device_ids = tuple(
+            current_device_id
+            for current_device_id in all_device_ids
+            if current_device_id not in disabled_devices
+        )
+        if not allocatable_device_ids:
+            raise ModelProviderConfigurationError("all GPU devices are disabled")
         try:
-            return await loader(
-                model_store,
-                config,
-                model_name,
-                device_ids=all_device_ids,
-                disabled_devices=disabled_devices,
+            assigned_device_id = vram_allocator.reserve(
+                model_name=normalized_model_name,
+                weight_vram_mb=required_weight_vram_mb,
+                allowed_device_ids=allocatable_device_ids,
+                preferred_device_id=device_id,
             )
-        except TypeError as exc:
-            message = str(exc)
-            if (
-                "unexpected keyword argument 'device_ids'" not in message
-                and "unexpected keyword argument 'disabled_devices'" not in message
-            ):
-                raise
-            return await loader(model_store, config, model_name)
+        except VRAMAllocatorError as exc:
+            raise ModelProviderConfigurationError(str(exc)) from exc
+
+        try:
+            try:
+                runtime = await build_model_runtime(
+                    model_store,
+                    config,
+                    model_name,
+                    device_ids=(assigned_device_id,),
+                    disabled_devices=disabled_devices,
+                )
+            except TypeError as exc:
+                message = str(exc)
+                if (
+                    "unexpected keyword argument 'device_ids'" not in message
+                    and "unexpected keyword argument 'disabled_devices'" not in message
+                ):
+                    raise
+                runtime = await build_model_runtime(
+                    model_store,
+                    config,
+                    model_name,
+                )
+        except Exception:
+            vram_allocator.release(normalized_model_name)
+            raise
+
+        runtime.assigned_device_id = assigned_device_id
+        runtime.weight_vram_mb = weight_vram_mb
+        return runtime
 
     model_registry = ModelRegistry(runtime_loader)
+    model_registry.add_model_unloaded_listener(vram_allocator.release)
     model_scheduler = ModelScheduler(
         model_registry=model_registry,
         task_store=task_store,
@@ -2324,6 +2435,8 @@ def create_app(
                 resolved_path=None,
                 min_vram_mb=payload.get("minVramMb", 24000),
                 vram_gb=payload.get("vramGb"),
+                weight_vram_mb=payload.get("weightVramMb"),
+                inference_vram_mb=payload.get("inferenceVramMb"),
                 config=payload.get("config"),
             )
         except ValueError as exc:
@@ -2393,6 +2506,8 @@ def create_app(
             "modelPath": "model_path",
             "minVramMb": "min_vram_mb",
             "vramGb": "vram_gb",
+            "weightVramMb": "weight_vram_mb",
+            "inferenceVramMb": "inference_vram_mb",
             "config": "config",
         }
         updates = {}

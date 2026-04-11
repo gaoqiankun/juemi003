@@ -43,9 +43,19 @@ class MockHunyuan3DProvider:
         _ = dep_paths
         return cls()
 
-    def estimate_vram_mb(self, batch_size: int, options: dict) -> int:
+    def estimate_weight_vram_mb(self, options: dict[str, Any]) -> int:
         _ = options
-        return batch_size * 24_000
+        return 18_000
+
+    def estimate_inference_vram_mb(self, batch_size: int, options: dict[str, Any]) -> int:
+        _ = options
+        return max(batch_size, 1) * 24_000 - self.estimate_weight_vram_mb(options)
+
+    def estimate_vram_mb(self, batch_size: int, options: dict[str, Any]) -> int:
+        return self.estimate_weight_vram_mb(options) + self.estimate_inference_vram_mb(
+            batch_size,
+            options,
+        )
 
     @property
     def stages(self) -> list[dict[str, float | str]]:
@@ -167,10 +177,20 @@ class Hunyuan3DProvider:
         report, _, _ = cls._inspect_runtime(model_path, load_pipeline=load_pipeline)
         return report
 
-    def estimate_vram_mb(self, batch_size: int, options: dict[str, Any]) -> int:
+    def estimate_weight_vram_mb(self, options: dict[str, Any]) -> int:
         _ = options
-        # HunYuan3D-2 typically requires ~24 GB VRAM for shape + texture.
-        return int(24_000 * 1.2 * max(batch_size, 1))
+        return int(24_000 * 1.2 * 0.75)
+
+    def estimate_inference_vram_mb(self, batch_size: int, options: dict[str, Any]) -> int:
+        _ = options
+        total = int(24_000 * 1.2 * max(batch_size, 1))
+        return max(total - self.estimate_weight_vram_mb(options), 1)
+
+    def estimate_vram_mb(self, batch_size: int, options: dict[str, Any]) -> int:
+        return self.estimate_weight_vram_mb(options) + self.estimate_inference_vram_mb(
+            batch_size,
+            options,
+        )
 
     @property
     def stages(self) -> list[dict[str, float | str]]:

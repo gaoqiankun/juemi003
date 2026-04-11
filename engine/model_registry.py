@@ -13,8 +13,9 @@ from gen3d.stages.gpu.worker import GPUWorkerHandle
 
 _ORIGINAL_ASYNCIO_SLEEP = asyncio.sleep
 
-ModelRuntimeLoader = Callable[[str], "ModelRuntime | Awaitable[ModelRuntime]"]
+ModelRuntimeLoader = Callable[..., "ModelRuntime | Awaitable[ModelRuntime]"]
 ModelLoadedListener = Callable[[str], Awaitable[None] | None]
+ModelUnloadedListener = Callable[[str], Awaitable[None] | None]
 
 
 @dataclass(slots=True)
@@ -23,6 +24,8 @@ class ModelRuntime:
     provider: BaseModelProvider
     workers: list[GPUWorkerHandle]
     scheduler: GPUSlotScheduler
+    assigned_device_id: str | None = None
+    weight_vram_mb: int | None = None
 
 
 @dataclass(slots=True)
@@ -32,6 +35,7 @@ class _ModelEntry:
     runtime: ModelRuntime | None = None
     error: Exception | None = None
     load_task: asyncio.Task[None] | None = None
+    requested_device_id: str | None = None
 
 
 class ModelRegistryLoadError(RuntimeError):
@@ -47,6 +51,7 @@ class ModelRegistry:
         self._entries: dict[str, _ModelEntry] = {}
         self._lock = asyncio.Lock()
         self._model_loaded_listeners: list[ModelLoadedListener] = []
+        self._model_unloaded_listeners: list[ModelUnloadedListener] = []
         self._logger = structlog.get_logger(__name__)
 
     async def close(self) -> None:
@@ -91,7 +96,10 @@ class ModelRegistry:
     def add_model_loaded_listener(self, listener: ModelLoadedListener) -> None:
         self._model_loaded_listeners.append(listener)
 
-    def load(self, model_name: str) -> None:
+    def add_model_unloaded_listener(self, listener: ModelUnloadedListener) -> None:
+        self._model_unloaded_listeners.append(listener)
+
+    def load(self, model_name: str, *, device_id: str | None = None) -> None:
         normalized = self._normalize_name(model_name)
         entry = self._entries.get(normalized)
         if entry is None:
@@ -104,6 +112,9 @@ class ModelRegistry:
         entry.state = "loading"
         entry.error = None
         entry.event = asyncio.Event()
+        entry.requested_device_id = (
+            str(device_id).strip() if device_id is not None and str(device_id).strip() else None
+        )
         entry.load_task = asyncio.create_task(
             self._load_runtime(normalized, entry),
             name=f"model-load-{normalized}",
@@ -159,6 +170,7 @@ class ModelRegistry:
         entry = self._entries.get(normalized)
         if entry is None:
             return
+        had_runtime_or_task = entry.runtime is not None or entry.load_task is not None
 
         load_task = entry.load_task
         if load_task is not None and not load_task.done():
@@ -175,6 +187,7 @@ class ModelRegistry:
         entry.state = "not_loaded"
         entry.event = asyncio.Event()
         entry.load_task = None
+        entry.requested_device_id = None
 
         if runtime is not None:
             del runtime
@@ -185,21 +198,15 @@ class ModelRegistry:
             "model.unloaded",
             model_name=normalized,
         )
+        if had_runtime_or_task:
+            await self._notify_model_unloaded(normalized)
 
     async def _load_runtime(self, model_name: str, entry: _ModelEntry) -> None:
         try:
-            if inspect.iscoroutinefunction(self._runtime_loader):
-                runtime = await self._runtime_loader(model_name)
-            else:
-                maybe_runtime = await asyncio.to_thread(
-                    self._runtime_loader,
-                    model_name,
-                )
-                runtime = (
-                    await maybe_runtime
-                    if inspect.isawaitable(maybe_runtime)
-                    else maybe_runtime
-                )
+            runtime = await self._invoke_runtime_loader(
+                model_name,
+                device_id=entry.requested_device_id,
+            )
             for worker in runtime.workers:
                 await worker.start()
         except asyncio.CancelledError:
@@ -213,6 +220,7 @@ class ModelRegistry:
                 model_name=model_name,
                 error=str(exc),
             )
+            await self._notify_model_unloaded(model_name)
         else:
             entry.runtime = runtime
             entry.error = None
@@ -239,6 +247,58 @@ class ModelRegistry:
                     model_name=model_name,
                     error=str(exc),
                 )
+
+    async def _notify_model_unloaded(self, model_name: str) -> None:
+        for listener in self._model_unloaded_listeners:
+            try:
+                maybe_awaitable = listener(model_name)
+                if inspect.isawaitable(maybe_awaitable):
+                    await maybe_awaitable
+            except Exception as exc:
+                self._logger.warning(
+                    "model.unloaded_listener_failed",
+                    model_name=model_name,
+                    error=str(exc),
+                )
+
+    async def _invoke_runtime_loader(
+        self,
+        model_name: str,
+        *,
+        device_id: str | None,
+    ) -> ModelRuntime:
+        if inspect.iscoroutinefunction(self._runtime_loader):
+            runtime = await self._call_runtime_loader(
+                self._runtime_loader,
+                model_name,
+                device_id=device_id,
+            )
+            return runtime
+        maybe_runtime = await asyncio.to_thread(
+            self._call_runtime_loader,
+            self._runtime_loader,
+            model_name,
+            device_id,
+        )
+        if inspect.isawaitable(maybe_runtime):
+            return await maybe_runtime
+        return maybe_runtime
+
+    @staticmethod
+    def _call_runtime_loader(
+        runtime_loader: ModelRuntimeLoader,
+        model_name: str,
+        device_id: str | None,
+    ) -> ModelRuntime | Awaitable[ModelRuntime]:
+        if device_id is None:
+            return runtime_loader(model_name)
+        try:
+            return runtime_loader(model_name, device_id=device_id)
+        except TypeError as exc:
+            message = str(exc)
+            if "unexpected keyword argument 'device_id'" not in message:
+                raise
+            return runtime_loader(model_name)
 
     @staticmethod
     def _normalize_name(model_name: str) -> str:

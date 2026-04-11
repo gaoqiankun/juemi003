@@ -136,3 +136,30 @@ def test_wait_ready_waits_for_scheduler_to_load() -> None:
         await registry.close()
 
     asyncio.run(scenario())
+
+
+def test_model_registry_load_passes_device_id_to_runtime_loader() -> None:
+    async def scenario() -> None:
+        worker = FakeWorker()
+        seen_device_id: str | None = None
+
+        async def runtime_loader(
+            model_name: str,
+            device_id: str | None = None,
+        ) -> ModelRuntime:
+            nonlocal seen_device_id
+            seen_device_id = device_id
+            return ModelRuntime(
+                model_name=model_name,
+                provider=cast(BaseModelProvider, object()),
+                workers=[cast(GPUWorkerHandle, worker)],
+                scheduler=GPUSlotScheduler([cast(GPUWorkerHandle, worker)]),
+            )
+
+        registry = ModelRegistry(runtime_loader)
+        registry.load("trellis2", device_id="1")
+        await registry.wait_ready("trellis2")
+        assert seen_device_id == "1"
+        await registry.close()
+
+    asyncio.run(scenario())

@@ -20,7 +20,7 @@ class _RegistryProtocol(Protocol):
     def runtime_states(self) -> dict[str, str]:
         ...
 
-    def load(self, model_name: str) -> None:
+    def load(self, model_name: str, *, device_id: str | None = None) -> None:
         ...
 
     async def unload(self, model_name: str) -> None:
@@ -349,6 +349,15 @@ def _normalize_model_name(model_name: str) -> str:
 def _extract_known_model_vram(model_definitions: list[dict]) -> tuple[float, ...]:
     values: list[float] = []
     for model in model_definitions:
+        raw_weight_vram_mb = model.get("weight_vram_mb")
+        if raw_weight_vram_mb is not None:
+            try:
+                parsed_weight = float(raw_weight_vram_mb) / 1024.0
+            except (TypeError, ValueError):
+                parsed_weight = 0.0
+            if parsed_weight > 0:
+                values.append(parsed_weight)
+                continue
         raw_value = model.get("vram_gb")
         if raw_value is None:
             continue

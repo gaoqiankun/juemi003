@@ -50,6 +50,14 @@ class BaseModelProvider(ABC):
     ) -> "BaseModelProvider":
         raise NotImplementedError
 
+    def estimate_weight_vram_mb(self, options: dict[str, Any]) -> int:
+        total = self.estimate_vram_mb(batch_size=1, options=options)
+        return max(int(total * 0.75), 1)
+
+    def estimate_inference_vram_mb(self, batch_size: int, options: dict[str, Any]) -> int:
+        total = self.estimate_vram_mb(batch_size=max(batch_size, 1), options=options)
+        return max(total - self.estimate_weight_vram_mb(options=options), 1)
+
     @abstractmethod
     def estimate_vram_mb(self, batch_size: int, options: dict[str, Any]) -> int:
         raise NotImplementedError
