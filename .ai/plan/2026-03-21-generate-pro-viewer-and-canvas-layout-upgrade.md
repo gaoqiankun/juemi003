@@ -1,6 +1,8 @@
 # 生成页专业查看器升级 + 左侧配置面板重构 + 无边界画布
-Date / Status: 2026-03-21 / done / Commits: not committed in this session
+Date: 2026-03-21
+Status: done
 
+Date / Status: 2026-03-21 / done / Commits: not committed in this session
 ## Goal
 - 升级 `ModelViewport` 为更专业的查看器控制：ACES 渲染、显示模式切换、灯光调节、背景预设。
 - 将生成页左侧从“纯上传区”改成“紧凑生成配置面板”。

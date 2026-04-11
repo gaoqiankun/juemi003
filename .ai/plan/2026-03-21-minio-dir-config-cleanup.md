@@ -1,6 +1,8 @@
 # MINIO_DIR 配置清理
-Date / Status: 2026-03-21 / done / Commits: n/a
+Date: 2026-03-21
+Status: done
 
+Date / Status: 2026-03-21 / done / Commits: n/a
 ## Goal
 移除 `MINIO_DIR` 相关配置项，因为 `ARTIFACT_STORE_MODE=local` 时不会使用 MinIO 数据目录挂载。
 

@@ -1,6 +1,8 @@
 # 原生控件替换 + 全宽布局 + completed 按钮移除
-Date / Status: 2026-03-21 / done / Commits: not committed in this session
+Date: 2026-03-21
+Status: done
 
+Date / Status: 2026-03-21 / done / Commits: not committed in this session
 ## Goal
 - 删除生成页 completed 状态下左侧面板的下载/重试/详情按钮，仅保留生成主按钮逻辑。
 - 将生成页模型选择器从原生 `<select>` 切换为现有 Radix/shadcn `Select` 组件。

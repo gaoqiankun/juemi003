@@ -1,6 +1,8 @@
 # Step1X3D BiRefNet dtype 回归修复
-Date / Status: 2026-03-26 / done / Commits: N/A（按仓库规范本次不执行提交）
+Date: 2026-03-26
+Status: done
 
+Date / Status: 2026-03-26 / done / Commits: N/A（按仓库规范本次不执行提交）
 ## Goal
 - 以最小改动修复 Step1X3D texture pipeline 在 remove_bg 路径的 dtype 强制转换问题，避免 `Half` 输入与 `float` bias 不匹配。
 

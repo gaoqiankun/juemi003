@@ -1,6 +1,8 @@
 # CUDA Tensor IPC Fix
-Date / Status: 2026-03-26 / done / Commits: N/A（按仓库规范本次不执行提交）
+Date: 2026-03-26
+Status: done
 
+Date / Status: 2026-03-26 / done / Commits: N/A（按仓库规范本次不执行提交）
 ## Goal
 - 修复 GPU 子进程通过 multiprocessing queue 回传结果时包含 CUDA tensor 导致 `pidfd_getfd: Operation not permitted` 的问题。
 - 确保 TRELLIS2 返回 `GenerationResult` 前不残留 CUDA tensor。

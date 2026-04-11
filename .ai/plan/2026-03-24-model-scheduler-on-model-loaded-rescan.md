@@ -1,6 +1,8 @@
 # ModelScheduler on_model_loaded 后补扫 pending 模型
-Date / Status: 2026-03-24 / done / Commits: N/A（按 AGENTS.md 要求未执行 commit）
+Date: 2026-03-24
+Status: done
 
+Date / Status: 2026-03-24 / done / Commits: N/A（按 AGENTS.md 要求未执行 commit）
 ## Goal
 修复模型调度中的“加载请求丢失”窗口：当 `on_task_queued()` 在槽位被 `loading` 模型占满时无法触发驱逐，等模型变 `ready` 后应自动重扫 pending 模型并继续调度。
 

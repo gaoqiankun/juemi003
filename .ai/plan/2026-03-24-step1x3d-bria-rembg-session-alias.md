@@ -1,6 +1,8 @@
 # Step1X-3D rembg bria session 兼容修复
-Date / Status: 2026-03-24 / planning→done / Commits: N/A（按 AGENTS.md 要求未执行 commit）
+Date: 2026-03-24
+Status: done
 
+Date / Status: 2026-03-24 / planning→done / Commits: N/A（按 AGENTS.md 要求未执行 commit）
 ## Goal
 修复 Step1X-3D 推理阶段报错 `No session class found for model 'bria'`，使 GPU 阶段可继续执行而不是直接失败。
 

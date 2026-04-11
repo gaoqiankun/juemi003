@@ -1,6 +1,8 @@
 # Generate 模型下拉去除 runtime_state UI
-Date / Status: 2026-03-24 / done / Commits: N/A（按 AGENTS.md 要求未执行 commit）
+Date: 2026-03-24
+Status: done
 
+Date / Status: 2026-03-24 / done / Commits: N/A（按 AGENTS.md 要求未执行 commit）
 ## Goal
 移除 Generate 页模型下拉中非 ready 状态的灰色标签/提示，仅按模型是否 enabled 过滤并展示模型名称。
 

@@ -1,8 +1,9 @@
 # HunYuan3D-2 依赖集成到 Trellis2 Docker 基础镜像
+Date: 2026-03-23
+Status: done
+
 Date / Status: 2026-03-23 / done / Commits: N/A（按 AGENTS.md，本轮不执行 commit）
-
 ## Goal
-
 按任务要求修改 `docker/trellis2/Dockerfile`：
 
 - builder stage 追加 HunYuan3D-2 依赖安装和 C++ 扩展编译

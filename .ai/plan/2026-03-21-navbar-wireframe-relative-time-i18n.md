@@ -1,6 +1,8 @@
 # 导航栏对齐 + Wireframe 可见性 + 相对时间 i18n
-Date / Status: 2026-03-21 / done / Commits: not committed in this session
+Date: 2026-03-21
+Status: done
 
+Date / Status: 2026-03-21 / done / Commits: not committed in this session
 ## Goal
 - 让用户端 header 内容与页面主内容保持同一对齐基线。
 - 提升 `wireframe` 显示模式下线框可见性，确保与 texture/clay 有明显区分。

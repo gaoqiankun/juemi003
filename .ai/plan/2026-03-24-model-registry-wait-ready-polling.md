@@ -1,6 +1,8 @@
 # ModelRegistry wait_ready 轮询等待语义调整
-Date / Status: 2026-03-24 / done / Commits: N/A（按 AGENTS.md 要求未执行 commit）
+Date: 2026-03-24
+Status: done
 
+Date / Status: 2026-03-24 / done / Commits: N/A（按 AGENTS.md 要求未执行 commit）
 ## Goal
 调整 `ModelRegistry.wait_ready()`：不再对 `not_loaded` 立即报错，改为轮询等待调度器触发加载，并在超时时给出明确错误信息。
 

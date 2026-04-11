@@ -1,6 +1,8 @@
 # API Keys 状态列与操作列布局调整
-Date / Status: 2026-03-24 / done / Commits: N/A（按 AGENTS.md，本轮不执行 commit）
+Date: 2026-03-24
+Status: done
 
+Date / Status: 2026-03-24 / done / Commits: N/A（按 AGENTS.md，本轮不执行 commit）
 ## Goal
 按要求调整 `api-keys` 列表：状态列去掉圆点指示器，操作列由两列 `<td>` 合并为单列，并保持按钮紧凑排列。
 

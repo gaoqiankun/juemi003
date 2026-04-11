@@ -1,6 +1,8 @@
 # Settings 页 max_loaded_models 校验交互修复
-Date / Status: 2026-03-24 / done / Commits: N/A（按 AGENTS.md，本轮不执行 commit）
+Date: 2026-03-24
+Status: done
 
+Date / Status: 2026-03-24 / done / Commits: N/A（按 AGENTS.md，本轮不执行 commit）
 ## Goal
 - 在设置页补齐 `sonner` 全局挂载，并调整 `max_loaded_models` 的错误反馈与校验状态行为：
   - 非法值保存时改为 `toast.error(...)`

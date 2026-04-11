@@ -1,6 +1,8 @@
 # 模型列表操作列回归单列与槽位用量拆分
-Date / Status: 2026-03-23 / done / Commits: N/A（按 AGENTS.md，本轮不执行 commit）
+Date: 2026-03-23
+Status: done
 
+Date / Status: 2026-03-23 / done / Commits: N/A（按 AGENTS.md，本轮不执行 commit）
 ## Goal
 修复 Admin 模型列表两项 UI/数据问题：  
 1) 操作列从多列回归单列，三个操作按钮始终可见并通过 disabled 表达状态。  

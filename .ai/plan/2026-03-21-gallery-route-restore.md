@@ -1,6 +1,8 @@
 # 用户模型库路由恢复
-Date / Status: 2026-03-21 / done / Commits: not committed in this session
+Date: 2026-03-21
+Status: done
 
+Date / Status: 2026-03-21 / done / Commits: not committed in this session
 ## Goal
 恢复用户侧原有的 `/gallery` 模型库页面，撤回误引入的 `generations-page.tsx`，并把用户导航与回链统一指回模型库。
 

@@ -1,6 +1,8 @@
 # artifact_store 模块化拆分重构
-Date / Status: 2026-03-25 / done / Commits: N/A（按 AGENTS.md 要求未执行 commit）
+Date: 2026-03-25
+Status: done
 
+Date / Status: 2026-03-25 / done / Commits: N/A（按 AGENTS.md 要求未执行 commit）
 ## Goal
 将 `storage/artifact_store.py` 从单文件拆分为 facade + 6 个子模块，保持现有对外 import 路径不变并通过测试。
 

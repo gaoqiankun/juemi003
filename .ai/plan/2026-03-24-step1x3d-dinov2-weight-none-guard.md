@@ -1,6 +1,8 @@
 # Step1X-3D DINOv2 _init_weights 兼容新版 transformers
-Date / Status: 2026-03-24 / done / Commits: N/A（按 AGENTS.md 要求未执行 commit）
+Date: 2026-03-24
+Status: done
 
+Date / Status: 2026-03-24 / done / Commits: N/A（按 AGENTS.md 要求未执行 commit）
 ## Goal
 在 `docker/trellis2/Dockerfile` 中对 Step1X-3D 的 DINOv2 encoder 代码加 `module.weight is None` 防护，避免新版 transformers 触发 `_init_weights` 时因 `weight=None` 报 `AttributeError`。
 

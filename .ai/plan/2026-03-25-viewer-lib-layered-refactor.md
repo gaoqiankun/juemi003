@@ -1,6 +1,8 @@
 # Viewer Lib Layered Refactor
-Date / Status: 2026-03-25 / done / Commits:
+Date: 2026-03-25
+Status: done
 
+Date / Status: 2026-03-25 / done / Commits:
 ## Goal
 按确认分层拆分 `web/src/lib/viewer.ts`，保持对外 API 行为与导出路径不变，并通过 build/lint 验收。
 

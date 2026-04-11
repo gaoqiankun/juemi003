@@ -1,6 +1,8 @@
 # Step1X-3D pytorch3d 导入链修复
-Date / Status: 2026-03-25 / done / Commits: N/A（按仓库规范本次不执行提交）
+Date: 2026-03-25
+Status: done
 
+Date / Status: 2026-03-25 / done / Commits: N/A（按仓库规范本次不执行提交）
 ## Goal
 定位并修复 Step1X-3D 在模型加载阶段触发 `No module named 'pytorch3d'` 的问题，保证推理链路可用并支持 texture pipeline 可选降级。
 

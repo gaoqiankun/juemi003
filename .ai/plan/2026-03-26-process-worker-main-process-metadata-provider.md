@@ -1,6 +1,8 @@
 # ProcessGPUWorker 主进程模型双重加载消除
-Date / Status: 2026-03-26 / done / Commits: N/A（按仓库规范本次不执行提交）
+Date: 2026-03-26
+Status: done
 
+Date / Status: 2026-03-26 / done / Commits: N/A（按仓库规范本次不执行提交）
 ## Goal
 在 `provider_mode=real` 且使用 `ProcessGPUWorker` 的路径下，主进程不再通过 `from_pretrained()` 加载完整模型权重，避免与子进程重复占用 GPU 显存。
 

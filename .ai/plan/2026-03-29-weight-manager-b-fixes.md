@@ -1,5 +1,6 @@
 # Weight Manager Frontend Fixes (B-1, B-5)
 Date: 2026-03-29 / Status: done
+Status: done
 
 ## Scope
 - `web/src/lib/admin-api.ts`

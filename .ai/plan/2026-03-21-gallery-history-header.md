@@ -1,6 +1,8 @@
 # Gallery History Header 对齐
-Date / Status: 2026-03-21 / done / Commits: not committed in this session
+Date: 2026-03-21
+Status: done
 
+Date / Status: 2026-03-21 / done / Commits: not committed in this session
 ## Goal
 参考 `design/user-dark.html` 的 `HistoryScreen`，调整 `web/src/pages/gallery-page.tsx` 的页头与筛选条样式，并补上跳转到生成页的 FAB，不改模型卡片、任务列表、TaskSheet 或删除逻辑。
 

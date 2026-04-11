@@ -1,6 +1,8 @@
 # Gallery Token 样式迁移补齐
-Date / Status: 2026-03-21 / done / Commits: not committed in this session
+Date: 2026-03-21
+Status: done
 
+Date / Status: 2026-03-21 / done / Commits: not committed in this session
 ## Goal
 补齐用户模型库页面的 token 样式迁移，只替换 gallery 相关视觉表现中的硬编码颜色，不改任何任务列表、筛选、删除、TaskSheet 或 AlertDialog 的功能逻辑。
 

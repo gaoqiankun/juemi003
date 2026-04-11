@@ -1,6 +1,8 @@
 # Viewer Screen 重建
-Date / Status: 2026-03-21 / done / Commits: not committed in this session
+Date: 2026-03-21
+Status: done
 
+Date / Status: 2026-03-21 / done / Commits: not committed in this session
 ## Goal
 按 `design/user-dark.html` 的 `ViewerScreen` 重建 `web/src/pages/viewer-page.tsx`，接入真实任务数据与现有 three viewer，不改后端协议。
 

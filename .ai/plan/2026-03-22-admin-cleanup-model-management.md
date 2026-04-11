@@ -1,6 +1,8 @@
 # Admin 全站清理 + 模型管理功能化
-Date / Status: 2026-03-22 / done / Commits: N/A（按仓库 AGENTS 约束，本次未执行 git commit）
+Date: 2026-03-22
+Status: done
 
+Date / Status: 2026-03-22 / done / Commits: N/A（按仓库 AGENTS 约束，本次未执行 git commit）
 ## Goal
 - 清理 Admin 面板中 mock 时代遗留的装饰信息、假统计和冗余描述文案。
 - 将模型页改造为可操作的管理列表（启用/禁用、设为默认、删除）。

@@ -1,5 +1,7 @@
 # Weight Manager — 权重获取与模型推理分离
 Date: 2026-03-29 / Status: done / Evaluator: APPROVE
+Status: done
+
 Task A1: ✅ done (2026-03-29)
 Task A2: ✅ done (2026-03-29)
 Task B:  ✅ done (2026-03-29)

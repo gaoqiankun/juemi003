@@ -1,6 +1,8 @@
 # Hunyuan3D Checkpoint Loading Fix
-Date / Status: 2026-03-26 / done / Commits: N/A（未执行 git commit）
+Date: 2026-03-26
+Status: done
 
+Date / Status: 2026-03-26 / done / Commits: N/A（未执行 git commit）
 ## Goal
 修复 hunyuan3d shape/texture pipeline 的 `from_pretrained`，使其按原始 hy3dgen 逻辑加载 checkpoint（不依赖 diffusers `model_index.json`）。
 

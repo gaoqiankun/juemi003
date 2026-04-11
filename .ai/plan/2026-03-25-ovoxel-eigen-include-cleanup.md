@@ -1,6 +1,8 @@
 # o_voxel Eigen include 路径清理
-Date / Status: 2026-03-25 / done / Commits: N/A（按仓库规范本次不执行提交）
+Date: 2026-03-25
+Status: done
 
+Date / Status: 2026-03-25 / done / Commits: N/A（按仓库规范本次不执行提交）
 ## Goal
 移除 Dockerfile 中的 eigen 软链接 workaround，改为 setup.py 优先解析系统 Eigen include 路径。
 

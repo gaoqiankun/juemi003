@@ -1,4 +1,5 @@
 # 2026-03-30 · weight-dep-b1
+Date: 2026-03-30
 Status: done
 
 ## 目标

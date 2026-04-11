@@ -1,6 +1,8 @@
 # 品牌统一 + 背景选择器优化 + 浅色网格 + 术语统一
-Date / Status: 2026-03-21 / done / Commits: not committed in this session
+Date: 2026-03-21
+Status: done
 
+Date / Status: 2026-03-21 / done / Commits: not committed in this session
 ## Goal
 - 将前端产品显示品牌从旧命名（带 3D 后缀）统一为“Cubie”。
 - 将 Gallery/历史/模型库 的用户侧文案统一为 Assets/资产。

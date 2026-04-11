@@ -1,6 +1,8 @@
 # Generate 页面文案与布局优化 + 语言选择器改进
-Date / Status: 2026-03-21 / done / Commits: not committed in this session
+Date: 2026-03-21
+Status: done
 
+Date / Status: 2026-03-21 / done / Commits: not committed in this session
 ## Goal
 - 将用户侧顶部导航中的 Generate/生成 统一升级为 Workspace/工作台（仅文案，不改路由）。
 - 移除 Generate 左侧面板中不应对外暴露的 coming soon 占位信息，收紧操作路径。

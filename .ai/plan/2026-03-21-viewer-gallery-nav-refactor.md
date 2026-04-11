@@ -1,8 +1,9 @@
 # Viewer 重构 + Gallery 简化 + 导航补全
+Date: 2026-03-21
+Status: done
+
 Date / Status: 2026-03-21 / done / Commits: not committed in this session
-
 ## Goal
-
 将 Viewer 页面重构为无边界画布 + 浮动信息面板的沉浸式布局，与 Generate 页面视觉语言统一。同时简化 Gallery 交互（去掉 TaskSheet 弹窗，直接跳转 Viewer），补全 Header 导航，修复 Gallery 宽屏布局。
 
 ## Key Decisions

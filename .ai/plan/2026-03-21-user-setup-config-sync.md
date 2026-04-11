@@ -1,6 +1,8 @@
 # 用户 Setup 配置与真实请求链路对齐
-Date / Status: 2026-03-21 / done / Commits: not committed in this session
+Date: 2026-03-21
+Status: done
 
+Date / Status: 2026-03-21 / done / Commits: not committed in this session
 ## Goal
 检查并修正用户侧 `generate-page.tsx` 最近生成面板、任务列表请求、Setup 保存配置、图片上传与任务提交之间的真实 API 链路，消除 mock 配置与 provider 配置分叉导致的“已配置但请求没带上”的问题。
 

@@ -1,6 +1,8 @@
 # i18n 文案清理
-Date / Status: 2026-03-21 / done / Commits: n/a
+Date: 2026-03-21
+Status: done
 
+Date / Status: 2026-03-21 / done / Commits: n/a
 ## Goal
 清理 `web/src/i18n/en.json` 与 `web/src/i18n/zh-CN.json` 中的开发口吻文案，统一为正式产品表达，并同步修正 Setup 默认服务地址与少量页面硬编码文本。
 

@@ -1,6 +1,8 @@
 # HunYuan3D PaintPipeline 去除 num_inference_steps 参数
-Date / Status: 2026-03-24 / done / Commits: N/A（按 AGENTS.md 要求未执行 commit）
+Date: 2026-03-24
+Status: done
 
+Date / Status: 2026-03-24 / done / Commits: N/A（按 AGENTS.md 要求未执行 commit）
 ## Goal
 修复 HunYuan3D 纹理阶段调用参数不兼容问题：`HunYuan3DPaintPipeline` 不再传入 `num_inference_steps`，避免运行时报 `unexpected keyword argument`。
 

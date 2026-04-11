@@ -1,6 +1,8 @@
 # Step1X-3D pytorch3d 显式安装与 workaround 回退
-Date / Status: 2026-03-26 / done / Commits: N/A（按仓库规范本次不执行提交）
+Date: 2026-03-26
+Status: done
 
+Date / Status: 2026-03-26 / done / Commits: N/A（按仓库规范本次不执行提交）
 ## Goal
 在 Dockerfile 显式安装 pytorch3d，并撤销 provider/test 中的 pytorch3d 缺失降级 workaround，恢复 texture pipeline 常规加载路径。
 

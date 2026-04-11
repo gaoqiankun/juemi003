@@ -1,6 +1,8 @@
 # Step1X3D Texture Processor dtype 清理
-Date / Status: 2026-03-26 / done / Commits: N/A（按仓库规范本次不执行提交）
+Date: 2026-03-26
+Status: done
 
+Date / Status: 2026-03-26 / done / Commits: N/A（按仓库规范本次不执行提交）
 ## Goal
 - 移除内化版本在 `prepare_ig2mv_pipeline` 中对 `module.processor` 的额外 dtype cast，对齐官方行为，降低精度/兼容性风险。
 

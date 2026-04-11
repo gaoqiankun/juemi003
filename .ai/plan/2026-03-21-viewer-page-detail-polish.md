@@ -1,6 +1,8 @@
 # Viewer 页面细节打磨
-Date / Status: 2026-03-21 / done / Commits: not committed in this session
+Date: 2026-03-21
+Status: done
 
+Date / Status: 2026-03-21 / done / Commits: not committed in this session
 ## Goal
 - 优化 Viewer sidebar 信息密度与可读性：标题语义、输入图可见性、操作按钮简化、时间展示长度、圆角统一。
 

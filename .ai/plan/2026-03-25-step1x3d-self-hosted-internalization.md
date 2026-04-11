@@ -1,6 +1,8 @@
 # Step1X-3D 推理代码与扩展内化
-Date / Status: 2026-03-25 / done / Commits: N/A（按仓库规范本次不执行提交）
+Date: 2026-03-25
+Status: done
 
+Date / Status: 2026-03-25 / done / Commits: N/A（按仓库规范本次不执行提交）
 ## Goal
 将 Step1X-3D 推理核心 Python 代码与 C++/CUDA 扩展源码迁入仓库，移除运行时对 `/opt/Step1X-3D` 外部 clone 与 PYTHONPATH 注入依赖。
 

@@ -1,6 +1,8 @@
 # Light Theme 背景层级微调
-Date / Status: 2026-03-21 / done / Commits: not committed in this session
+Date: 2026-03-21
+Status: done
 
+Date / Status: 2026-03-21 / done / Commits: not committed in this session
 ## Goal
 收紧 light theme 的背景层级和卡片边界，让页面大背景、内嵌区块和白色卡片之间的关系更清晰，同时保持默认主题仍然是 dark。
 

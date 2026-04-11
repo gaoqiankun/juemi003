@@ -1,6 +1,8 @@
 # 用户页恢复到 M2 之前
-Date / Status: 2026-03-21 / done / Commits: not committed in this session
+Date: 2026-03-21
+Status: done
 
+Date / Status: 2026-03-21 / done / Commits: not committed in this session
 ## Goal
 按指定 commit `0b6f1f2` 恢复用户页相关前端文件到 M2 改动之前的状态，并验证前端构建与生成页视觉结果。
 

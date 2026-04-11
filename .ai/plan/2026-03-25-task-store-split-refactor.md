@@ -1,6 +1,8 @@
 # task_store 模块化拆分重构
-Date / Status: 2026-03-25 / done / Commits: N/A（按 AGENTS.md 要求未执行 commit）
+Date: 2026-03-25
+Status: done
 
+Date / Status: 2026-03-25 / done / Commits: N/A（按 AGENTS.md 要求未执行 commit）
 ## Goal
 将 `storage/task_store.py` 从单文件拆分为 facade + 5 个子模块，保留现有对外导入路径与行为语义。
 

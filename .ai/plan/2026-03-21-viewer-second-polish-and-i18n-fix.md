@@ -1,6 +1,8 @@
 # Viewer 第二轮细节打磨 + i18n 修复
-Date / Status: 2026-03-21 / done / Commits: not committed in this session
+Date: 2026-03-21
+Status: done
 
+Date / Status: 2026-03-21 / done / Commits: not committed in this session
 ## Goal
 - 优化 Viewer sidebar 信息密度与可扩展性（StatCard 紧凑化、导出格式改下拉）。
 - 调整浅色模式 viewer 背景渐变，降低聚光灯感。

@@ -1,6 +1,8 @@
 # Web UI 细节打磨（第五轮）：i18n、Viewer 工具栏、背景选择器、Setup 精简
-Date / Status: 2026-03-21 / done / Commits: not committed in this session
+Date: 2026-03-21
+Status: done
 
+Date / Status: 2026-03-21 / done / Commits: not committed in this session
 ## Goal
 - 完成第五轮 Web UI 细节优化：修正文案、精简 Setup 页面、优化 Viewer 工具栏与背景选择器交互，并补充阴影开关能力。
 - 保持现有路由与整体视觉风格不变，只做局部体验和一致性提升。

@@ -1,6 +1,8 @@
 # 默认主题改为暗色
-Date / Status: 2026-03-21 / done / Commits: not committed in this session
+Date: 2026-03-21
+Status: done
 
+Date / Status: 2026-03-21 / done / Commits: not committed in this session
 ## Goal
 调整前端主题初始化逻辑，让应用在 localStorage 没有主题记录时默认使用暗色，而不是跟随系统 `prefers-color-scheme`。
 

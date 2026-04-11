@@ -1,6 +1,8 @@
 # Step1X3D Geometry Transformer dtype 对齐
-Date / Status: 2026-03-26 / done / Commits: N/A（按仓库规范本次不执行提交）
+Date: 2026-03-26
+Status: done
 
+Date / Status: 2026-03-26 / done / Commits: N/A（按仓库规范本次不执行提交）
 ## Goal
 - 在 geometry denoising loop 中，确保传入 transformer 的 latent 与条件 tensor dtype 与 transformer 权重 dtype 一致，避免 linear/bias dtype mismatch。
 

@@ -1,6 +1,8 @@
 # Generate 页选择状态修复 + Viewer 工具栏优化
-Date / Status: 2026-03-21 / done / Commits: not committed in this session
+Date: 2026-03-21
+Status: done
 
+Date / Status: 2026-03-21 / done / Commits: not committed in this session
 ## Goal
 - 修复生成页进入时自动选中历史活跃任务的问题，确保初始展示 idle 空状态引导。
 - 重构模型查看器底部工具栏，去掉非专业操作，补齐重置视角能力，并优化网格表现。

@@ -1,6 +1,8 @@
 # Header 与冗余文案清理
-Date / Status: 2026-03-21 / done / Commits: not committed in this session
+Date: 2026-03-21
+Status: done
 
+Date / Status: 2026-03-21 / done / Commits: not committed in this session
 ## Goal
 清理 user/admin shell header 右侧的文字标签，让主题切换、语言切换都只保留图标；同时移除非 Setup 页面里明显冗余的说明型副文案，并给 icon-only 按钮补齐可访问性标签。
 

@@ -1,6 +1,8 @@
 # Generate Viewer Theme Stability
-Date / Status: 2026-03-21 / done / Commits: not committed in this session
+Date: 2026-03-21
+Status: done
 
+Date / Status: 2026-03-21 / done / Commits: not committed in this session
 ## Goal
 排查并修复 `generate-page.tsx` 中间 3D 视口在切换主题时的布局错乱问题，确保主题切换只更新颜色，不重建 viewer，也不触发额外的模型请求或明显 layout shift。
 

@@ -1,6 +1,8 @@
 # Step1X3D VAE Decode dtype Fix
-Date / Status: 2026-03-26 / done / Commits: N/A（按仓库规范本次不执行提交）
+Date: 2026-03-26
+Status: done
 
+Date / Status: 2026-03-26 / done / Commits: N/A（按仓库规范本次不执行提交）
 ## Goal
 - 修复 ig2mv SDXL 流水线在 VAE 被 upcast 到 float32 后，decode 输入 latents 仍为 float16 导致的 dtype mismatch。
 - 增加回归测试，确保 decode 前会对齐 latents dtype 到 VAE 参数 dtype。

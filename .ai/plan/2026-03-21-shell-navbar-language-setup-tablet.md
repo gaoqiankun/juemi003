@@ -1,6 +1,8 @@
 # 导航栏重设计 + 语言下拉 + 设置页返回 + 平板适配
-Date / Status: 2026-03-21 / done / Commits: not committed in this session
+Date: 2026-03-21
+Status: done
 
+Date / Status: 2026-03-21 / done / Commits: not committed in this session
 ## Goal
 - 重构用户端 shell 导航栏：提升层级感，补齐主导航和右侧工具区。
 - 将语言切换从循环 toggle 改为可见可选的下拉选择。

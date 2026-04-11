@@ -1,6 +1,8 @@
 # Hunyuan3D Pipeline Internalization
-Date / Status: 2026-03-25 / done / Commits:
+Date: 2026-03-25
+Status: done
 
+Date / Status: 2026-03-25 / done / Commits:
 ## Goal
 将 HunYuan3D-2 provider 的 shape / texture 推理入口从外部 `hy3dgen` 依赖迁移到仓库内自维护实现，并保持 provider 对外接口不变。
 

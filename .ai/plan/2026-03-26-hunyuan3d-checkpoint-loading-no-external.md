@@ -1,6 +1,8 @@
 # Hunyuan3D Checkpoint Loading No-External Fix
-Date / Status: 2026-03-26 / done / Commits: N/A（未执行 git commit）
+Date: 2026-03-26
+Status: done
 
+Date / Status: 2026-03-26 / done / Commits: N/A（未执行 git commit）
 ## Goal
 在不依赖 `Hunyuan3D-2/` 目录的前提下，修复 hunyuan3d shape / texture pipeline 的 checkpoint 加载逻辑，恢复不依赖 `model_index.json` 的加载方式。
 

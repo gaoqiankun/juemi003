@@ -1,6 +1,8 @@
 # Ruff 代码质量工具接入
-Date / Status: 2026-03-25 / done / Commits: N/A（按 AGENTS.md 要求未执行 commit）
+Date: 2026-03-25
+Status: done
 
+Date / Status: 2026-03-25 / done / Commits: N/A（按 AGENTS.md 要求未执行 commit）
 ## Goal
 为后端项目接入 Ruff 静态分析基础配置，确保可执行 `ruff check .` 并产出当前问题统计。
 

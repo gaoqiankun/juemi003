@@ -1,8 +1,8 @@
 # Weight Dependency Management — 完整设计方案
 Date: 2026-03-29 / Status: design-review-v3（已按第四轮 Evaluator 意见修订）
+Status: done
 
 ---
-
 ## 一、问题陈述
 
 当前 WeightManager 只下载"主模型 repo"，但三个 Provider 在加载时还依赖外部权重，这些依赖在模型 Load 时才触发网络下载，破坏了"权重获取与推理分离"的设计目标。

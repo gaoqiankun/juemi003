@@ -1,6 +1,8 @@
 # async_engine 模块拆分（ETA / SSE / Webhook）
-Date / Status: 2026-03-25 / done / Commits: N/A（按 AGENTS.md 要求未执行 commit）
+Date: 2026-03-25
+Status: done
 
+Date / Status: 2026-03-25 / done / Commits: N/A（按 AGENTS.md 要求未执行 commit）
 ## Goal
 - 在不改变 worker 主循环与 cleanup 语义的前提下，把 `engine/async_engine.py` 中 ETA 估算、SSE 事件发布/回放、webhook payload 与重试逻辑提取为无状态模块，降低主文件复杂度。
 

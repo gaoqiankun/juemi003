@@ -1,6 +1,8 @@
 # Gen3d Provider Layered Refactor
-Date / Status: 2026-03-25 / done / Commits:
+Date: 2026-03-25
+Status: done
 
+Date / Status: 2026-03-25 / done / Commits:
 ## Goal
 按已确认分层，把 `web/src/app/gen3d-provider.tsx` 从单文件重构为目录化模块，保持对外 API 与行为不变。
 

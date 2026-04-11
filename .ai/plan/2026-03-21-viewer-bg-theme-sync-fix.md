@@ -1,6 +1,8 @@
 # Viewer 背景色主题同步 + 径向渐变修复
-Date / Status: 2026-03-21 / done
+Date: 2026-03-21
+Status: done
 
+Date / Status: 2026-03-21 / done
 ## Goal
 1. 修复切换 dark/light 主题时 3D viewer 背景色不跟随更新的 bug
 2. 将 viewer 背景从纯色改为径向渐变（中心稍亮、边缘更暗），对齐商业平台（Tripo/Meshy/HunYuan3D）的查看体验

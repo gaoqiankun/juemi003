@@ -1,6 +1,8 @@
 # Web ESLint 工具接入
-Date / Status: 2026-03-25 / done / Commits: N/A（按 AGENTS.md 要求未执行 commit）
+Date: 2026-03-25
+Status: done
 
+Date / Status: 2026-03-25 / done / Commits: N/A（按 AGENTS.md 要求未执行 commit）
 ## Goal
 为 `web/` 接入 ESLint（Flat Config），启用 TypeScript 与 React Hooks 基础规则，并验证 lint/build 可运行。
 

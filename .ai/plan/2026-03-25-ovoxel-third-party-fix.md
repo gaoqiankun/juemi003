@@ -1,6 +1,8 @@
 # o-voxel third_party 依赖修复
-Date / Status: 2026-03-25 / done / Commits: N/A（按仓库规范本次不执行提交）
+Date: 2026-03-25
+Status: done
 
+Date / Status: 2026-03-25 / done / Commits: N/A（按仓库规范本次不执行提交）
 ## Goal
 定位 `docker/trellis2/Dockerfile` 中 o_voxel 扩展编译失败根因，并用最小改动修复。
 

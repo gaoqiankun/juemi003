@@ -1,6 +1,8 @@
 # 生成页紧急修复：操作条遮挡 + 闪烁 + 导航栏 + i18n 补全
-Date / Status: 2026-03-21 / done / Commits: not committed in this session
+Date: 2026-03-21
+Status: done
 
+Date / Status: 2026-03-21 / done / Commits: not committed in this session
 ## Goal
 - 修复生成页 completed 状态操作条与 `ModelViewport` 底部工具栏冲突问题。
 - 修复模型加载默认自动旋转与加载阶段闪烁问题。

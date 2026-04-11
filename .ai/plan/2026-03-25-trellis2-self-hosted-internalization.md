@@ -1,6 +1,8 @@
 # Trellis2 推理代码与扩展内化
-Date / Status: 2026-03-25 / done / Commits: N/A（按仓库规范本次不执行提交）
+Date: 2026-03-25
+Status: done
 
+Date / Status: 2026-03-25 / done / Commits: N/A（按仓库规范本次不执行提交）
 ## Goal
 将 Trellis2 推理代码和 o-voxel 扩展源码内化到仓库，移除运行时对外部 `/opt/TRELLIS.2` clone 目录的依赖。
 

@@ -1,6 +1,8 @@
 # 模型列表加载按钮与错误提示展示调整
-Date / Status: 2026-03-24 / done / Commits: N/A（按 AGENTS.md，本轮不执行 commit）
+Date: 2026-03-24
+Status: done
 
+Date / Status: 2026-03-24 / done / Commits: N/A（按 AGENTS.md，本轮不执行 commit）
 ## Goal
 调整 Admin 模型列表两处交互：  
 1) 加载按钮仅在 `not_loaded/error` 状态显示；`loading/ready` 状态不显示。  

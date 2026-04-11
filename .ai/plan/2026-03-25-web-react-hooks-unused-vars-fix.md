@@ -1,6 +1,8 @@
 # Web ESLint Hooks & Unused Vars Fix
-Date / Status: 2026-03-25 / done / Commits:
+Date: 2026-03-25
+Status: done
 
+Date / Status: 2026-03-25 / done / Commits:
 ## Goal
 按任务要求修复前端 ESLint 中的 react-hooks 问题与 no-unused-vars 问题，并通过 lint/build 验收。
 
