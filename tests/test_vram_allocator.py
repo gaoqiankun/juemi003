@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import sys
 from pathlib import Path
 
@@ -9,7 +10,11 @@ WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
 if str(WORKSPACE_ROOT) not in sys.path:
     sys.path.insert(0, str(WORKSPACE_ROOT))
 
-from gen3d.engine.vram_allocator import VRAMAllocator, VRAMAllocatorError
+from gen3d.engine.vram_allocator import (
+    ExternalVRAMOccupationTimeoutError,
+    VRAMAllocator,
+    VRAMAllocatorError,
+)
 
 
 def test_allocator_places_models_on_available_devices() -> None:
@@ -66,3 +71,29 @@ def test_allocator_honors_preferred_device_and_release() -> None:
         preferred_device_id="1",
     )
     assert assigned == "1"
+
+
+def test_external_timeout_error_is_allocator_error_subclass() -> None:
+    assert issubclass(ExternalVRAMOccupationTimeoutError, VRAMAllocatorError)
+
+
+def test_external_occupation_timeout_raises_subclass() -> None:
+    async def scenario() -> None:
+        allocator = VRAMAllocator(device_totals_mb={"0": 24_000})
+        allocator.reserve(
+            model_name="model-a",
+            weight_vram_mb=16_000,
+            preferred_device_id="0",
+        )
+        allocator.set_vram_probe(lambda _device_id: 0)
+        allocator.set_external_vram_wait_timeout_seconds(0.02)
+
+        with pytest.raises(ExternalVRAMOccupationTimeoutError) as error_info:
+            await allocator.acquire_inference(
+                model_name="model-a",
+                device_id="0",
+                inference_vram_mb=4_000,
+            )
+        assert isinstance(error_info.value, VRAMAllocatorError)
+
+    asyncio.run(scenario())

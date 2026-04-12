@@ -36,6 +36,7 @@ class _ModelEntry:
     error: Exception | None = None
     load_task: asyncio.Task[None] | None = None
     requested_device_id: str | None = None
+    excluded_device_ids: tuple[str, ...] = ()
 
 
 class ModelRegistryLoadError(RuntimeError):
@@ -115,10 +116,41 @@ class ModelRegistry:
         entry.requested_device_id = (
             str(device_id).strip() if device_id is not None and str(device_id).strip() else None
         )
+        entry.excluded_device_ids = ()
         entry.load_task = asyncio.create_task(
             self._load_runtime(normalized, entry),
             name=f"model-load-{normalized}",
         )
+
+    async def reload(
+        self,
+        model_name: str,
+        *,
+        exclude_device_ids: Iterable[str] | None = None,
+    ) -> ModelRuntime:
+        normalized = self._normalize_name(model_name)
+        normalized_excluded_device_ids = tuple(
+            normalized_device
+            for raw_device_id in (exclude_device_ids or ())
+            if (normalized_device := str(raw_device_id).strip())
+        )
+        async with self._lock:
+            entry = self._entries.get(normalized)
+            if entry is not None and entry.state == "loading" and entry.excluded_device_ids:
+                pass
+            else:
+                await self.unload(normalized)
+                entry = _ModelEntry(
+                    state="loading",
+                    event=asyncio.Event(),
+                    excluded_device_ids=normalized_excluded_device_ids,
+                )
+                self._entries[normalized] = entry
+                entry.load_task = asyncio.create_task(
+                    self._load_runtime(normalized, entry),
+                    name=f"model-reload-{normalized}",
+                )
+        return await self.wait_ready(normalized)
 
     async def wait_ready(
         self,
@@ -188,6 +220,7 @@ class ModelRegistry:
         entry.event = asyncio.Event()
         entry.load_task = None
         entry.requested_device_id = None
+        entry.excluded_device_ids = ()
 
         if runtime is not None:
             del runtime
@@ -206,6 +239,7 @@ class ModelRegistry:
             runtime = await self._invoke_runtime_loader(
                 model_name,
                 device_id=entry.requested_device_id,
+                exclude_device_ids=entry.excluded_device_ids or None,
             )
             for worker in runtime.workers:
                 await worker.start()
@@ -266,12 +300,14 @@ class ModelRegistry:
         model_name: str,
         *,
         device_id: str | None,
+        exclude_device_ids: tuple[str, ...] | None,
     ) -> ModelRuntime:
         if inspect.iscoroutinefunction(self._runtime_loader):
             runtime = await self._call_runtime_loader(
                 self._runtime_loader,
                 model_name,
                 device_id=device_id,
+                exclude_device_ids=exclude_device_ids,
             )
             return runtime
         maybe_runtime = await asyncio.to_thread(
@@ -279,6 +315,7 @@ class ModelRegistry:
             self._runtime_loader,
             model_name,
             device_id,
+            exclude_device_ids,
         )
         if inspect.isawaitable(maybe_runtime):
             return await maybe_runtime
@@ -289,16 +326,36 @@ class ModelRegistry:
         runtime_loader: ModelRuntimeLoader,
         model_name: str,
         device_id: str | None,
+        exclude_device_ids: tuple[str, ...] | None,
     ) -> ModelRuntime | Awaitable[ModelRuntime]:
-        if device_id is None:
+        kwargs: dict[str, str | tuple[str, ...]] = {}
+        if device_id is not None:
+            kwargs["device_id"] = device_id
+        if exclude_device_ids:
+            kwargs["exclude_device_ids"] = exclude_device_ids
+
+        if not kwargs:
             return runtime_loader(model_name)
-        try:
-            return runtime_loader(model_name, device_id=device_id)
-        except TypeError as exc:
-            message = str(exc)
-            if "unexpected keyword argument 'device_id'" not in message:
-                raise
-            return runtime_loader(model_name)
+
+        while True:
+            try:
+                return runtime_loader(model_name, **kwargs)
+            except TypeError as exc:
+                message = str(exc)
+                if (
+                    "unexpected keyword argument 'exclude_device_ids'" in message
+                    and "exclude_device_ids" in kwargs
+                ):
+                    kwargs.pop("exclude_device_ids", None)
+                elif (
+                    "unexpected keyword argument 'device_id'" in message
+                    and "device_id" in kwargs
+                ):
+                    kwargs.pop("device_id", None)
+                else:
+                    raise
+                if not kwargs:
+                    return runtime_loader(model_name)
 
     @staticmethod
     def _normalize_name(model_name: str) -> str:

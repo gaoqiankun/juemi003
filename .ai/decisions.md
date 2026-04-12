@@ -7,6 +7,10 @@
 
 ## 2026-04-12
 
+- **GPU 模型支持跨卡迁移（Phase 5）**：`engine/vram_allocator.py` 新增 `ExternalVRAMOccupationTimeoutError(VRAMAllocatorError)` 子类，Phase 4c 的外部占用超时路径改抛这个子类。`stages/gpu/stage.py` 的 `GPUStage.run` 在 `scheduler.acquire()` 处包一层 `while True` + `migration_attempted` single-shot retry：捕获该子类后调 `ModelRegistry.reload(model, exclude_device_ids=(old_device,))`，刷新 runtime 后重试一次；第二次同类超时直接抛错（避免全集群不够时死循环）。非该子类的 `VRAMAllocatorError` 不触发迁移，沿用既有抛错语义。（plan: 2026-04-12-gpu-device-migration.md）
+
+- **新增 `ModelRegistry.reload(model_name, *, exclude_device_ids)` API**：`engine/model_registry.py` 串行化同模型的并发 reload（`self._lock` 临界区 + `_ModelEntry.excluded_device_ids` 标记 + `wait_ready` 锁外等待），避免多个请求竞相 unload/load。内部复用 `unload` + 新建 entry + `_load_runtime` 路径；迁移失败自然走 `_load_runtime` 的 except 分支进入 `state="error"`，触发 `model_unloaded_listener` → `vram_allocator.release` 释放账本。`runtime_loader` 签名新增 `exclude_device_ids: Iterable[str] | None` 参数，`_call_runtime_loader` 用 `while True` 逐个 pop 不支持的 kwarg 做 TypeError 兼容降级（与现有 `device_id` 兼容 pattern 同构）。（plan: 2026-04-12-gpu-device-migration.md）
+
 - **`VRAMAllocator.acquire_inference` 外部占用超时失败语义**：wait loop 新增 `_track_external_occupation_wait` 辅助方法，仅在 `effective_free < booked_free`（即 NVML probe 汇报低于账本）期间累积等待时间，超过 `external_vram_wait_timeout_seconds`（默认 30s）→ `raise VRAMAllocatorError("external VRAM occupation timeout ...")`。之前行为是永久 wait；现在上游调用者（`GPUSlotScheduler`、`stages/gpu/worker.py` 等）会收到该异常 propagation。内部争抢（同卡推理互相排队）不计时，由 Phase 3 的 evict 兜底；probe 为 None 时 `effective_free == booked_free`，永不触发 timeout 路径，降级到 Phase 3 行为。（plan: 2026-04-11-gpu-device-assignment.md）
 
 - **新增持久化动态配置 `external_vram_wait_timeout_seconds`**：`storage/settings_store.py` 增加 `EXTERNAL_VRAM_WAIT_TIMEOUT_SECONDS_KEY`；`api/server.py` 在 startup 从 SettingsStore 读取并注入 allocator，GET `/api/admin/settings` 暴露 `externalVramWaitTimeoutSeconds` 字段，PATCH 校验 > 0 并 live apply 到 allocator，无需重启生效；同时把 `vram_allocator` 加入 `AppContainer` 便于 endpoint 访问。（plan: 2026-04-11-gpu-device-assignment.md）

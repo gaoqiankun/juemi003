@@ -11,7 +11,7 @@ from datetime import datetime
 from email.parser import BytesParser
 from email.policy import default as default_email_policy
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 from urllib.parse import quote, urlsplit, urlunsplit
 
 import httpx
@@ -1256,6 +1256,7 @@ def create_app(
     async def runtime_loader(
         model_name: str,
         device_id: str | None = None,
+        exclude_device_ids: Iterable[str] | None = None,
     ) -> ModelRuntime:
         normalized_model_name = str(model_name).strip().lower()
         model_definition = await _resolve_model_definition_for_runtime(
@@ -1264,10 +1265,18 @@ def create_app(
         )
         weight_vram_mb = _resolve_weight_vram_mb(model_definition)
         required_weight_vram_mb = 1 if config.is_mock_provider else weight_vram_mb
+        excluded_device_ids = {
+            str(candidate).strip()
+            for candidate in (exclude_device_ids or ())
+            if str(candidate).strip()
+        }
         allocatable_device_ids = tuple(
             current_device_id
             for current_device_id in all_device_ids
-            if current_device_id not in disabled_devices
+            if (
+                current_device_id not in disabled_devices
+                and current_device_id not in excluded_device_ids
+            )
         )
         if not allocatable_device_ids:
             raise ModelProviderConfigurationError("all GPU devices are disabled")
@@ -1276,7 +1285,11 @@ def create_app(
                 model_name=normalized_model_name,
                 weight_vram_mb=required_weight_vram_mb,
                 allowed_device_ids=allocatable_device_ids,
-                preferred_device_id=device_id,
+                preferred_device_id=(
+                    device_id
+                    if device_id is not None and device_id not in excluded_device_ids
+                    else None
+                ),
             )
         except VRAMAllocatorError as exc:
             raise ModelProviderConfigurationError(str(exc)) from exc

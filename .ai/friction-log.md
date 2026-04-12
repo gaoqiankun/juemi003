@@ -11,6 +11,7 @@
 ---
 
 <!-- 新条目加在这里，时间倒序 -->
+[2026-04-12] [后端工程师] Phase 5 验证时 `uv run ruff check` 全仓输出 215 条历史错误（E402/C901/F401/nesting），增量 diff 是否引入新问题要在噪声里翻找；建议 ruff 增加 `--diff-from HEAD~1` 或 per-file 执行方式做增量门禁 | 🟡 中
 [2026-04-12] [后端工程师] Phase 4c context 指定的 smoke 脚本路径 `/tmp/gpu_device_assignment_phase4c_smoke.py` 不存在，Worker 需要对照 context 里的 (a)-(e) 清单自行创建；建议 context 里要么附脚本内容要么标明 "Worker 自行创建 smoke 脚本" | 🟢 低
 [2026-04-12] [后端工程师] `/tmp` 下的独立 smoke 脚本无法默认 import `gen3d` 包，需要手动加 `PYTHONPATH=..` 或 `PYTHONPATH=/data/home/gqk/work/hey3d` 才能正常运行；建议后续 smoke 脚本统一放 `scripts/smoke/` 或 context 里提醒 `PYTHONPATH` 约定 | 🟢 低
 [2026-04-12] [后端工程师] 只读检索命令在默认沙箱内触发 `bwrap: loopback ... Operation not permitted`，需要切到提权模式才能继续常规文件读取/搜索 | 🟢 低

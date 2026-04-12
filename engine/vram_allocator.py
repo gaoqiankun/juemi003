@@ -50,6 +50,10 @@ class VRAMAllocatorError(RuntimeError):
     pass
 
 
+class ExternalVRAMOccupationTimeoutError(VRAMAllocatorError):
+    pass
+
+
 VRAMProbe = Callable[[str], int | None]
 
 
@@ -309,7 +313,7 @@ class VRAMAllocator:
             return now
         if now - external_occupied_since <= self._external_vram_wait_timeout_seconds:
             return external_occupied_since
-        raise VRAMAllocatorError(
+        raise ExternalVRAMOccupationTimeoutError(
             "external VRAM occupation timeout after "
             f"{self._external_vram_wait_timeout_seconds:.1f}s "
             f"on device {device_id}"
