@@ -83,7 +83,7 @@ class VRAMAllocator:
         self._inference_to_device: dict[str, str] = {}
         self._inference_to_model: dict[str, str] = {}
         self._next_inference_allocation_id = 1
-        self._evict_callback: Callable[[str], Awaitable[bool]] | None = None
+        self._evict_callback: Callable[[str, str], Awaitable[bool]] | None = None
 
     @property
     def device_ids(self) -> tuple[str, ...]:
@@ -94,9 +94,20 @@ class VRAMAllocator:
 
     def set_evict_callback(
         self,
-        cb: Callable[[str], Awaitable[bool]] | None,
+        cb: Callable[[str, str], Awaitable[bool]] | None,
     ) -> None:
         self._evict_callback = cb
+
+    def active_inference_model_names_on(self, device_id: str) -> frozenset[str]:
+        normalized_device = _normalize_device_id(device_id)
+        if normalized_device not in self._budgets:
+            return frozenset()
+        return frozenset(
+            model_name
+            for allocation_id, inference_device_id in self._inference_to_device.items()
+            if inference_device_id == normalized_device
+            and (model_name := self._inference_to_model.get(allocation_id)) is not None
+        )
 
     def reserve(
         self,
@@ -190,7 +201,7 @@ class VRAMAllocator:
                 if evict_callback is None:
                     evict_allowed = False
                 else:
-                    evicted = await evict_callback(normalized_device)
+                    evicted = await evict_callback(normalized_device, normalized_model)
                     if evicted:
                         allocation_id = self._try_acquire_inference(
                             model_name=normalized_model,

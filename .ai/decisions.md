@@ -5,6 +5,10 @@
 
 ---
 
+## 2026-04-12
+
+- **同卡推理显存不足时启用 LRU 空闲模型卸载**：`api/server.py` 在 `ModelScheduler` 创建后注入 `vram_allocator.set_evict_callback(...)`，回调仅在同设备 `ready` 且无推理占用的模型里按 `ModelScheduler.get_last_used_tick()` 选择最久未使用项，调用 `ModelRegistry.unload()` 释放权重显存；卸载失败会记录 `vram_allocator.evict_failed` 并返回 False，回退到等待路径。（plan: 2026-04-11-gpu-device-assignment.md）
+
 ## 2026-04-11
 
 - **模型加载改为按显存分配单卡启动 worker**：新增 `engine/vram_allocator.py`（`DeviceBudget` + `VRAMAllocator`）并接入 `api/server.py` 的 `runtime_loader`，加载时按 `weight_vram_mb` 选择单个 GPU，再把该 `device_id` 传给 `build_model_runtime(..., device_ids=(assigned_device,))`，不再为每个模型在所有 GPU 上各起一个 worker；卸载/加载失败会回收分配，避免后续模型被错误占用。（plan: 2026-04-11-gpu-device-assignment.md）

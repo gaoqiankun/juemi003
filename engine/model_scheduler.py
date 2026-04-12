@@ -103,6 +103,10 @@ class ModelScheduler:
         normalized = _normalize_model_name(model_id)
         return int(self._tasks_processed.get(normalized, 0))
 
+    def get_last_used_tick(self, model_name: str) -> int:
+        normalized = _normalize_model_name(model_name)
+        return int(self._last_used.get(normalized, 0))
+
     async def initialize(self) -> None:
         model_definitions = await self._model_store.list_models()
         known_model_vram = _extract_known_model_vram(model_definitions)

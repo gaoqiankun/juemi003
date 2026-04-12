@@ -1329,6 +1329,36 @@ def create_app(
         vram_detection_enabled=config.vram_detection_enabled,
         gpu_device_count=len(all_device_ids),
     )
+
+    async def _evict_idle_on_device(device_id: str, requester_model_name: str) -> bool:
+        snapshot = vram_allocator.snapshot().get(device_id)
+        if snapshot is None:
+            return False
+        loaded_on_device = set(snapshot["allocations"].keys())
+        active_model_names = vram_allocator.active_inference_model_names_on(device_id)
+        candidates = [
+            model_name
+            for model_name in loaded_on_device
+            if model_name != requester_model_name
+            and model_name not in active_model_names
+            and model_registry.get_state(model_name) == "ready"
+        ]
+        if not candidates:
+            return False
+        victim = min(candidates, key=model_scheduler.get_last_used_tick)
+        try:
+            await model_registry.unload(victim)
+        except Exception:
+            structlog.get_logger(__name__).warning(
+                "vram_allocator.evict_failed",
+                victim=victim,
+                device_id=device_id,
+                requester=requester_model_name,
+            )
+            return False
+        return True
+
+    vram_allocator.set_evict_callback(_evict_idle_on_device)
     weight_manager = WeightManager(
         model_store=model_store,
         cache_dir=config.model_cache_dir,
