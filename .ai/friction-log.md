@@ -11,6 +11,7 @@
 ---
 
 <!-- 新条目加在这里，时间倒序 -->
+[2026-04-12] [后端工程师] `/tmp` 下的独立 smoke 脚本无法默认 import `gen3d` 包，需要手动加 `PYTHONPATH=..` 或 `PYTHONPATH=/data/home/gqk/work/hey3d` 才能正常运行；建议后续 smoke 脚本统一放 `scripts/smoke/` 或 context 里提醒 `PYTHONPATH` 约定 | 🟢 低
 [2026-04-12] [后端工程师] 只读检索命令在默认沙箱内触发 `bwrap: loopback ... Operation not permitted`，需要切到提权模式才能继续常规文件读取/搜索 | 🟢 低
 [2026-04-11] [后端工程师] Phase 1 初版把 mock 模式也纳入真实显存预算，导致无 GPU/小显存测试环境加载失败；需补充“mock 模式按 1MB 权重占位”分支才能通过现有行为预期 | 🟢 低
 [2026-03-30] [后端工程师] 用户给的是工作区根路径 `.ai/tmp/prompt-b3.md`，实际文件在 `gen3d/.ai/tmp/`，先全局检索后才能继续 | 🟢 低

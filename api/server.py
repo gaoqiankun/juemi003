@@ -1237,6 +1237,10 @@ def create_app(
     vram_allocator = VRAMAllocator(
         device_totals_mb=_detect_device_total_vram_mb(all_device_ids),
     )
+    if not config.is_mock_provider:
+        from gen3d.engine.vram_probe import probe_device_free_mb
+
+        vram_allocator.set_vram_probe(probe_device_free_mb)
     disabled_devices: set[str] = set()
     task_store = TaskStore(config.database_path)
     api_key_store = ApiKeyStore(config.database_path)

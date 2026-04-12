@@ -15,6 +15,7 @@ dependencies = [
     "pyrender>=0.1.45,<0.2",
     "prometheus-client>=0.21,<1.0",
     "structlog>=24.4,<26.0",
+    "nvidia-ml-py>=13.595.45",
 ]
 
 [dependency-groups]
