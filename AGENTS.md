@@ -40,8 +40,9 @@ Architecture: **API → Engine (async worker) → Stage Pipeline → Provider**.
 
 - `Hunyuan3D-2/` directory is untracked in git — expected
 - Plan files are created by Orchestrator — Worker reads only, never writes; on completion write report to `.ai/tmp/report-{task}.md`
-- If a change affects another module's behavior, prepend a note to `.ai/decisions.md`
-- Log any friction to `.ai/friction-log.md`
+- Worker only writes to `.ai/tmp/`; all persistent `.ai/*.md` files (decisions, friction-log, impact-map, snapshot, etc.) are Orchestrator-owned
+- Worker must surface in their report: (a) cross-module behavior changes for `.ai/decisions.md`, (b) friction encountered for `.ai/friction-log.md`
+- Orchestrator reads the report during validate and writes these persistent files before commit
 - Do not upgrade dependencies unless explicitly asked
 - Public API changes must be backward-compatible (new fields: `Optional` + default value)
 - No business logic in `config.py` / `serve.py`
