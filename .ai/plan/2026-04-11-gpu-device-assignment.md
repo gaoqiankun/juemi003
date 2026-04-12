@@ -1,6 +1,6 @@
 # GPU 显存分配器：多模型动态调度
 Date: 2026-04-11
-Status: phase-2-done
+Status: phase-3a-done
 
 ## Goal
 

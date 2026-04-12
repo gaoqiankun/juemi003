@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from typing import Iterable
+from typing import Awaitable, Callable, Iterable
 
 
 def _normalize_model_name(model_name: str) -> str:
@@ -52,6 +52,7 @@ class VRAMAllocatorError(RuntimeError):
 
 class VRAMAllocator:
     _INFERENCE_WAIT_SECONDS = 0.01
+    _EVICT_WAIT_WINDOW_SECONDS = 2.0
 
     def __init__(
         self,
@@ -82,6 +83,7 @@ class VRAMAllocator:
         self._inference_to_device: dict[str, str] = {}
         self._inference_to_model: dict[str, str] = {}
         self._next_inference_allocation_id = 1
+        self._evict_callback: Callable[[str], Awaitable[bool]] | None = None
 
     @property
     def device_ids(self) -> tuple[str, ...]:
@@ -89,6 +91,12 @@ class VRAMAllocator:
 
     def assignment_for(self, model_name: str) -> str | None:
         return self._model_to_device.get(_normalize_model_name(model_name))
+
+    def set_evict_callback(
+        self,
+        cb: Callable[[str], Awaitable[bool]] | None,
+    ) -> None:
+        self._evict_callback = cb
 
     def reserve(
         self,
@@ -164,6 +172,8 @@ class VRAMAllocator:
         normalized_model = _normalize_model_name(model_name)
         normalized_device = _normalize_device_id(device_id)
         required_mb = _normalize_vram_mb(inference_vram_mb)
+        wait_window_start = asyncio.get_running_loop().time()
+        evict_allowed = self._evict_callback is not None
 
         while True:
             allocation_id = self._try_acquire_inference(
@@ -173,6 +183,25 @@ class VRAMAllocator:
             )
             if allocation_id is not None:
                 return allocation_id
+
+            elapsed = asyncio.get_running_loop().time() - wait_window_start
+            if evict_allowed and elapsed >= self._EVICT_WAIT_WINDOW_SECONDS:
+                evict_callback = self._evict_callback
+                if evict_callback is None:
+                    evict_allowed = False
+                else:
+                    evicted = await evict_callback(normalized_device)
+                    if evicted:
+                        allocation_id = self._try_acquire_inference(
+                            model_name=normalized_model,
+                            device_id=normalized_device,
+                            inference_vram_mb=required_mb,
+                        )
+                        if allocation_id is not None:
+                            return allocation_id
+                        wait_window_start = asyncio.get_running_loop().time()
+                        continue
+                    evict_allowed = False
             await asyncio.sleep(self._INFERENCE_WAIT_SECONDS)
 
     def release_inference(self, allocation_id: str) -> None:
