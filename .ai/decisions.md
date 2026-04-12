@@ -7,6 +7,10 @@
 
 ## 2026-04-12
 
+- **`VRAMAllocator.acquire_inference` 外部占用超时失败语义**：wait loop 新增 `_track_external_occupation_wait` 辅助方法，仅在 `effective_free < booked_free`（即 NVML probe 汇报低于账本）期间累积等待时间，超过 `external_vram_wait_timeout_seconds`（默认 30s）→ `raise VRAMAllocatorError("external VRAM occupation timeout ...")`。之前行为是永久 wait；现在上游调用者（`GPUSlotScheduler`、`stages/gpu/worker.py` 等）会收到该异常 propagation。内部争抢（同卡推理互相排队）不计时，由 Phase 3 的 evict 兜底；probe 为 None 时 `effective_free == booked_free`，永不触发 timeout 路径，降级到 Phase 3 行为。（plan: 2026-04-11-gpu-device-assignment.md）
+
+- **新增持久化动态配置 `external_vram_wait_timeout_seconds`**：`storage/settings_store.py` 增加 `EXTERNAL_VRAM_WAIT_TIMEOUT_SECONDS_KEY`；`api/server.py` 在 startup 从 SettingsStore 读取并注入 allocator，GET `/api/admin/settings` 暴露 `externalVramWaitTimeoutSeconds` 字段，PATCH 校验 > 0 并 live apply 到 allocator，无需重启生效；同时把 `vram_allocator` 加入 `AppContainer` 便于 endpoint 访问。（plan: 2026-04-11-gpu-device-assignment.md）
+
 - **GPU 显存分配器启用 NVML 实时探针感知外部占用**：非 mock 模式的 `api/server.py` 在 `VRAMAllocator` 创建后注入 `engine/vram_probe.probe_device_free_mb`（基于 `pynvml` / NVML 驱动接口），allocator 的 `_effective_free_mb()` 现在以 `min(booked_free, nvml_actual_free)` 作为 `reserve()` 和 `_try_acquire_inference()` 的准入上限，能感知外部进程占用的显存而不再只看自己的账本。probe 采用懒加载 + init 失败永久缓存 + 线程锁保护，任何异常路径都降级到 booked_free，不会打断 allocator 决策。新增依赖 `nvidia-ml-py>=13.595.45`（用户显式授权），mock 模式完全跳过 probe 接入以保持纯内存行为。（plan: 2026-04-11-gpu-device-assignment.md）
 
 - **同卡推理显存不足时启用 LRU 空闲模型卸载**：`api/server.py` 在 `ModelScheduler` 创建后注入 `vram_allocator.set_evict_callback(...)`，回调仅在同设备 `ready` 且无推理占用的模型里按 `ModelScheduler.get_last_used_tick()` 选择最久未使用项，调用 `ModelRegistry.unload()` 释放权重显存；卸载失败会记录 `vram_allocator.evict_failed` 并返回 False，回退到等待路径。（plan: 2026-04-11-gpu-device-assignment.md）

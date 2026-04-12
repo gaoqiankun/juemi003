@@ -56,6 +56,7 @@ VRAMProbe = Callable[[str], int | None]
 class VRAMAllocator:
     _INFERENCE_WAIT_SECONDS = 0.01
     _EVICT_WAIT_WINDOW_SECONDS = 2.0
+    _DEFAULT_EXTERNAL_VRAM_WAIT_TIMEOUT_SECONDS = 30.0
 
     def __init__(
         self,
@@ -88,6 +89,9 @@ class VRAMAllocator:
         self._next_inference_allocation_id = 1
         self._evict_callback: Callable[[str, str], Awaitable[bool]] | None = None
         self._vram_probe: VRAMProbe | None = None
+        self._external_vram_wait_timeout_seconds = (
+            self._DEFAULT_EXTERNAL_VRAM_WAIT_TIMEOUT_SECONDS
+        )
 
     @property
     def device_ids(self) -> tuple[str, ...]:
@@ -105,6 +109,19 @@ class VRAMAllocator:
     def set_vram_probe(self, probe: VRAMProbe | None) -> None:
         """Inject runtime per-device free VRAM probe (MB). None disables probing."""
         self._vram_probe = probe
+
+    def set_external_vram_wait_timeout_seconds(self, seconds: float | None) -> None:
+        """Set external VRAM wait timeout. None/<=0 falls back to default."""
+        if seconds is None or seconds <= 0:
+            self._external_vram_wait_timeout_seconds = (
+                self._DEFAULT_EXTERNAL_VRAM_WAIT_TIMEOUT_SECONDS
+            )
+            return
+        self._external_vram_wait_timeout_seconds = float(seconds)
+
+    @property
+    def external_vram_wait_timeout_seconds(self) -> float:
+        return self._external_vram_wait_timeout_seconds
 
     def active_inference_model_names_on(self, device_id: str) -> frozenset[str]:
         normalized_device = _normalize_device_id(device_id)
@@ -191,7 +208,9 @@ class VRAMAllocator:
         normalized_model = _normalize_model_name(model_name)
         normalized_device = _normalize_device_id(device_id)
         required_mb = _normalize_vram_mb(inference_vram_mb)
-        wait_window_start = asyncio.get_running_loop().time()
+        loop = asyncio.get_running_loop()
+        wait_window_start = loop.time()
+        external_occupied_since: float | None = None
         evict_allowed = self._evict_callback is not None
 
         while True:
@@ -203,7 +222,16 @@ class VRAMAllocator:
             if allocation_id is not None:
                 return allocation_id
 
-            elapsed = asyncio.get_running_loop().time() - wait_window_start
+            budget = self._budgets.get(normalized_device)
+            if budget is not None:
+                external_occupied_since = self._track_external_occupation_wait(
+                    device_id=normalized_device,
+                    budget=budget,
+                    external_occupied_since=external_occupied_since,
+                    now=loop.time(),
+                )
+
+            elapsed = loop.time() - wait_window_start
             if evict_allowed and elapsed >= self._EVICT_WAIT_WINDOW_SECONDS:
                 evict_callback = self._evict_callback
                 if evict_callback is None:
@@ -218,7 +246,7 @@ class VRAMAllocator:
                         )
                         if allocation_id is not None:
                             return allocation_id
-                        wait_window_start = asyncio.get_running_loop().time()
+                        wait_window_start = loop.time()
                         continue
                     evict_allowed = False
             await asyncio.sleep(self._INFERENCE_WAIT_SECONDS)
@@ -264,6 +292,28 @@ class VRAMAllocator:
         if probed is None:
             return booked_free
         return min(booked_free, max(int(probed), 0))
+
+    def _track_external_occupation_wait(
+        self,
+        *,
+        device_id: str,
+        budget: DeviceBudget,
+        external_occupied_since: float | None,
+        now: float,
+    ) -> float | None:
+        booked_free = budget.free_vram_mb
+        effective_free = self._effective_free_mb(device_id, budget)
+        if effective_free >= booked_free:
+            return None
+        if external_occupied_since is None:
+            return now
+        if now - external_occupied_since <= self._external_vram_wait_timeout_seconds:
+            return external_occupied_since
+        raise VRAMAllocatorError(
+            "external VRAM occupation timeout after "
+            f"{self._external_vram_wait_timeout_seconds:.1f}s "
+            f"on device {device_id}"
+        )
 
     def _resolve_candidate_ids(
         self,

@@ -1,6 +1,6 @@
 # GPU 显存分配器：多模型动态调度
 Date: 2026-04-11
-Status: phase-4b-done
+Status: done
 
 ## Goal
 
@@ -109,3 +109,50 @@ Status: phase-4b-done
 - 不支持单模型跨多卡（tensor parallelism）
 - 迁移时请求挂起等待，不报错
 - 外部占用等待超时支持动态调整
+
+---
+
+## Summary
+
+解决了 OS 级别 GPU 显存分配回收问题。Phase 1-4 全部落地，多模型可按声明的 `weight_vram` / `inference_vram` 共卡调度，推理准入控制到位，同卡冲突走 LRU evict，NVML probe 感知外部进程占用并在超时后主动抛错，动态配置可通过 Admin settings 热调整。Phase 5（跨卡迁移）、Phase 6（Admin UI 显存明细展示）超出本期范围，留给后续 plan 承接。
+
+## Key Decisions
+
+- **显存账本拆分为 weight + inference 两段**：provider 通过 `estimate_weight_vram_mb()` / `estimate_inference_vram_mb()` 分别声明常驻权重和推理临时占用，`estimate_vram_mb()` 保留为总量兼容接口。
+- **加载时单卡分配**：`build_model_runtime` 不再给每张卡起一个 worker，allocator 挑一张够装 `weight_vram` 的卡传入单 `device_id`。
+- **推理准入 + 同卡 LRU evict**：`acquire_inference` 先 2s 等窗尝试拿额度，拿不到再调 `evict_callback`（`ModelScheduler.get_last_used_tick()` 选最久未用的 ready/无推理模型，调 `ModelRegistry.unload()` 释放权重）。
+- **NVML probe + `effective_free = min(booked, nvml_actual)`**：非 mock 模式注入 `engine/vram_probe.probe_device_free_mb`，懒加载 + init 失败永久缓存，任何异常降级到 booked_free。
+- **外部占用计时 + 超时抛错**：`acquire_inference` 在 wait loop 只在 `effective_free < booked_free` 期间累积时间，超过 `external_vram_wait_timeout_seconds`（默认 30s，可动态调）→ 抛 `VRAMAllocatorError`；内部争抢不计时，由 evict 兜底。
+- **动态配置走 SettingsStore**：新增 `external_vram_wait_timeout_seconds` 持久化 key，PATCH `/api/admin/settings` 可热更新并 live apply 到 allocator，无需重启。
+
+## Changes
+
+### Phase 1 — 基础分配器 + 加载调度
+- 新增 `engine/vram_allocator.py`（`DeviceBudget` + `VRAMAllocator`）
+- `storage/model_store.py` schema 加 `weight_vram_mb` / `inference_vram_mb`（含迁移 + API 写入）
+- `model/*/provider.py`、`model/base.py` 加 `estimate_weight_vram_mb()` / `estimate_inference_vram_mb()`
+- `api/server.py` `build_model_runtime` 改为单卡分配，`runtime_loader` 接入 allocator
+- `engine/model_scheduler.py` 估算上限改用 `weight_vram_mb`
+
+### Phase 2 — 推理准入控制
+- `VRAMAllocator.acquire_inference` / `release_inference` 接口
+- `stages/gpu/worker.py`、scheduler 推理前后对称申请/释放 `inference_vram`
+
+### Phase 3 — 同卡 LRU evict
+- Phase 3a：`set_evict_callback` hook + 2s 等待窗
+- Phase 3b：`api/server.py` 注入回调，基于 `ModelScheduler.get_last_used_tick()` 挑 LRU
+
+### Phase 4 — 实时校准 + 外部占用感知
+- Phase 4a：`VRAMProbe` 注入 + `_effective_free_mb = min(booked, probed)`
+- Phase 4b：`engine/vram_probe.py`（NVML 接入），`api/server.py` 在非 mock 模式注入；依赖新增 `nvidia-ml-py>=13.595.45`
+- Phase 4c：
+  - `engine/vram_allocator.py` +56 行：`_DEFAULT_EXTERNAL_VRAM_WAIT_TIMEOUT_SECONDS=30.0`、`set/get external_vram_wait_timeout_seconds`、`_track_external_occupation_wait` 辅助方法、`acquire_inference` wait loop 插入外部占用追踪
+  - `storage/settings_store.py` +1 行：`EXTERNAL_VRAM_WAIT_TIMEOUT_SECONDS_KEY`
+  - `api/server.py` +56 行：`AppContainer.vram_allocator`、startup 读取持久化值、GET settings 新字段 `externalVramWaitTimeoutSeconds`、PATCH 校验/持久化/live apply
+
+## Notes
+
+- i18n 条目（`web/src/i18n/{en,zh-CN}.json` 的 `settings.fields.externalVramWaitTimeoutSeconds`）未纳入，属于前端 scope，留给后续单独 dispatch
+- Phase 5（跨卡迁移）和 Phase 6（Admin UI 显存明细）不在本期范围
+- **行为变化**：`VRAMAllocator.acquire_inference` 在外部占用持续超时时改为抛 `VRAMAllocatorError`（之前永久等待），上游调用者需要能接住这个异常
+- 基线：`186 passed, 1 failed` — 失败项 `test_trellis2_provider_run_batch_moves_mesh_tensors_to_cpu` 为既有 baseline，与本次变更无关

@@ -124,6 +124,7 @@ from gen3d.storage.artifact_store import (
 from gen3d.storage.dep_store import DepInstanceStore, ModelDepRequirementsStore
 from gen3d.storage.model_store import ModelStore
 from gen3d.storage.settings_store import (
+    EXTERNAL_VRAM_WAIT_TIMEOUT_SECONDS_KEY,
     GPU_DISABLED_DEVICES_KEY,
     MAX_LOADED_MODELS_KEY,
     MAX_TASKS_PER_SLOT_KEY,
@@ -320,6 +321,7 @@ class AppContainer:
     dep_instance_store: DepInstanceStore
     model_dep_requirements_store: ModelDepRequirementsStore
     settings_store: SettingsStore
+    vram_allocator: VRAMAllocator
     model_scheduler: ModelScheduler
     weight_manager: WeightManager
     model_download_tasks: dict[str, asyncio.Task[None]]
@@ -1436,6 +1438,7 @@ def create_app(
         dep_instance_store=dep_instance_store,
         model_dep_requirements_store=model_dep_requirements_store,
         settings_store=settings_store,
+        vram_allocator=vram_allocator,
         model_scheduler=model_scheduler,
         weight_manager=weight_manager,
         model_download_tasks={},
@@ -1494,6 +1497,16 @@ def create_app(
         await container.dep_instance_store.initialize()
         await container.model_dep_requirements_store.initialize()
         await container.settings_store.initialize()
+        persisted_external_wait_timeout = await container.settings_store.get(
+            EXTERNAL_VRAM_WAIT_TIMEOUT_SECONDS_KEY
+        )
+        if persisted_external_wait_timeout is not None:
+            try:
+                container.vram_allocator.set_external_vram_wait_timeout_seconds(
+                    float(persisted_external_wait_timeout)
+                )
+            except (TypeError, ValueError):
+                pass
         persisted_disabled_devices = await container.settings_store.get(
             GPU_DISABLED_DEVICES_KEY
         )
@@ -2810,6 +2823,21 @@ def create_app(
                         "suffixKey": "settings.suffix.tasks",
                     },
                     {
+                        "key": "externalVramWaitTimeoutSeconds",
+                        "labelKey": "settings.fields.externalVramWaitTimeoutSeconds.label",
+                        "descriptionKey": (
+                            "settings.fields.externalVramWaitTimeoutSeconds.description"
+                        ),
+                        "type": "number",
+                        "value": float(
+                            db_settings.get(
+                                EXTERNAL_VRAM_WAIT_TIMEOUT_SECONDS_KEY,
+                                app_container.vram_allocator.external_vram_wait_timeout_seconds,
+                            )
+                        ),
+                        "suffixKey": "settings.suffix.seconds",
+                    },
+                    {
                         "key": "rateLimitPerHour",
                         "labelKey": "settings.fields.rateLimitPerHour.label",
                         "descriptionKey": "settings.fields.rateLimitPerHour.description",
@@ -2860,6 +2888,7 @@ def create_app(
             "defaultProvider",
             "maxLoadedModels",
             "maxTasksPerSlot",
+            "externalVramWaitTimeoutSeconds",
             "gpuDisabledDevices",
         }
         updates = {k: v for k, v in payload.items() if k in allowed_keys}
@@ -2929,6 +2958,28 @@ def create_app(
                 )
             normalized_updates["maxTasksPerSlot"] = max_tasks_per_slot
             persisted_updates[MAX_TASKS_PER_SLOT_KEY] = max_tasks_per_slot
+
+        if "externalVramWaitTimeoutSeconds" in updates:
+            try:
+                external_vram_wait_timeout_seconds = float(
+                    updates["externalVramWaitTimeoutSeconds"]
+                )
+            except (TypeError, ValueError) as exc:
+                raise HTTPException(
+                    status_code=422,
+                    detail="externalVramWaitTimeoutSeconds must be a number",
+                ) from exc
+            if external_vram_wait_timeout_seconds <= 0:
+                raise HTTPException(
+                    status_code=422,
+                    detail="externalVramWaitTimeoutSeconds must be > 0",
+                )
+            normalized_updates["externalVramWaitTimeoutSeconds"] = (
+                external_vram_wait_timeout_seconds
+            )
+            persisted_updates[EXTERNAL_VRAM_WAIT_TIMEOUT_SECONDS_KEY] = (
+                external_vram_wait_timeout_seconds
+            )
 
         if "gpuDisabledDevices" in updates:
             try:
@@ -3014,6 +3065,11 @@ def create_app(
             await app_container.model_scheduler.update_limits(
                 max_loaded_models=normalized_updates.get("maxLoadedModels"),
                 max_tasks_per_slot=normalized_updates.get("maxTasksPerSlot"),
+            )
+
+        if "externalVramWaitTimeoutSeconds" in normalized_updates:
+            app_container.vram_allocator.set_external_vram_wait_timeout_seconds(
+                normalized_updates["externalVramWaitTimeoutSeconds"]
             )
 
         return {"ok": True, "updated": list(normalized_updates.keys())}
