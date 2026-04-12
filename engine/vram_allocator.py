@@ -50,6 +50,9 @@ class VRAMAllocatorError(RuntimeError):
     pass
 
 
+VRAMProbe = Callable[[str], int | None]
+
+
 class VRAMAllocator:
     _INFERENCE_WAIT_SECONDS = 0.01
     _EVICT_WAIT_WINDOW_SECONDS = 2.0
@@ -84,6 +87,7 @@ class VRAMAllocator:
         self._inference_to_model: dict[str, str] = {}
         self._next_inference_allocation_id = 1
         self._evict_callback: Callable[[str, str], Awaitable[bool]] | None = None
+        self._vram_probe: VRAMProbe | None = None
 
     @property
     def device_ids(self) -> tuple[str, ...]:
@@ -97,6 +101,10 @@ class VRAMAllocator:
         cb: Callable[[str, str], Awaitable[bool]] | None,
     ) -> None:
         self._evict_callback = cb
+
+    def set_vram_probe(self, probe: VRAMProbe | None) -> None:
+        """Inject runtime per-device free VRAM probe (MB). None disables probing."""
+        self._vram_probe = probe
 
     def active_inference_model_names_on(self, device_id: str) -> frozenset[str]:
         normalized_device = _normalize_device_id(device_id)
@@ -133,7 +141,7 @@ class VRAMAllocator:
         )
         for device_id in candidate_ids:
             budget = self._budgets[device_id]
-            if budget.free_vram_mb < required_mb:
+            if self._effective_free_mb(device_id, budget) < required_mb:
                 continue
             budget.allocations[normalized_model] = required_mb
             self._model_to_device[normalized_model] = device_id
@@ -238,10 +246,24 @@ class VRAMAllocator:
                 "used_weight_vram_mb": budget.used_weight_vram_mb,
                 "used_inference_vram_mb": budget.used_inference_vram_mb,
                 "free_vram_mb": budget.free_vram_mb,
+                "effective_free_vram_mb": self._effective_free_mb(device_id, budget),
                 "allocations": dict(budget.allocations),
                 "inference_allocations": dict(budget.inference_allocations),
             }
         return result
+
+    def _effective_free_mb(self, device_id: str, budget: DeviceBudget) -> int:
+        """Return min(booked_free, probe_free) if probe available, else booked_free."""
+        booked_free = budget.free_vram_mb
+        if self._vram_probe is None:
+            return booked_free
+        try:
+            probed = self._vram_probe(_normalize_device_id(device_id))
+        except Exception:
+            return booked_free
+        if probed is None:
+            return booked_free
+        return min(booked_free, max(int(probed), 0))
 
     def _resolve_candidate_ids(
         self,
@@ -289,7 +311,7 @@ class VRAMAllocator:
                 f"model {model_name} is assigned to GPU {assigned_device}, not {device_id}"
             )
 
-        if budget.free_vram_mb < inference_vram_mb:
+        if self._effective_free_mb(device_id, budget) < inference_vram_mb:
             return None
 
         allocation_id = f"{model_name}:inference:{self._next_inference_allocation_id}"
