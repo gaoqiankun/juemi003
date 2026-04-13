@@ -23,6 +23,9 @@ if str(WORKSPACE_ROOT) not in sys.path:
     sys.path.insert(0, str(WORKSPACE_ROOT))
 
 from gen3d.api import server as server_module
+from gen3d.api.helpers import artifacts as artifacts_helpers
+from gen3d.api.helpers import hf as hf_helpers
+from gen3d.api.helpers import runtime as runtime_helpers
 from gen3d.api.server import create_app, run_real_mode_preflight
 from gen3d.config import ServingConfig
 from gen3d.engine import async_engine as async_engine_module
@@ -155,7 +158,7 @@ def make_real_mode_client(
     preview_renderer_service: PreviewRendererServiceProtocol | None = None,
 ) -> TestClient:
     monkeypatch.setattr(
-        server_module,
+        runtime_helpers,
         "build_provider",
         lambda provider_name, provider_mode, model_path, mock_delay_ms=60: MockTrellis2Provider(stage_delay_ms=0),
     )
@@ -285,11 +288,11 @@ def make_image_bytes(image_format: str) -> bytes:
 
 @pytest.fixture
 def reset_preview_render_state():
-    server_module._preview_rendering.clear()
-    server_module._preview_render_tasks.clear()
+    artifacts_helpers._preview_rendering.clear()
+    artifacts_helpers._preview_render_tasks.clear()
     yield
-    server_module._preview_rendering.clear()
-    server_module._preview_render_tasks.clear()
+    artifacts_helpers._preview_rendering.clear()
+    artifacts_helpers._preview_render_tasks.clear()
 
 
 def upload_input_url(
@@ -1593,10 +1596,10 @@ def test_admin_hf_routes_require_admin_token(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("HF_ENDPOINT", raising=False)
-    monkeypatch.setattr(server_module, "_hf_get_token", lambda: None)
-    monkeypatch.setattr(server_module, "_hf_login", lambda token: None)
-    monkeypatch.setattr(server_module, "_hf_logout", lambda: None)
-    monkeypatch.setattr(server_module, "_hf_whoami", lambda token=None: {"name": "cubie-user"})
+    monkeypatch.setattr(hf_helpers, "_hf_get_token", lambda: None)
+    monkeypatch.setattr(hf_helpers, "_hf_login", lambda token: None)
+    monkeypatch.setattr(hf_helpers, "_hf_logout", lambda: None)
+    monkeypatch.setattr(hf_helpers, "_hf_whoami", lambda token=None: {"name": "cubie-user"})
 
     with make_client(tmp_path, admin_token="admin-token") as client:
         missing_token_response = client.get("/api/admin/hf-status")
@@ -1665,10 +1668,10 @@ def test_admin_hf_login_status_logout_flow(
     def fake_logout() -> None:
         state["token"] = ""
 
-    monkeypatch.setattr(server_module, "_hf_get_token", fake_get_token)
-    monkeypatch.setattr(server_module, "_hf_login", fake_login)
-    monkeypatch.setattr(server_module, "_hf_logout", fake_logout)
-    monkeypatch.setattr(server_module, "_hf_whoami", fake_whoami)
+    monkeypatch.setattr(hf_helpers, "_hf_get_token", fake_get_token)
+    monkeypatch.setattr(hf_helpers, "_hf_login", fake_login)
+    monkeypatch.setattr(hf_helpers, "_hf_logout", fake_logout)
+    monkeypatch.setattr(hf_helpers, "_hf_whoami", fake_whoami)
 
     with make_client(tmp_path, admin_token="admin-token") as client:
         before_response = client.get("/api/admin/hf-status", headers=admin_headers())
@@ -1746,14 +1749,14 @@ def test_admin_hf_status_keeps_logged_in_when_whoami_unreachable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("HF_ENDPOINT", raising=False)
-    monkeypatch.setattr(server_module, "_hf_get_token", lambda: "hf-valid-token")
-    monkeypatch.setattr(server_module, "_hf_login", lambda token: None)
-    monkeypatch.setattr(server_module, "_hf_logout", lambda: None)
+    monkeypatch.setattr(hf_helpers, "_hf_get_token", lambda: "hf-valid-token")
+    monkeypatch.setattr(hf_helpers, "_hf_login", lambda token: None)
+    monkeypatch.setattr(hf_helpers, "_hf_logout", lambda: None)
 
     def failing_whoami(token: str | None = None) -> dict[str, str]:
         raise RuntimeError("network unreachable")
 
-    monkeypatch.setattr(server_module, "_hf_whoami", failing_whoami)
+    monkeypatch.setattr(hf_helpers, "_hf_whoami", failing_whoami)
 
     with make_client(tmp_path, admin_token="admin-token") as client:
         response = client.get("/api/admin/hf-status", headers=admin_headers())
@@ -3312,12 +3315,12 @@ def test_missing_preview_artifact_triggers_background_render_once(
             )
             assert response.status_code == 404
             wait_for_condition(render_started.is_set, timeout_seconds=1.0)
-            assert task_id in server_module._preview_rendering
+            assert task_id in artifacts_helpers._preview_rendering
 
             render_release.set()
             wait_for_condition(render_finished.is_set, timeout_seconds=1.0)
             wait_for_condition(
-                lambda: task_id not in server_module._preview_rendering,
+                lambda: task_id not in artifacts_helpers._preview_rendering,
                 timeout_seconds=1.0,
             )
             assert create_task_calls == 1
@@ -3395,13 +3398,13 @@ def test_missing_preview_artifact_deduplicates_background_render(
             assert first_response.status_code == 404
             assert second_response.status_code == 404
             assert create_task_calls == 1
-            assert task_id in server_module._preview_rendering
+            assert task_id in artifacts_helpers._preview_rendering
 
             wait_for_condition(render_started.is_set, timeout_seconds=1.0)
             render_release.set()
             wait_for_condition(render_finished.is_set, timeout_seconds=1.0)
             wait_for_condition(
-                lambda: task_id not in server_module._preview_rendering,
+                lambda: task_id not in artifacts_helpers._preview_rendering,
                 timeout_seconds=1.0,
             )
     finally:
@@ -3442,7 +3445,7 @@ def test_missing_preview_and_model_does_not_trigger_background_render(
 
     assert response.status_code == 404
     assert create_task_calls == 0
-    assert task_id not in server_module._preview_rendering
+    assert task_id not in artifacts_helpers._preview_rendering
 
 
 def test_create_task_downloads_artifact_via_same_origin_proxy_for_minio_backend(
@@ -3550,7 +3553,7 @@ def test_create_task_downloads_artifact_via_same_origin_proxy_for_minio_backend(
 
     fake_object_store_client = FakeObjectStoreClient()
     monkeypatch.setattr(
-        server_module,
+        artifacts_helpers,
         "build_boto3_object_storage_client",
         lambda **_: fake_object_store_client,
     )
@@ -3694,7 +3697,7 @@ def test_minio_artifact_proxy_streams_without_buffering_temp_file(
 
     fake_object_store_client = StreamingOnlyObjectStoreClient()
     monkeypatch.setattr(
-        server_module,
+        artifacts_helpers,
         "build_boto3_object_storage_client",
         lambda **_: fake_object_store_client,
     )
@@ -4610,9 +4613,9 @@ def test_build_provider_uses_trellis2_metadata_only_in_real_mode(
         def from_pretrained(cls, model_path: str):
             raise AssertionError(f"from_pretrained should not be called: {model_path}")
 
-    monkeypatch.setattr(server_module, "Trellis2Provider", FakeTrellis2Provider)
+    monkeypatch.setattr(runtime_helpers, "Trellis2Provider", FakeTrellis2Provider)
 
-    provider = server_module.build_provider(
+    provider = runtime_helpers.build_provider(
         provider_name="trellis2",
         provider_mode="real",
         model_path="microsoft/TRELLIS.2-4B",
@@ -4674,7 +4677,7 @@ def test_real_mode_preflight_reports_runtime_and_artifact_backend(
 
     monkeypatch.setattr(server_module.ArtifactStore, "initialize", fake_initialize)
     monkeypatch.setattr(
-        server_module.Trellis2Provider,
+        runtime_helpers.Trellis2Provider,
         "inspect_runtime",
         classmethod(fake_inspect_runtime),
     )
@@ -4853,7 +4856,7 @@ def test_hunyuan3d_mock_provider_export_glb_writes_valid_file(tmp_path: Path) ->
 
 def test_build_provider_supports_hunyuan3d_mock(tmp_path: Path) -> None:
     del tmp_path
-    provider = server_module.build_provider(
+    provider = runtime_helpers.build_provider(
         provider_name="hunyuan3d",
         provider_mode="mock",
         model_path="tencent/Hunyuan3D-2",
@@ -4877,9 +4880,9 @@ def test_build_provider_uses_hunyuan3d_metadata_only_in_real_mode(
         def from_pretrained(cls, model_path: str):
             raise AssertionError(f"from_pretrained should not be called: {model_path}")
 
-    monkeypatch.setattr(server_module, "Hunyuan3DProvider", FakeHunyuan3DProvider)
+    monkeypatch.setattr(runtime_helpers, "Hunyuan3DProvider", FakeHunyuan3DProvider)
 
-    provider = server_module.build_provider(
+    provider = runtime_helpers.build_provider(
         provider_name="hunyuan3d",
         provider_mode="real",
         model_path="tencent/Hunyuan3D-2",
@@ -6139,7 +6142,7 @@ def test_step1x3d_mock_provider_export_glb_valid(tmp_path: Path) -> None:
 
 def test_build_provider_supports_step1x3d_mock(tmp_path: Path) -> None:
     del tmp_path
-    provider = server_module.build_provider(
+    provider = runtime_helpers.build_provider(
         provider_name="step1x3d",
         provider_mode="mock",
         model_path="stepfun-ai/Step1X-3D",
@@ -6163,9 +6166,9 @@ def test_build_provider_uses_step1x3d_metadata_only_in_real_mode(
         def from_pretrained(cls, model_path: str):
             raise AssertionError(f"from_pretrained should not be called: {model_path}")
 
-    monkeypatch.setattr(server_module, "Step1X3DProvider", FakeStep1X3DProvider)
+    monkeypatch.setattr(runtime_helpers, "Step1X3DProvider", FakeStep1X3DProvider)
 
-    provider = server_module.build_provider(
+    provider = runtime_helpers.build_provider(
         provider_name="step1x3d",
         provider_mode="real",
         model_path="stepfun-ai/Step1X-3D",
@@ -6193,7 +6196,7 @@ async def test_step1x3d_metadata_only_provider_rejects_inference_calls(
 def test_build_provider_rejects_unknown_provider(tmp_path: Path) -> None:
     del tmp_path
     with pytest.raises(ModelProviderConfigurationError, match="unsupported MODEL_PROVIDER"):
-        server_module.build_provider(
+        runtime_helpers.build_provider(
             provider_name="unknown_model",
             provider_mode="mock",
             model_path="unused",

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import secrets
 import uuid
 from contextlib import asynccontextmanager
@@ -26,37 +25,48 @@ from fastapi.responses import (
 )
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
-from starlette.background import BackgroundTask
-from starlette.exceptions import HTTPException as StarletteHTTPException
-from starlette.types import Scope
-
-try:
-    from huggingface_hub import (
-        constants as _hf_constants,
-    )
-    from huggingface_hub import (
-        get_token as _hf_get_token,
-    )
-    from huggingface_hub import (
-        hf_api as _hf_api_module,
-    )
-    from huggingface_hub import (
-        login as _hf_login,
-    )
-    from huggingface_hub import (
-        logout as _hf_logout,
-    )
-    from huggingface_hub import (
-        whoami as _hf_whoami,
-    )
-except Exception:
-    _hf_constants = None
-    _hf_api_module = None
-    _hf_get_token = None
-    _hf_login = None
-    _hf_logout = None
-    _hf_whoami = None
-
+from gen3d.api.helpers import hf as _hf_helpers
+from gen3d.api.helpers.artifacts import (
+    _artifact_exists,
+    _dispatch_preview_render,
+    _extract_artifact_filename,
+    _resolve_dev_local_model_path,
+    build_artifact_store,
+)
+from gen3d.api.helpers.deps import _build_dep_response_rows, _prepare_dep_assignments
+from gen3d.api.helpers.gpu_device import (
+    _get_gpu_device_info,
+    _normalize_persisted_disabled_devices,
+    _ordered_disabled_devices,
+    _parse_gpu_disabled_devices_update,
+    _resolve_device_ids,
+)
+from gen3d.api.helpers.hf import (
+    _current_hf_endpoint,
+    _ensure_hf_client_available,
+    _normalize_hf_endpoint,
+    _resolve_hf_status,
+    _set_hf_endpoint,
+)
+from gen3d.api.helpers.keys import (
+    _build_user_key_label_map,
+    _resolve_task_owner,
+    _safe_record_usage,
+)
+from gen3d.api.helpers.preflight import (
+    run_real_mode_preflight,  # noqa: F401
+    validate_runtime_security_config,
+)
+from gen3d.api.helpers.runtime import (
+    _resolve_model_definition_for_runtime,
+    build_model_runtime,
+)
+from gen3d.api.helpers.tasks import _friendly_model_error_message, _map_task_status
+from gen3d.api.helpers.vram import (
+    _clamp_inference_estimate_mb,  # noqa: F401
+    _detect_device_total_vram_mb,
+    _resolve_weight_vram_mb,
+)
 from gen3d.api.schemas import (
     AdminApiKeyCreateRequest,
     AdminApiKeyCreateResponse,
@@ -95,9 +105,6 @@ from gen3d.engine.vram_allocator import (
 )
 from gen3d.engine.weight_manager import WeightManager, get_provider_deps
 from gen3d.model.base import ModelProviderConfigurationError
-from gen3d.model.hunyuan3d.provider import Hunyuan3DProvider, MockHunyuan3DProvider
-from gen3d.model.step1x3d.provider import MockStep1X3DProvider, Step1X3DProvider
-from gen3d.model.trellis2.provider import MockTrellis2Provider, Trellis2Provider
 from gen3d.observability.metrics import (
     increment_vram_acquire_inference,
     increment_vram_evict,
@@ -115,9 +122,7 @@ from gen3d.stages.export.preview_renderer_service import (
     PreviewRendererServiceProtocol,
 )
 from gen3d.stages.export.stage import ExportStage
-from gen3d.stages.gpu.scheduler import GPUSlotScheduler
 from gen3d.stages.gpu.stage import GPUStage
-from gen3d.stages.gpu.worker import build_gpu_workers
 from gen3d.stages.preprocess.stage import PreprocessStage
 from gen3d.storage.api_key_store import (
     KEY_MANAGER_SCOPE,
@@ -126,11 +131,7 @@ from gen3d.storage.api_key_store import (
     USER_KEY_SCOPE,
     ApiKeyStore,
 )
-from gen3d.storage.artifact_store import (
-    ArtifactStore,
-    ArtifactStoreConfigurationError,
-    build_boto3_object_storage_client,
-)
+from gen3d.storage.artifact_store import ArtifactStore
 from gen3d.storage.dep_store import DepInstanceStore, ModelDepRequirementsStore
 from gen3d.storage.model_store import ModelStore
 from gen3d.storage.settings_store import (
@@ -142,153 +143,11 @@ from gen3d.storage.settings_store import (
     SettingsStore,
 )
 from gen3d.storage.task_store import TaskStore
+from starlette.background import BackgroundTask
+from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.types import Scope
 
-_TASK_STATUS_MAP: dict[str, str] = {
-    "queued": "queued",
-    "preprocessing": "queued",
-    "gpu_queued": "queued",
-    "gpu_ss": "live",
-    "gpu_shape": "live",
-    "gpu_material": "live",
-    "exporting": "live",
-    "uploading": "live",
-    "succeeded": "completed",
-    "failed": "failed",
-    "cancelled": "failed",
-}
-
-HF_ENDPOINT_ENV_KEY = "HF_ENDPOINT"
-HF_DEFAULT_ENDPOINT = "https://huggingface.co"
 HF_ENDPOINT_SETTING_KEY = "hfEndpoint"
-
-
-def _ensure_hf_client_available() -> None:
-    if not all(callable(item) for item in (_hf_get_token, _hf_login, _hf_logout, _hf_whoami)):
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="huggingface_hub is not available",
-        )
-
-
-def _normalize_hf_endpoint(raw_value: Any, *, strict: bool) -> str:
-    endpoint = str(raw_value or "").strip()
-    if not endpoint:
-        return HF_DEFAULT_ENDPOINT
-    parsed = urlsplit(endpoint)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        if strict:
-            raise ValueError("endpoint must be a valid http(s) URL")
-        return HF_DEFAULT_ENDPOINT
-    normalized_path = parsed.path.rstrip("/")
-    return urlunsplit((parsed.scheme, parsed.netloc, normalized_path, "", ""))
-
-
-def _set_hf_endpoint(endpoint: str) -> str:
-    normalized_endpoint = _normalize_hf_endpoint(endpoint, strict=False)
-    os.environ[HF_ENDPOINT_ENV_KEY] = normalized_endpoint
-    if _hf_constants is not None:
-        try:
-            _hf_constants.ENDPOINT = normalized_endpoint
-        except Exception:
-            pass
-    if _hf_api_module is not None:
-        try:
-            _hf_api_module.ENDPOINT = normalized_endpoint
-            api_client = getattr(_hf_api_module, "api", None)
-            if api_client is not None:
-                api_client.endpoint = normalized_endpoint
-        except Exception:
-            pass
-    return normalized_endpoint
-
-
-def _current_hf_endpoint() -> str:
-    return _normalize_hf_endpoint(os.environ.get(HF_ENDPOINT_ENV_KEY, HF_DEFAULT_ENDPOINT), strict=False)
-
-
-def _resolve_hf_status() -> tuple[bool, str | None]:
-    _ensure_hf_client_available()
-    token = _hf_get_token()
-    if not token:
-        return False, None
-    try:
-        profile = _hf_whoami(token=token)
-    except Exception:
-        return True, None
-    profile_dict = profile if isinstance(profile, dict) else {}
-    username = str(profile_dict.get("name") or "").strip()
-    return True, username or None
-
-
-def _map_task_status(backend_status: str) -> str:
-    return _TASK_STATUS_MAP.get(backend_status, "queued")
-
-
-def _short_key_id(key_id: str | None) -> str:
-    normalized = str(key_id or "").strip()
-    if not normalized:
-        return "-"
-    if len(normalized) <= 8:
-        return normalized
-    return f"{normalized[:8]}…"
-
-
-def _resolve_task_owner(
-    key_id: str | None,
-    key_label_map: dict[str, str],
-) -> tuple[str, str]:
-    normalized_key_id = str(key_id or "").strip()
-    if not normalized_key_id:
-        return "-", ""
-    label = key_label_map.get(normalized_key_id, "").strip()
-    if label:
-        return label, label
-    return _short_key_id(normalized_key_id), ""
-
-
-async def _build_user_key_label_map(
-    api_key_store: ApiKeyStore,
-) -> dict[str, str]:
-    try:
-        api_keys = await api_key_store.list_user_keys()
-    except Exception:
-        return {}
-    label_map: dict[str, str] = {}
-    for api_key in api_keys:
-        key_id = str(api_key.get("key_id") or "").strip()
-        label = str(api_key.get("label") or "").strip()
-        if key_id and label:
-            label_map[key_id] = label
-    return label_map
-
-
-def _friendly_model_error_message(error: Exception | None) -> str:
-    raw_message = str(error or "").strip()
-    lowered = raw_message.lower()
-    if (
-        "401" in lowered
-        or "403" in lowered
-        or "unauthorized" in lowered
-        or "forbidden" in lowered
-    ):
-        return "模型需要授权访问，请配置 HuggingFace Token"
-    if "timeout" in lowered or "connectionerror" in lowered or "connection error" in lowered:
-        return "模型下载超时，请检查网络连接"
-    if "no space left" in lowered or "disk" in lowered:
-        return "磁盘空间不足"
-    if "cuda out of memory" in lowered or " oom" in lowered or lowered == "oom":
-        return "GPU 显存不足"
-    if "path does not exist" in lowered:
-        return "模型路径不存在，请检查配置"
-    return raw_message or "模型加载失败"
-
-
-async def _safe_record_usage(api_key_store: ApiKeyStore, key_id: str) -> None:
-    try:
-        await api_key_store.record_usage(key_id)
-    except Exception:
-        pass
-
 
 WEB_DIST_DIR = Path(__file__).resolve().parents[1] / "web" / "dist"
 SPA_INDEX_PATH = WEB_DIST_DIR / "index.html"
@@ -310,8 +169,6 @@ HOP_BY_HOP_HEADERS = {
 }
 PROXY_REQUEST_HEADER_EXCLUSIONS = HOP_BY_HOP_HEADERS | {"host", "content-length"}
 ARTIFACT_STREAM_CHUNK_SIZE = 1024 * 1024
-_preview_rendering: set[str] = set()
-_preview_render_tasks: set[asyncio.Task[None]] = set()
 _logger = structlog.get_logger(__name__)
 
 
@@ -337,7 +194,6 @@ class AppContainer:
     weight_manager: WeightManager
     model_download_tasks: dict[str, asyncio.Task[None]]
 
-
 class SPAStaticFiles(StaticFiles):
     def __init__(self, *args, spa_index_path: Path, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -362,913 +218,6 @@ class SPAStaticFiles(StaticFiles):
         if response.status_code == status.HTTP_404_NOT_FOUND and fallback is not None:
             return fallback
         return response
-
-
-def _extract_artifact_filename(path: str) -> str | None:
-    parts = [part for part in path.split("/") if part]
-    if len(parts) != 5:
-        return None
-    if parts[0] != "v1" or parts[1] != "tasks" or parts[3] != "artifacts":
-        return None
-    return parts[4]
-
-
-def _resolve_dev_local_model_path(config: ServingConfig, filename: str | None) -> Path | None:
-    if config.dev_proxy_target is None or filename is None:
-        return None
-    if Path(filename).name.lower() != "model.glb":
-        return None
-    if config.dev_local_model_path is None:
-        return None
-    candidate = config.dev_local_model_path.expanduser()
-    if not candidate.is_absolute():
-        candidate = (Path(__file__).resolve().parents[1] / candidate).resolve()
-    if not candidate.is_file():
-        return None
-    return candidate
-
-
-def build_provider(
-    provider_name: str,
-    provider_mode: str,
-    model_path: str,
-    mock_delay_ms: int = 60,
-):
-    provider_name = str(provider_name).strip().lower()
-    provider_mode = str(provider_mode).strip().lower()
-    model_path = str(model_path).strip()
-
-    if provider_name == "trellis2":
-        if provider_mode == "mock":
-            return MockTrellis2Provider(stage_delay_ms=mock_delay_ms)
-        if provider_mode == "real":
-            return Trellis2Provider.metadata_only(model_path)
-    elif provider_name == "hunyuan3d":
-        if provider_mode == "mock":
-            return MockHunyuan3DProvider(stage_delay_ms=mock_delay_ms)
-        if provider_mode == "real":
-            return Hunyuan3DProvider.metadata_only(model_path)
-    elif provider_name == "step1x3d":
-        if provider_mode == "mock":
-            return MockStep1X3DProvider(stage_delay_ms=mock_delay_ms)
-        if provider_mode == "real":
-            return Step1X3DProvider.metadata_only(model_path)
-    else:
-        raise ModelProviderConfigurationError(
-            f"unsupported MODEL_PROVIDER: {provider_name}"
-        )
-
-    raise ModelProviderConfigurationError(
-        f"unsupported PROVIDER_MODE: {provider_mode}"
-    )
-
-
-def _provider_dependency_descriptions(provider_type: str) -> dict[str, str]:
-    return {dep.dep_id: dep.description for dep in get_provider_deps(provider_type)}
-
-
-def _build_dep_response_rows(
-    *,
-    provider_type: str,
-    dep_rows: list[dict],
-) -> list[dict]:
-    descriptions = _provider_dependency_descriptions(provider_type)
-    payload_rows: list[dict] = []
-    for dep in dep_rows:
-        dep_type = str(dep.get("dep_type") or dep.get("dep_id") or "").strip()
-        instance_id = str(dep.get("instance_id") or dep.get("id") or dep.get("dep_id") or "").strip()
-        dep_id = dep_type or instance_id
-        display_name = str(dep.get("display_name") or instance_id or dep_id).strip()
-        payload_rows.append(
-            {
-                "dep_id": dep_id,
-                "dep_type": dep_type or dep_id,
-                "instance_id": instance_id or dep_id,
-                "id": instance_id or dep_id,
-                "display_name": display_name,
-                "hf_repo_id": str(dep.get("hf_repo_id") or "").strip(),
-                "weight_source": str(dep.get("weight_source") or "huggingface").strip().lower(),
-                "dep_model_path": dep.get("dep_model_path"),
-                "description": descriptions.get(dep_type, ""),
-                "resolved_path": dep.get("resolved_path"),
-                "download_status": str(dep.get("download_status") or "pending").strip().lower(),
-                "download_progress": int(dep.get("download_progress") or 0),
-                "download_speed_bps": int(dep.get("download_speed_bps") or 0),
-                "download_error": dep.get("download_error"),
-                "revision": None,
-            }
-        )
-    return payload_rows
-
-
-async def _resolve_dep_paths(
-    model_id: str,
-    dep_instance_store: DepInstanceStore,
-    model_dep_store: ModelDepRequirementsStore,
-) -> dict[str, str]:
-    normalized_model_id = str(model_id or "").strip()
-    if not normalized_model_id:
-        return {}
-
-    assignments = await model_dep_store.get_assignments_for_model(normalized_model_id)
-    if not assignments:
-        return {}
-
-    dep_paths: dict[str, str] = {}
-    for assignment in assignments:
-        dep_type = str(assignment.get("dep_type") or "").strip()
-        instance_id = str(assignment.get("dep_instance_id") or "").strip()
-        if not dep_type or not instance_id:
-            raise ModelProviderConfigurationError(
-                f"invalid dependency assignment for model {normalized_model_id}"
-            )
-
-        dep_row = await dep_instance_store.get(instance_id)
-        if dep_row is None:
-            raise ModelProviderConfigurationError(
-                f"dependency {dep_type} instance {instance_id} for model {normalized_model_id} is missing; "
-                "please complete dependency download first"
-            )
-
-        status = str(dep_row.get("download_status") or "pending").strip().lower()
-        resolved_path = str(dep_row.get("resolved_path") or "").strip()
-        if status != "done" or not resolved_path:
-            raise ModelProviderConfigurationError(
-                f"dependency {dep_type} instance {instance_id} for model {normalized_model_id} is {status}; "
-                "please complete dependency download first"
-            )
-
-        resolved_candidate = Path(resolved_path).expanduser()
-        if not resolved_candidate.exists():
-            raise ModelProviderConfigurationError(
-                f"dependency {dep_type} instance {instance_id} for model {normalized_model_id} path does not exist: "
-                f"{resolved_path}. please complete dependency download first"
-            )
-        dep_paths[dep_type] = str(resolved_candidate.resolve())
-    return dep_paths
-
-
-def _normalize_new_dep_config(dep_type: str, raw_new: Any) -> dict:
-    if not isinstance(raw_new, dict):
-        raise HTTPException(
-            status_code=422,
-            detail=f"depAssignments.{dep_type}.new must be an object",
-        )
-    return {
-        "instance_id": str(raw_new.get("instance_id", raw_new.get("instanceId")) or "").strip(),
-        "display_name": str(raw_new.get("display_name", raw_new.get("displayName")) or "").strip(),
-        "weight_source": str(raw_new.get("weight_source", raw_new.get("weightSource")) or "").strip().lower(),
-        "dep_model_path": str(raw_new.get("dep_model_path", raw_new.get("depModelPath")) or "").strip(),
-    }
-
-
-def _normalize_single_dep_assignment(dep_type: str, raw_assignment: Any) -> dict:
-    if not isinstance(raw_assignment, dict):
-        raise HTTPException(
-            status_code=422,
-            detail=f"depAssignments.{dep_type} must be an object",
-        )
-    normalized_assignment: dict[str, Any] = {}
-    raw_instance_id = raw_assignment.get("instance_id", raw_assignment.get("instanceId"))
-    if raw_instance_id is not None:
-        instance_id = str(raw_instance_id).strip()
-        if not instance_id:
-            raise HTTPException(
-                status_code=422,
-                detail=f"depAssignments.{dep_type}.instance_id is required",
-            )
-        normalized_assignment["instance_id"] = instance_id
-    if "new" in raw_assignment:
-        normalized_assignment["new"] = _normalize_new_dep_config(dep_type, raw_assignment.get("new"))
-    if "instance_id" in normalized_assignment and "new" in normalized_assignment:
-        raise HTTPException(
-            status_code=422,
-            detail=f"depAssignments.{dep_type} cannot set both instance_id and new",
-        )
-    return normalized_assignment
-
-
-def _normalize_dep_assignments_payload(raw_assignments: Any) -> dict[str, dict]:
-    if raw_assignments is None:
-        return {}
-    if not isinstance(raw_assignments, dict):
-        raise HTTPException(status_code=422, detail="depAssignments must be an object")
-    normalized_assignments: dict[str, dict] = {}
-    for raw_dep_type, raw_assignment in raw_assignments.items():
-        dep_type = str(raw_dep_type or "").strip()
-        if not dep_type:
-            raise HTTPException(status_code=422, detail="depAssignments contains an empty dep_type key")
-        normalized_assignments[dep_type] = _normalize_single_dep_assignment(dep_type, raw_assignment)
-    return normalized_assignments
-
-
-def _is_hf_repo_id(value: str) -> bool:
-    normalized = str(value or "").strip()
-    parts = normalized.split("/")
-    if len(parts) != 2:
-        return False
-    return all(part and part == part.strip() for part in parts)
-
-
-def _default_dep_assignment(model_id: str, dep_type: str, hf_repo_id: str) -> dict:
-    return {
-        "new": {
-            "instance_id": f"{dep_type}-{model_id}",
-            "display_name": dep_type,
-            "weight_source": "huggingface",
-            "dep_model_path": hf_repo_id,
-        }
-    }
-
-
-async def _validate_existing_dep_assignment(
-    dep_type: str,
-    instance_id: str,
-    dep_instance_store: DepInstanceStore,
-) -> dict:
-    normalized_instance_id = str(instance_id or "").strip()
-    if not normalized_instance_id:
-        raise HTTPException(
-            status_code=422,
-            detail=f"depAssignments.{dep_type}.instance_id is required",
-        )
-    existing = await dep_instance_store.get(normalized_instance_id)
-    if existing is None:
-        raise HTTPException(status_code=422, detail=f"dep instance not found: {normalized_instance_id}")
-    existing_dep_type = str(existing.get("dep_type") or "").strip()
-    if existing_dep_type and existing_dep_type != dep_type:
-        raise HTTPException(
-            status_code=422,
-            detail=f"dep instance {normalized_instance_id} belongs to dep_type {existing_dep_type}, expected {dep_type}",
-        )
-    return {"instance_id": normalized_instance_id}
-
-
-def _validate_new_dep_model_path(
-    dep_type: str,
-    hf_repo_id: str,
-    weight_source: str,
-    dep_model_path: str,
-) -> str:
-    if weight_source == "local":
-        if not dep_model_path:
-            raise HTTPException(
-                status_code=422,
-                detail=f"dep {dep_type} local source requires dep_model_path",
-            )
-        if not Path(dep_model_path).expanduser().exists():
-            raise HTTPException(
-                status_code=422,
-                detail=f"dep {dep_type} local path does not exist: {dep_model_path}",
-            )
-        return dep_model_path
-    if weight_source == "url":
-        parsed_url = urlsplit(dep_model_path)
-        if parsed_url.scheme not in {"http", "https"}:
-            raise HTTPException(
-                status_code=422,
-                detail=f"dep {dep_type} url source requires an http(s) dep_model_path",
-            )
-        url_path = parsed_url.path.strip().lower()
-        if not (url_path.endswith(".zip") or url_path.endswith(".tar.gz")):
-            raise HTTPException(
-                status_code=422,
-                detail=f"dep {dep_type} url source only supports .zip and .tar.gz archives",
-            )
-        return dep_model_path
-    repo_id = dep_model_path or hf_repo_id
-    if not _is_hf_repo_id(repo_id):
-        raise HTTPException(
-            status_code=422,
-            detail=f"dep {dep_type} huggingface source requires owner/repo format",
-        )
-    return repo_id
-
-
-async def _validate_new_dep_assignment(
-    dep_type: str,
-    hf_repo_id: str,
-    new_cfg: dict,
-    dep_instance_store: DepInstanceStore,
-) -> dict:
-    instance_id = str(new_cfg.get("instance_id") or "").strip()
-    if not instance_id:
-        raise HTTPException(
-            status_code=422,
-            detail=f"depAssignments.{dep_type}.new.instance_id is required",
-        )
-    if await dep_instance_store.get(instance_id) is not None:
-        raise HTTPException(status_code=422, detail=f"dep instance already exists: {instance_id}")
-
-    display_name = str(new_cfg.get("display_name") or dep_type).strip()
-    if not display_name:
-        raise HTTPException(
-            status_code=422,
-            detail=f"depAssignments.{dep_type}.new.display_name is required",
-        )
-
-    weight_source = str(new_cfg.get("weight_source") or "huggingface").strip().lower()
-    if weight_source not in {"huggingface", "local", "url"}:
-        raise HTTPException(
-            status_code=422,
-            detail=f"depAssignments.{dep_type}.new.weight_source must be one of: huggingface, local, url",
-        )
-
-    dep_model_path = _validate_new_dep_model_path(
-        dep_type,
-        hf_repo_id,
-        weight_source,
-        str(new_cfg.get("dep_model_path") or "").strip(),
-    )
-
-    duplicate = await dep_instance_store.find_duplicate_source(dep_type, weight_source, dep_model_path)
-    if duplicate is not None:
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                f"dep {dep_type} already has an instance \"{duplicate['display_name']}\" "
-                f"with the same source ({weight_source}: {dep_model_path}). "
-                f"Use instance_id \"{duplicate['id']}\" instead."
-            ),
-        )
-
-    return {
-        "instance_id": instance_id,
-        "display_name": display_name,
-        "weight_source": weight_source,
-        "dep_model_path": dep_model_path,
-    }
-
-
-async def _prepare_dep_assignments(
-    model_id: str,
-    provider_type: str,
-    raw_dep_assignments: Any,
-    dep_instance_store: DepInstanceStore,
-) -> dict[str, dict]:
-    dependencies = get_provider_deps(provider_type)
-    if not dependencies:
-        return {}
-
-    assignments = _normalize_dep_assignments_payload(raw_dep_assignments)
-    expected_dep_types = {dep.dep_id for dep in dependencies}
-    unknown_dep_types = sorted(dep_type for dep_type in assignments if dep_type not in expected_dep_types)
-    if unknown_dep_types:
-        raise HTTPException(
-            status_code=422,
-            detail=f"depAssignments has unknown dep_type: {unknown_dep_types[0]}",
-        )
-
-    normalized_assignments: dict[str, dict] = {}
-    for dep in dependencies:
-        dep_type = dep.dep_id
-        assignment = dict(assignments.get(dep_type) or _default_dep_assignment(model_id, dep_type, dep.hf_repo_id))
-        if "instance_id" in assignment:
-            normalized_assignments[dep_type] = await _validate_existing_dep_assignment(
-                dep_type,
-                str(assignment.get("instance_id") or ""),
-                dep_instance_store,
-            )
-            continue
-
-        new_cfg = assignment.get("new")
-        if not isinstance(new_cfg, dict):
-            raise HTTPException(
-                status_code=422,
-                detail=f"depAssignments.{dep_type} must set instance_id or new",
-            )
-
-        normalized_assignments[dep_type] = {
-            "new": await _validate_new_dep_assignment(
-                dep_type,
-                dep.hf_repo_id,
-                new_cfg,
-                dep_instance_store,
-            )
-        }
-
-    return normalized_assignments
-
-
-def build_artifact_store(config: ServingConfig) -> ArtifactStore:
-    store_mode = config.artifact_store_mode.strip().lower()
-    if store_mode == "local":
-        return ArtifactStore(config.artifacts_dir, mode="local")
-    if store_mode != "minio":
-        raise ArtifactStoreConfigurationError(
-            f"unsupported ARTIFACT_STORE_MODE: {config.artifact_store_mode}"
-        )
-
-    required_fields = {
-        "OBJECT_STORE_ENDPOINT": config.object_store_endpoint,
-        "OBJECT_STORE_BUCKET": config.object_store_bucket,
-        "OBJECT_STORE_ACCESS_KEY": config.object_store_access_key,
-        "OBJECT_STORE_SECRET_KEY": config.object_store_secret_key,
-    }
-    missing = [name for name, value in required_fields.items() if not value]
-    if missing:
-        raise ArtifactStoreConfigurationError(
-            "minio artifact store requires: " + ", ".join(missing)
-        )
-
-    object_store_client = build_boto3_object_storage_client(
-        endpoint_url=str(config.object_store_endpoint),
-        external_endpoint_url=config.object_store_external_endpoint,
-        access_key=str(config.object_store_access_key),
-        secret_key=str(config.object_store_secret_key),
-        region=config.object_store_region,
-    )
-    return ArtifactStore(
-        config.artifacts_dir,
-        mode="minio",
-        object_store_client=object_store_client,
-        object_store_bucket=str(config.object_store_bucket),
-        object_store_prefix=config.object_store_prefix,
-        object_store_presign_ttl_seconds=config.object_store_presign_ttl_seconds,
-    )
-
-
-def _resolve_device_ids(config: ServingConfig) -> tuple[str, ...]:
-    configured_device_ids = tuple(
-        str(device_id).strip()
-        for device_id in config.gpu_device_ids
-        if str(device_id).strip()
-    )
-    if configured_device_ids:
-        return configured_device_ids
-
-    try:
-        import torch  # type: ignore[import-not-found]
-    except Exception:
-        return ("0",)
-
-    try:
-        if not torch.cuda.is_available():
-            return ("0",)
-        detected_count = int(torch.cuda.device_count())
-    except Exception:
-        return ("0",)
-    if detected_count <= 0:
-        return ("0",)
-    return tuple(str(index) for index in range(detected_count))
-
-
-def _get_gpu_device_info(device_id: str) -> dict:
-    try:
-        import torch  # type: ignore[import-not-found]
-        props = torch.cuda.get_device_properties(int(device_id))
-        total_memory_gb = round(props.total_memory / (1024 ** 3), 1)
-        return {"name": props.name, "totalMemoryGb": total_memory_gb}
-    except Exception:
-        return {"name": None, "totalMemoryGb": None}
-
-
-_DEFAULT_DEVICE_TOTAL_VRAM_MB = 24 * 1024
-_DEFAULT_WEIGHT_RATIO = 0.75
-
-
-def _normalize_vram_mb(value: object) -> int | None:
-    if value is None:
-        return None
-    try:
-        normalized = int(float(value))  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        return None
-    if normalized <= 0:
-        return None
-    return normalized
-
-
-def _resolve_total_vram_mb(model_definition: dict[str, Any]) -> int | None:
-    vram_gb = model_definition.get("vram_gb")
-    if vram_gb is not None:
-        try:
-            parsed_gb = float(vram_gb)
-        except (TypeError, ValueError):
-            parsed_gb = 0.0
-        if parsed_gb > 0:
-            return int(round(parsed_gb * 1024.0))
-    return _normalize_vram_mb(model_definition.get("min_vram_mb"))
-
-
-def _resolve_weight_vram_mb(model_definition: dict[str, Any]) -> int:
-    explicit_weight = _normalize_vram_mb(model_definition.get("weight_vram_mb"))
-    if explicit_weight is not None:
-        return explicit_weight
-    total_vram_mb = _resolve_total_vram_mb(model_definition)
-    if total_vram_mb is None:
-        return 1
-    return max(int(round(total_vram_mb * _DEFAULT_WEIGHT_RATIO)), 1)
-
-
-def _detect_device_total_vram_mb(
-    device_ids: tuple[str, ...],
-) -> dict[str, int]:
-    totals: dict[str, int] = {}
-    for device_id in device_ids:
-        info = _get_gpu_device_info(device_id)
-        total_gb = info.get("totalMemoryGb")
-        total_mb: int | None = None
-        if total_gb is not None:
-            try:
-                parsed = float(total_gb)
-            except (TypeError, ValueError):
-                parsed = 0.0
-            if parsed > 0:
-                total_mb = int(round(parsed * 1024.0))
-        totals[device_id] = total_mb or _DEFAULT_DEVICE_TOTAL_VRAM_MB
-    return totals
-
-
-def _summarize_inference_options(options: dict[str, Any]) -> list[str]:
-    option_keys = sorted(str(key) for key in options.keys())
-    if len(option_keys) <= 8:
-        return option_keys
-    return [*option_keys[:8], "..."]
-
-
-def _clamp_inference_estimate_mb(
-    *,
-    raw_value: Any,
-    model: str,
-    batch_size: int,
-    options: dict[str, Any],
-) -> int:
-    try:
-        normalized = int(float(raw_value))  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        normalized = 0
-    if normalized <= 0:
-        _logger.warning(
-            "estimate_inference_vram_mb_nonpositive",
-            model=model,
-            raw=raw_value,
-            clamped=1,
-            batch_size=batch_size,
-            options=_summarize_inference_options(options),
-        )
-        return 1
-    return normalized
-
-
-async def _resolve_model_definition_for_runtime(
-    model_store: ModelStore,
-    normalized_model_name: str,
-) -> dict[str, Any]:
-    model_definition = await model_store.get_model(normalized_model_name)
-    if model_definition is None and normalized_model_name == "trellis":
-        # Backward compatibility: legacy tasks that still send "trellis"
-        # resolve to the current default model in model_definitions.
-        model_definition = await model_store.get_default_model()
-    if model_definition is None:
-        raise ModelProviderConfigurationError(
-            f"model definition not found: {normalized_model_name}"
-        )
-    return model_definition
-
-
-def _normalize_persisted_disabled_devices(
-    raw_value: Any,
-    all_device_ids: tuple[str, ...],
-) -> set[str]:
-    if not isinstance(raw_value, (list, tuple, set)):
-        return set()
-    valid_device_ids = set(all_device_ids)
-    normalized: set[str] = set()
-    for value in raw_value:
-        device_id = str(value).strip()
-        if device_id and device_id in valid_device_ids:
-            normalized.add(device_id)
-    return normalized
-
-
-def _ordered_disabled_devices(
-    disabled_devices: set[str],
-    all_device_ids: tuple[str, ...],
-) -> list[str]:
-    return [device_id for device_id in all_device_ids if device_id in disabled_devices]
-
-
-def _parse_gpu_disabled_devices_update(
-    value: Any,
-    *,
-    all_device_ids: tuple[str, ...],
-) -> set[str]:
-    if not isinstance(value, (list, tuple, set)):
-        raise ValueError("gpuDisabledDevices must be an array of device IDs")
-    valid_device_ids = set(all_device_ids)
-    normalized: set[str] = set()
-    for item in value:
-        device_id = str(item).strip()
-        if not device_id:
-            raise ValueError("gpuDisabledDevices must not contain empty device IDs")
-        if device_id not in valid_device_ids:
-            raise ValueError(f"gpuDisabledDevices has unknown deviceId: {device_id}")
-        normalized.add(device_id)
-    return normalized
-
-
-async def build_model_runtime(
-    model_store: ModelStore,
-    config: ServingConfig,
-    model_name: str,
-    device_ids: tuple[str, ...] | None = None,
-    disabled_devices: set[str] | None = None,
-) -> ModelRuntime:
-    normalized_model_name = str(model_name).strip().lower()
-    model_definition = await _resolve_model_definition_for_runtime(
-        model_store,
-        normalized_model_name,
-    )
-
-    provider_name = str(model_definition.get("provider_type") or "").strip().lower()
-    if not provider_name:
-        raise ModelProviderConfigurationError(
-            f"model definition is missing provider_type: {normalized_model_name}"
-        )
-
-    download_status = str(model_definition.get("download_status") or "done").strip().lower()
-    if download_status != "done" and not config.is_mock_provider:
-        raise ModelProviderConfigurationError(
-            f"model {normalized_model_name} weights are {download_status}; download must complete first"
-        )
-
-    model_path = str(model_definition.get("model_path") or "").strip()
-    resolved_path = str(model_definition.get("resolved_path") or "").strip()
-    if resolved_path:
-        resolved_candidate = Path(resolved_path).expanduser()
-        if not resolved_candidate.exists():
-            raise ModelProviderConfigurationError(
-                f"resolved model path does not exist: {resolved_path}. Download weights first."
-            )
-        provider_model_path = str(resolved_candidate.resolve())
-    else:
-        # Backward compatibility for legacy rows: resolved_path may be null.
-        provider_model_path = model_path
-
-    if not provider_model_path:
-        raise ModelProviderConfigurationError(
-            f"model definition is missing model_path: {normalized_model_name}"
-        )
-
-    model_id = str(model_definition.get("id") or normalized_model_name).strip()
-    dep_instance_store = DepInstanceStore(config.database_path)
-    model_dep_store = ModelDepRequirementsStore(config.database_path)
-    await dep_instance_store.initialize()
-    await model_dep_store.initialize()
-    try:
-        dep_paths = await _resolve_dep_paths(
-            model_id=model_id,
-            dep_instance_store=dep_instance_store,
-            model_dep_store=model_dep_store,
-        )
-    finally:
-        await dep_instance_store.close()
-        await model_dep_store.close()
-
-    provider = await asyncio.to_thread(
-        build_provider,
-        provider_name=provider_name,
-        provider_mode=config.provider_mode,
-        model_path=provider_model_path,
-        mock_delay_ms=config.mock_gpu_stage_delay_ms,
-    )
-    resolved_device_ids = tuple(device_ids) if device_ids is not None else _resolve_device_ids(config)
-    if not resolved_device_ids:
-        resolved_device_ids = ("0",)
-    resolved_device_id_set = set(resolved_device_ids)
-    scheduler_disabled_devices = {
-        device_id
-        for device_id in (disabled_devices or set())
-        if device_id in resolved_device_id_set
-    }
-    workers = build_gpu_workers(
-        provider=provider,
-        provider_mode=config.provider_mode,
-        provider_name=provider_name,
-        model_path=provider_model_path,
-        device_ids=resolved_device_ids,
-        dep_paths=dep_paths,
-    )
-    return ModelRuntime(
-        model_name=normalized_model_name,
-        provider=provider,
-        workers=workers,
-        scheduler=GPUSlotScheduler(
-            workers,
-            disabled_device_ids=scheduler_disabled_devices,
-        ),
-    )
-
-
-def _artifact_file_name_from_url(value: Any) -> str | None:
-    if not value:
-        return None
-    return Path(urlsplit(str(value)).path).name or None
-
-
-def _artifact_matches_file_name(
-    artifact: dict[str, Any],
-    file_name: str,
-) -> bool:
-    return _artifact_file_name_from_url(artifact.get("url")) == file_name
-
-
-async def _artifact_exists(
-    artifact_store: ArtifactStore,
-    *,
-    task_id: str,
-    file_name: str,
-) -> bool:
-    if artifact_store.mode == "local":
-        return await artifact_store.get_local_artifact_path(task_id, file_name) is not None
-
-    artifacts = await artifact_store.list_artifacts(task_id)
-    return any(
-        _artifact_matches_file_name(artifact, file_name)
-        for artifact in artifacts
-    )
-
-
-def _merge_preview_artifacts(
-    existing_artifacts: list[dict[str, Any]],
-    preview_artifact: dict[str, Any],
-) -> list[dict[str, Any]]:
-    artifacts_without_preview = [
-        artifact
-        for artifact in existing_artifacts
-        if not _artifact_matches_file_name(artifact, "preview.png")
-    ]
-    primary_artifacts = [
-        artifact
-        for artifact in artifacts_without_preview
-        if artifact.get("type") == "glb" or _artifact_matches_file_name(artifact, "model.glb")
-    ]
-    primary_artifact_ids = {id(artifact) for artifact in primary_artifacts}
-    remaining_artifacts = [
-        artifact
-        for artifact in artifacts_without_preview
-        if id(artifact) not in primary_artifact_ids
-    ]
-    return ExportStage._merge_artifacts(
-        primary_artifacts=primary_artifacts,
-        supplemental_artifacts=[preview_artifact],
-        existing_artifacts=remaining_artifacts,
-    )
-
-
-async def _render_preview_artifact_on_demand(
-    task_id: str,
-    artifact_store: ArtifactStore,
-    preview_renderer_service: PreviewRendererServiceProtocol,
-) -> None:
-    model_path: Path | None = None
-    preview_staging_path: Path | None = None
-    model_is_temporary = False
-    try:
-        if await _artifact_exists(
-            artifact_store,
-            task_id=task_id,
-            file_name="preview.png",
-        ):
-            return
-
-        existing_artifacts = await artifact_store.list_artifacts(task_id)
-        model_download = await artifact_store.prepare_download(task_id, "model.glb")
-        if model_download is None:
-            return
-
-        model_path, _, model_is_temporary = model_download
-        preview_staging_path = await asyncio.to_thread(
-            ExportStage._create_preview_temp_path,
-            model_path,
-        )
-        preview_png = await preview_renderer_service.render_preview_png(
-            model_path=model_path,
-        )
-        await asyncio.to_thread(preview_staging_path.write_bytes, preview_png)
-        preview_artifact = await artifact_store.publish_artifact(
-            task_id=task_id,
-            artifact_type="preview",
-            file_name="preview.png",
-            staging_path=preview_staging_path,
-            content_type="image/png",
-        )
-        await artifact_store.replace_artifacts(
-            task_id,
-            _merge_preview_artifacts(existing_artifacts, preview_artifact),
-        )
-    except Exception as exc:
-        _logger.warning(
-            "artifact.preview_render_failed",
-            task_id=task_id,
-            error=str(exc),
-        )
-    finally:
-        if preview_staging_path is not None and preview_staging_path.exists():
-            await asyncio.to_thread(_cleanup_temporary_artifact, preview_staging_path)
-        if model_path is not None and model_is_temporary:
-            await asyncio.to_thread(_cleanup_temporary_artifact, model_path)
-        _preview_rendering.discard(task_id)
-
-
-def _dispatch_preview_render(
-    task_id: str,
-    artifact_store: ArtifactStore,
-    preview_renderer_service: PreviewRendererServiceProtocol,
-) -> None:
-    if task_id in _preview_rendering:
-        return
-
-    _preview_rendering.add(task_id)
-    try:
-        task = asyncio.create_task(
-            _render_preview_artifact_on_demand(
-                task_id,
-                artifact_store,
-                preview_renderer_service,
-            ),
-        )
-    except Exception as exc:
-        _preview_rendering.discard(task_id)
-        _logger.warning(
-            "artifact.preview_render_schedule_failed",
-            task_id=task_id,
-            error=str(exc),
-        )
-        return
-
-    _preview_render_tasks.add(task)
-    task.add_done_callback(_preview_render_tasks.discard)
-
-
-async def run_real_mode_preflight(config: ServingConfig) -> dict[str, Any]:
-    provider_mode = config.provider_mode.strip().lower()
-    if provider_mode != "real":
-        raise ModelProviderConfigurationError(
-            "--check-real-env requires PROVIDER_MODE=real"
-        )
-
-    artifact_store = build_artifact_store(config)
-    await artifact_store.initialize()
-
-    artifact_report: dict[str, Any] = {
-        "mode": artifact_store.mode,
-        "artifacts_dir": str(config.artifacts_dir),
-    }
-    if artifact_store.mode == "minio":
-        artifact_report.update(
-            {
-                "endpoint": config.object_store_endpoint,
-                "external_endpoint": config.object_store_external_endpoint,
-                "bucket": config.object_store_bucket,
-                "prefix": config.object_store_prefix,
-                "presign_ttl_seconds": config.object_store_presign_ttl_seconds,
-            }
-        )
-
-    model_store = ModelStore(config.database_path)
-    await model_store.initialize()
-    try:
-        model_definition = await model_store.get_default_model()
-        if model_definition is None:
-            model_definitions = await model_store.list_models()
-            if not model_definitions:
-                raise ModelProviderConfigurationError(
-                    "no model definitions found in model_definitions"
-                )
-            model_definition = model_definitions[0]
-    finally:
-        await model_store.close()
-
-    provider_name = str(model_definition.get("provider_type") or "").strip().lower()
-    model_id = str(model_definition.get("id") or "").strip()
-    if provider_name != "trellis2":
-        raise ModelProviderConfigurationError(
-            f"unsupported MODEL_PROVIDER in model_definitions: {provider_name}"
-        )
-    model_path = str(model_definition.get("model_path") or "").strip()
-    if not model_path:
-        raise ModelProviderConfigurationError(
-            "default model in model_definitions has empty model_path"
-        )
-
-    provider_report = await asyncio.to_thread(
-        Trellis2Provider.inspect_runtime,
-        model_path,
-        load_pipeline=True,
-    )
-    return {
-        "provider_mode": provider_mode,
-        "model_id": model_id,
-        "provider": provider_report,
-        "artifact_store": artifact_report,
-    }
-
-
-def validate_runtime_security_config(config: ServingConfig) -> None:
-    del config
-
 
 def create_app(
     config: ServingConfig | None = None,
@@ -2902,7 +1851,7 @@ def create_app(
         # Keep login calls pinned to the current mirror endpoint.
         _set_hf_endpoint(_current_hf_endpoint())
         try:
-            _hf_login(token=token)
+            _hf_helpers._hf_login(token=token)
         except Exception as exc:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -2923,7 +1872,7 @@ def create_app(
     async def logout_hf() -> AdminHfStatusResponse:
         _ensure_hf_client_available()
         try:
-            _hf_logout()
+            _hf_helpers._hf_logout()
         except Exception as exc:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -3341,7 +2290,6 @@ def create_app(
 
     return app
 
-
 def _extract_bearer_token(
     credentials: HTTPAuthorizationCredentials | None,
 ) -> str | None:
@@ -3350,14 +2298,12 @@ def _extract_bearer_token(
     token = credentials.credentials.strip()
     return token or None
 
-
 def _is_valid_token(provided_token: str | None, configured_token: str | None) -> bool:
     return (
         provided_token is not None
         and configured_token is not None
         and secrets.compare_digest(provided_token, configured_token)
     )
-
 
 def _should_proxy_dev_request(request: Request, config: ServingConfig) -> bool:
     if config.dev_proxy_target is None:
@@ -3373,13 +2319,11 @@ def _should_proxy_dev_request(request: Request, config: ServingConfig) -> bool:
         or path in {"/health", "/readiness", "/ready", "/metrics", "/docs", "/redoc", "/openapi.json"}
     )
 
-
 def _cleanup_temporary_artifact(path: Path) -> None:
     try:
         path.unlink()
     except FileNotFoundError:
         pass
-
 
 def _build_artifact_download_headers(
     *,
@@ -3397,7 +2341,6 @@ def _build_artifact_download_headers(
         headers["ETag"] = str(etag)
     return headers
 
-
 def _should_serve_static_spa_route(path: str) -> bool:
     normalized = path.strip() or "/"
     if normalized in {"/", ""}:
@@ -3410,7 +2353,6 @@ def _should_serve_static_spa_route(path: str) -> bool:
         return False
     return "." not in normalized.rsplit("/", 1)[-1]
 
-
 def _rewrite_legacy_api_path(scope: Scope) -> None:
     path = scope.get("path", "")
     if not isinstance(path, str):
@@ -3419,7 +2361,6 @@ def _rewrite_legacy_api_path(scope: Scope) -> None:
         rewritten_path = path[4:]
         scope["path"] = rewritten_path
         scope["raw_path"] = rewritten_path.encode("utf-8")
-
 
 async def _forward_dev_proxy_request(
     *,
@@ -3451,7 +2392,6 @@ async def _forward_dev_proxy_request(
         background=BackgroundTask(upstream_response.aclose),
     )
 
-
 def _build_dev_proxy_url(proxy_target: str, request: Request) -> str:
     target = urlsplit(proxy_target)
     target_path = target.path.rstrip("/")
@@ -3470,7 +2410,6 @@ def _build_dev_proxy_url(proxy_target: str, request: Request) -> str:
         )
     )
 
-
 def _build_proxy_request_headers(request: Request) -> list[tuple[str, str]]:
     headers: list[tuple[str, str]] = []
     for name, value in request.headers.raw:
@@ -3480,14 +2419,12 @@ def _build_proxy_request_headers(request: Request) -> list[tuple[str, str]]:
         headers.append((decoded_name, value.decode("latin-1")))
     return headers
 
-
 def _build_proxy_response_headers(response: httpx.Response) -> dict[str, str]:
     return {
         name: value
         for name, value in response.headers.items()
         if name.lower() not in HOP_BY_HOP_HEADERS
     }
-
 
 async def _extract_uploaded_file(request: Request) -> tuple[str, str, bytes]:
     content_type = request.headers.get("content-type", "")
