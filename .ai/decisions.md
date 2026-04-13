@@ -5,6 +5,16 @@
 
 ---
 
+## 2026-04-13
+
+- **GPUSlotScheduler 支持 shutdown，reload/unload 不再挂死 in-flight 请求**：`stages/gpu/scheduler.py` 新增 `SchedulerShutdownError` + `GPUSlotScheduler.shutdown()`；`acquire()` 改为 `asyncio.wait({queue.get, shutdown_event}, FIRST_COMPLETED)` 模式，shutdown 触发时立刻抛错，异常路径释放 `inference_allocation_id` 防止账本漏账。竞态保护：`_restore_slot_from_task` 在 shutdown 赢但 get 也拿到 device_id 时把 device 回填队列，避免 slot 永久消失。`release()` 在 shutdown 后 early return 不回填 queue。（plan: 2026-04-12-gpu-inflight-hang-fix.md）
+
+- **ModelRegistry 新增 `"unloading"` 中间态消除 Phase 3 evict 的 TOCTOU**：`engine/model_registry.py` 的 `unload()` 开头立即 `entry.state = "unloading"`，`get_runtime()` 的既有 `state != "ready"` 判定自动拒绝即将死亡的 runtime。Phase 5 `reload()` 在 `await self.unload()` 之前先调 `old_runtime.scheduler.shutdown()`（`getattr + callable` 兜底），唤醒旧 scheduler 上所有 waiting tasks。（plan: 2026-04-12-gpu-inflight-hang-fix.md）
+
+- **`ProcessGPUWorker.stop()` 统一 fail pending run_batch futures**：`stages/gpu/worker.py` 抽出 `_fail_pending(reason)` helper，`stop()` 在清 `_pending` 前对所有未完成 future `set_exception(ModelProviderExecutionError("gpu_run", "worker stopped"))`。`_fail_startup_and_pending` 同样复用。之前 `stop()` 只 `_pending.clear()` 不 cancel futures，导致 caller 的 `await future` 永久阻塞，现修复。（plan: 2026-04-12-gpu-inflight-hang-fix.md）
+
+- **GPUStage retry 合并 `SchedulerShutdownError` 和 `ExternalVRAMOccupationTimeoutError`**：`stages/gpu/stage.py` `GPUStage.run` 的 retry 循环现在捕获两类异常，两者共享同一个 `migration_attempted` single-shot 守卫，加起来最多重试 1 次。`SchedulerShutdownError` 分支调 `wait_ready` 拿新 runtime（迁移已由其他 task 触发，本 task 只需等结果），不主动调 `reload`。（plan: 2026-04-12-gpu-inflight-hang-fix.md）
+
 ## 2026-04-12
 
 - **GPU 模型支持跨卡迁移（Phase 5）**：`engine/vram_allocator.py` 新增 `ExternalVRAMOccupationTimeoutError(VRAMAllocatorError)` 子类，Phase 4c 的外部占用超时路径改抛这个子类。`stages/gpu/stage.py` 的 `GPUStage.run` 在 `scheduler.acquire()` 处包一层 `while True` + `migration_attempted` single-shot retry：捕获该子类后调 `ModelRegistry.reload(model, exclude_device_ids=(old_device,))`，刷新 runtime 后重试一次；第二次同类超时直接抛错（避免全集群不够时死循环）。非该子类的 `VRAMAllocatorError` 不触发迁移，沿用既有抛错语义。（plan: 2026-04-12-gpu-device-migration.md）

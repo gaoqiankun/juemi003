@@ -21,7 +21,7 @@ from gen3d.engine.vram_allocator import (
     VRAMAllocatorError,
 )
 from gen3d.model.base import BaseModelProvider, GenerationResult
-from gen3d.stages.gpu.scheduler import GPUSlot, GPUSlotScheduler
+from gen3d.stages.gpu.scheduler import GPUSlot, GPUSlotScheduler, SchedulerShutdownError
 from gen3d.stages.gpu.stage import GPUStage
 from gen3d.stages.gpu.worker import GPUWorkerHandle
 
@@ -79,10 +79,18 @@ class FakeScheduler:
 
 
 class FakeModelRegistry:
-    def __init__(self, *, runtime: ModelRuntime, reload_runtime: ModelRuntime) -> None:
+    def __init__(
+        self,
+        *,
+        runtime: ModelRuntime,
+        reload_runtime: ModelRuntime,
+        wait_ready_runtime: ModelRuntime | None = None,
+    ) -> None:
         self._runtime = runtime
         self._reload_runtime = reload_runtime
+        self._wait_ready_runtime = wait_ready_runtime or reload_runtime
         self.reload_calls: list[tuple[str, tuple[str, ...]]] = []
+        self.wait_ready_calls: list[str] = []
 
     def get_runtime(self, model_name: str) -> ModelRuntime:
         if model_name != self._runtime.model_name:
@@ -97,6 +105,16 @@ class FakeModelRegistry:
     ) -> ModelRuntime:
         self.reload_calls.append((model_name, tuple(exclude_device_ids)))
         self._runtime = self._reload_runtime
+        return self._runtime
+
+    async def wait_ready(
+        self,
+        model_name: str,
+        timeout_seconds: float = 1800.0,
+    ) -> ModelRuntime:
+        _ = timeout_seconds
+        self.wait_ready_calls.append(model_name)
+        self._runtime = self._wait_ready_runtime
         return self._runtime
 
     def ready_models(self) -> tuple[str, ...]:
@@ -245,5 +263,99 @@ def test_acquire_single_migration_only() -> None:
             await stage.run(_build_sequence(model_name))
         assert registry.reload_calls == [(model_name, ("0",))]
         assert new_scheduler.acquire_calls == 1
+
+    asyncio.run(scenario())
+
+
+def test_retry_on_scheduler_shutdown() -> None:
+    async def scenario() -> None:
+        model_name = "trellis2"
+        old_worker = FakeWorker(worker_id="worker-0", device_id="0")
+        old_scheduler = FakeScheduler(
+            outcomes=[SchedulerShutdownError("scheduler shutdown")]
+        )
+        old_runtime = _build_runtime(
+            model_name=model_name,
+            device_id="0",
+            scheduler=old_scheduler,
+            worker=old_worker,
+        )
+
+        new_worker = FakeWorker(worker_id="worker-1", device_id="1")
+        new_slot = GPUSlot(device_id="1", worker=cast(GPUWorkerHandle, new_worker))
+        new_scheduler = FakeScheduler(outcomes=[new_slot])
+        new_runtime = _build_runtime(
+            model_name=model_name,
+            device_id="1",
+            scheduler=new_scheduler,
+            worker=new_worker,
+        )
+
+        registry = FakeModelRegistry(
+            runtime=old_runtime,
+            reload_runtime=old_runtime,
+            wait_ready_runtime=new_runtime,
+        )
+        stage = GPUStage(
+            delay_ms=0,
+            model_registry=cast(ModelRegistry, registry),
+            task_store=FakeTaskStore(),
+        )
+
+        result = await stage.run(_build_sequence(model_name))
+
+        assert result.generation_result is not None
+        assert result.assigned_worker_id == "worker-1"
+        assert registry.reload_calls == []
+        assert registry.wait_ready_calls == [model_name]
+        assert old_scheduler.acquire_calls == 1
+        assert new_scheduler.acquire_calls == 1
+        assert new_scheduler.release_calls == ["1"]
+
+    asyncio.run(scenario())
+
+
+def test_scheduler_shutdown_and_external_timeout_share_single_retry_guard() -> None:
+    async def scenario() -> None:
+        model_name = "trellis2"
+        old_worker = FakeWorker(worker_id="worker-0", device_id="0")
+        old_scheduler = FakeScheduler(
+            outcomes=[SchedulerShutdownError("scheduler shutdown")]
+        )
+        old_runtime = _build_runtime(
+            model_name=model_name,
+            device_id="0",
+            scheduler=old_scheduler,
+            worker=old_worker,
+        )
+
+        migrated_worker = FakeWorker(worker_id="worker-1", device_id="1")
+        migrated_scheduler = FakeScheduler(
+            outcomes=[ExternalVRAMOccupationTimeoutError("external timeout after shutdown")]
+        )
+        migrated_runtime = _build_runtime(
+            model_name=model_name,
+            device_id="1",
+            scheduler=migrated_scheduler,
+            worker=migrated_worker,
+        )
+
+        registry = FakeModelRegistry(
+            runtime=old_runtime,
+            reload_runtime=old_runtime,
+            wait_ready_runtime=migrated_runtime,
+        )
+        stage = GPUStage(
+            delay_ms=0,
+            model_registry=cast(ModelRegistry, registry),
+            task_store=FakeTaskStore(),
+        )
+
+        with pytest.raises(ExternalVRAMOccupationTimeoutError):
+            await stage.run(_build_sequence(model_name))
+        assert registry.reload_calls == []
+        assert registry.wait_ready_calls == [model_name]
+        assert old_scheduler.acquire_calls == 1
+        assert migrated_scheduler.acquire_calls == 1
 
     asyncio.run(scenario())

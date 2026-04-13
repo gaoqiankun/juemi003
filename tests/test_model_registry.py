@@ -36,6 +36,18 @@ class FakeWorker:
         self.stop_calls += 1
 
 
+class BlockingStopWorker(FakeWorker):
+    def __init__(self, device_id: str = "0") -> None:
+        super().__init__(device_id)
+        self.stop_started = asyncio.Event()
+        self.allow_stop = asyncio.Event()
+
+    async def stop(self) -> None:
+        self.stop_calls += 1
+        self.stop_started.set()
+        await self.allow_stop.wait()
+
+
 async def wait_until(predicate, *, timeout_seconds: float = 1.0) -> None:
     deadline = time.time() + timeout_seconds
     while time.time() < deadline:
@@ -100,6 +112,60 @@ def test_model_registry_unload() -> None:
         with pytest.raises(RuntimeError):
             registry.get_runtime("trellis2")
         await registry.close()
+
+    asyncio.run(scenario())
+
+
+def test_unload_sets_intermediate_state() -> None:
+    async def scenario() -> None:
+        worker = BlockingStopWorker()
+
+        async def runtime_loader(model_name: str) -> ModelRuntime:
+            return ModelRuntime(
+                model_name=model_name,
+                provider=cast(BaseModelProvider, object()),
+                workers=[cast(GPUWorkerHandle, worker)],
+                scheduler=GPUSlotScheduler([cast(GPUWorkerHandle, worker)]),
+            )
+
+        registry = ModelRegistry(runtime_loader)
+        registry.load("trellis2")
+        await registry.wait_ready("trellis2")
+
+        unload_task = asyncio.create_task(registry.unload("trellis2"))
+        await asyncio.wait_for(worker.stop_started.wait(), timeout=0.5)
+        assert registry.get_state("trellis2") == "unloading"
+
+        worker.allow_stop.set()
+        await asyncio.wait_for(unload_task, timeout=0.5)
+        assert registry.get_state("trellis2") == "not_loaded"
+
+    asyncio.run(scenario())
+
+
+def test_get_runtime_rejects_unloading() -> None:
+    async def scenario() -> None:
+        worker = BlockingStopWorker()
+
+        async def runtime_loader(model_name: str) -> ModelRuntime:
+            return ModelRuntime(
+                model_name=model_name,
+                provider=cast(BaseModelProvider, object()),
+                workers=[cast(GPUWorkerHandle, worker)],
+                scheduler=GPUSlotScheduler([cast(GPUWorkerHandle, worker)]),
+            )
+
+        registry = ModelRegistry(runtime_loader)
+        registry.load("trellis2")
+        await registry.wait_ready("trellis2")
+
+        unload_task = asyncio.create_task(registry.unload("trellis2"))
+        await asyncio.wait_for(worker.stop_started.wait(), timeout=0.5)
+        with pytest.raises(RuntimeError, match="state=unloading"):
+            registry.get_runtime("trellis2")
+
+        worker.allow_stop.set()
+        await asyncio.wait_for(unload_task, timeout=0.5)
 
     asyncio.run(scenario())
 

@@ -147,7 +147,7 @@ class ProcessGPUWorker:
         self._process = None
         self._response_task = None
         self._startup_future = None
-        self._pending.clear()
+        self._fail_pending("worker stopped")
 
     async def run_batch(
         self,
@@ -241,6 +241,9 @@ class ProcessGPUWorker:
             self._startup_future.set_exception(
                 ModelProviderExecutionError("gpu_run", error_message)
             )
+        self._fail_pending(error_message)
+
+    def _fail_pending(self, error_message: str) -> None:
         for pending in list(self._pending.values()):
             if pending.future.done():
                 continue

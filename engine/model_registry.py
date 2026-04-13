@@ -139,6 +139,10 @@ class ModelRegistry:
             if entry is not None and entry.state == "loading" and entry.excluded_device_ids:
                 pass
             else:
+                if entry is not None and entry.runtime is not None:
+                    scheduler_shutdown = getattr(entry.runtime.scheduler, "shutdown", None)
+                    if callable(scheduler_shutdown):
+                        scheduler_shutdown()
                 await self.unload(normalized)
                 entry = _ModelEntry(
                     state="loading",
@@ -194,7 +198,8 @@ class ModelRegistry:
         normalized = self._normalize_name(model_name)
         entry = self._entries.get(normalized)
         if entry is None or entry.state != "ready" or entry.runtime is None:
-            raise RuntimeError(f"model {normalized} is not ready")
+            state = entry.state if entry is not None else "not_loaded"
+            raise RuntimeError(f"model {normalized} is not ready (state={state})")
         return entry.runtime
 
     async def unload(self, model_name: str) -> None:
@@ -202,7 +207,10 @@ class ModelRegistry:
         entry = self._entries.get(normalized)
         if entry is None:
             return
+        if entry.state == "unloading":
+            return
         had_runtime_or_task = entry.runtime is not None or entry.load_task is not None
+        entry.state = "unloading"
 
         load_task = entry.load_task
         if load_task is not None and not load_task.done():

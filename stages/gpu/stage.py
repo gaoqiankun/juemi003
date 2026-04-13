@@ -12,6 +12,7 @@ from gen3d.engine.vram_allocator import ExternalVRAMOccupationTimeoutError
 from gen3d.model.base import ModelProviderExecutionError, StageProgress
 from gen3d.observability.metrics import observe_stage_duration
 from gen3d.stages.base import BaseStage, StageExecutionError, StageUpdateHandler
+from gen3d.stages.gpu.scheduler import SchedulerShutdownError
 from structlog.contextvars import bound_contextvars
 
 
@@ -109,6 +110,16 @@ class GPUStage(BaseStage):
                             old_device=previous_device,
                             new_device=runtime.assigned_device_id,
                             reason="external_vram_occupation_timeout",
+                        )
+                    except SchedulerShutdownError:
+                        if migration_attempted:
+                            raise
+                        migration_attempted = True
+                        runtime = await self._model_registry.wait_ready(sequence.model)
+                        self._logger.info(
+                            "gpu.acquire_retry_after_scheduler_shutdown",
+                            model=sequence.model,
+                            new_device=runtime.assigned_device_id,
                         )
                 sequence.assigned_worker_id = slot.worker.worker_id
                 timings = _GPUStageTiming(stage_started_at=time.perf_counter())

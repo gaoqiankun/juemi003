@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import deque
+from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any, Callable, Generic, Iterable, Protocol, TypeVar
 
@@ -50,6 +51,10 @@ class _InferenceAllocatorProtocol(Protocol):
 InferenceVRAMEstimator = Callable[[int, dict[str, Any]], int]
 
 
+class SchedulerShutdownError(RuntimeError):
+    pass
+
+
 class GPUSlotScheduler:
     def __init__(
         self,
@@ -64,6 +69,7 @@ class GPUSlotScheduler:
         self._disabled: set[str] = set()
         self._parked: set[str] = set()
         self._waiting_count = 0
+        self._shutdown_event = asyncio.Event()
         self._inference_allocator: _InferenceAllocatorProtocol | None = None
         self._inference_model_name: str | None = None
         self._inference_device_id: str | None = None
@@ -105,6 +111,9 @@ class GPUSlotScheduler:
         batch_size: int = 1,
         options: dict[str, Any] | None = None,
     ) -> GPUSlot:
+        get_task: asyncio.Task[str] | None = None
+        shutdown_task: asyncio.Task[bool] | None = None
+        acquired_device_id: str | None = None
         inference_allocation_id = await self._acquire_inference_allocation(
             batch_size=batch_size,
             options=options or {},
@@ -112,15 +121,29 @@ class GPUSlotScheduler:
         try:
             self._waiting_count += 1
             try:
-                device_id = await self._available.get()
+                get_task = asyncio.create_task(self._available.get())
+                shutdown_task = asyncio.create_task(self._shutdown_event.wait())
+                done, _ = await asyncio.wait(
+                    {get_task, shutdown_task},
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if shutdown_task in done:
+                    raise SchedulerShutdownError(
+                        f"scheduler {id(self)} was shut down while acquiring slot"
+                    )
+                acquired_device_id = get_task.result()
             finally:
                 self._waiting_count = max(self._waiting_count - 1, 0)
+                await self._cancel_task(shutdown_task)
+                await self._cancel_task(get_task)
+                if acquired_device_id is None:
+                    self._restore_slot_from_task(get_task)
 
             if inference_allocation_id is not None:
-                self._inference_allocations_by_device[device_id] = inference_allocation_id
-            set_gpu_slot_active(device=device_id, active=True)
-            return self._slots[device_id]
-        except Exception:
+                self._inference_allocations_by_device[acquired_device_id] = inference_allocation_id
+            set_gpu_slot_active(device=acquired_device_id, active=True)
+            return self._slots[acquired_device_id]
+        except BaseException:
             if inference_allocation_id is not None and self._inference_allocator is not None:
                 self._inference_allocator.release_inference(inference_allocation_id)
             raise
@@ -130,10 +153,15 @@ class GPUSlotScheduler:
         if inference_allocation_id is not None and self._inference_allocator is not None:
             self._inference_allocator.release_inference(inference_allocation_id)
         set_gpu_slot_active(device=device_id, active=False)
+        if self._shutdown_event.is_set():
+            return
         if device_id in self._disabled:
             self._parked.add(device_id)
             return
         await self._available.put(device_id)
+
+    def shutdown(self) -> None:
+        self._shutdown_event.set()
 
     def disable(self, device_id: str) -> None:
         normalized = str(device_id).strip()
@@ -202,3 +230,23 @@ class GPUSlotScheduler:
             device_id=self._inference_device_id,
             inference_vram_mb=required_inference_vram_mb,
         )
+
+    @staticmethod
+    async def _cancel_task(task: asyncio.Task[Any] | None) -> None:
+        if task is None:
+            return
+        if not task.done():
+            task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+
+    def _restore_slot_from_task(self, task: asyncio.Task[str] | None) -> None:
+        if task is None or not task.done() or task.cancelled():
+            return
+        try:
+            task_error = task.exception()
+        except asyncio.CancelledError:
+            return
+        if task_error is not None:
+            return
+        self._available.put_nowait(task.result())
