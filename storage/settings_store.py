@@ -12,6 +12,7 @@ MAX_LOADED_MODELS_KEY = "max_loaded_models"
 MAX_TASKS_PER_SLOT_KEY = "max_tasks_per_slot"
 GPU_DISABLED_DEVICES_KEY = "gpu_disabled_devices"
 EXTERNAL_VRAM_WAIT_TIMEOUT_SECONDS_KEY = "external_vram_wait_timeout_seconds"
+INTERNAL_VRAM_WAIT_TIMEOUT_SECONDS_KEY = "internal_vram_wait_timeout_seconds"
 
 
 def _utcnow_iso() -> str:

@@ -52,6 +52,33 @@ _WEBHOOK_TOTAL = Counter(
     labelnames=("result",),
     registry=REGISTRY,
 )
+_VRAM_ACQUIRE_INFERENCE_OUTCOMES = (
+    "immediate",
+    "after_wait",
+    "after_evict",
+    "timeout_internal",
+    "timeout_external",
+)
+_VRAM_EVICT_RESULTS = ("success", "noop", "failure")
+_VRAM_ACQUIRE_INFERENCE_TOTAL = Counter(
+    "vram_acquire_inference_total",
+    "Total acquire_inference outcomes by device.",
+    labelnames=("device", "outcome"),
+    registry=REGISTRY,
+)
+_VRAM_ACQUIRE_INFERENCE_WAIT = Histogram(
+    "vram_acquire_inference_wait_seconds",
+    "acquire_inference waiting time in seconds by device.",
+    labelnames=("device",),
+    buckets=(0.001, 0.01, 0.05, 0.25, 1, 5, 15, 30, 60, 120),
+    registry=REGISTRY,
+)
+_VRAM_EVICT_TOTAL = Counter(
+    "vram_evict_total",
+    "VRAM eviction attempts by device and result.",
+    labelnames=("device", "result"),
+    registry=REGISTRY,
+)
 
 for status in ("succeeded", "failed", "cancelled"):
     _TASK_DURATION.labels(status=status)
@@ -69,6 +96,22 @@ _QUEUE_DEPTH.set(0)
 def initialize_gpu_slots(device_ids: tuple[str, ...]) -> None:
     for device_id in dict.fromkeys(device_ids):
         _GPU_SLOT_ACTIVE.labels(device=str(device_id)).set(0)
+
+
+def initialize_vram_metrics(device_ids: tuple[str, ...]) -> None:
+    for device_id in dict.fromkeys(device_ids):
+        normalized_device = str(device_id)
+        _VRAM_ACQUIRE_INFERENCE_WAIT.labels(device=normalized_device)
+        for outcome in _VRAM_ACQUIRE_INFERENCE_OUTCOMES:
+            _VRAM_ACQUIRE_INFERENCE_TOTAL.labels(
+                device=normalized_device,
+                outcome=outcome,
+            )
+        for result in _VRAM_EVICT_RESULTS:
+            _VRAM_EVICT_TOTAL.labels(
+                device=normalized_device,
+                result=result,
+            )
 
 
 def set_ready(ready: bool) -> None:
@@ -97,6 +140,26 @@ def increment_task_total(*, status: str) -> None:
 
 def increment_webhook_total(*, result: str) -> None:
     _WEBHOOK_TOTAL.labels(result=result).inc()
+
+
+def increment_vram_acquire_inference(*, device: str, outcome: str) -> None:
+    _VRAM_ACQUIRE_INFERENCE_TOTAL.labels(
+        device=str(device),
+        outcome=str(outcome),
+    ).inc()
+
+
+def observe_vram_acquire_inference_wait(*, device: str, wait_seconds: float) -> None:
+    _VRAM_ACQUIRE_INFERENCE_WAIT.labels(device=str(device)).observe(
+        max(float(wait_seconds), 0.0)
+    )
+
+
+def increment_vram_evict(*, device: str, result: str) -> None:
+    _VRAM_EVICT_TOTAL.labels(
+        device=str(device),
+        result=str(result),
+    ).inc()
 
 
 def render_metrics(*, ready: bool) -> str:

@@ -88,13 +88,23 @@ from gen3d.engine.model_registry import ModelRegistry, ModelRuntime
 from gen3d.engine.model_scheduler import ModelScheduler
 from gen3d.engine.pipeline import PipelineCoordinator, PipelineQueueFullError
 from gen3d.engine.sequence import TERMINAL_STATUSES, TaskStatus
-from gen3d.engine.vram_allocator import VRAMAllocator, VRAMAllocatorError
+from gen3d.engine.vram_allocator import (
+    VRAMAllocator,
+    VRAMAllocatorError,
+    VRAMMetricsHook,
+)
 from gen3d.engine.weight_manager import WeightManager, get_provider_deps
 from gen3d.model.base import ModelProviderConfigurationError
 from gen3d.model.hunyuan3d.provider import Hunyuan3DProvider, MockHunyuan3DProvider
 from gen3d.model.step1x3d.provider import MockStep1X3DProvider, Step1X3DProvider
 from gen3d.model.trellis2.provider import MockTrellis2Provider, Trellis2Provider
-from gen3d.observability.metrics import render_metrics
+from gen3d.observability.metrics import (
+    increment_vram_acquire_inference,
+    increment_vram_evict,
+    initialize_vram_metrics,
+    observe_vram_acquire_inference_wait,
+    render_metrics,
+)
 from gen3d.security import (
     RateLimitExceededError,
     TaskSubmissionValidationError,
@@ -126,6 +136,7 @@ from gen3d.storage.model_store import ModelStore
 from gen3d.storage.settings_store import (
     EXTERNAL_VRAM_WAIT_TIMEOUT_SECONDS_KEY,
     GPU_DISABLED_DEVICES_KEY,
+    INTERNAL_VRAM_WAIT_TIMEOUT_SECONDS_KEY,
     MAX_LOADED_MODELS_KEY,
     MAX_TASKS_PER_SLOT_KEY,
     SettingsStore,
@@ -1239,6 +1250,13 @@ def create_app(
     vram_allocator = VRAMAllocator(
         device_totals_mb=_detect_device_total_vram_mb(all_device_ids),
     )
+    vram_allocator.set_metrics_hook(
+        VRAMMetricsHook(
+            on_acquire_outcome=increment_vram_acquire_inference,
+            on_acquire_wait=observe_vram_acquire_inference_wait,
+            on_evict=increment_vram_evict,
+        )
+    )
     if not config.is_mock_provider:
         from gen3d.engine.vram_probe import probe_device_free_mb
 
@@ -1510,6 +1528,7 @@ def create_app(
         await container.dep_instance_store.initialize()
         await container.model_dep_requirements_store.initialize()
         await container.settings_store.initialize()
+        initialize_vram_metrics(container.all_device_ids)
         persisted_external_wait_timeout = await container.settings_store.get(
             EXTERNAL_VRAM_WAIT_TIMEOUT_SECONDS_KEY
         )
@@ -1517,6 +1536,16 @@ def create_app(
             try:
                 container.vram_allocator.set_external_vram_wait_timeout_seconds(
                     float(persisted_external_wait_timeout)
+                )
+            except (TypeError, ValueError):
+                pass
+        persisted_internal_wait_timeout = await container.settings_store.get(
+            INTERNAL_VRAM_WAIT_TIMEOUT_SECONDS_KEY
+        )
+        if persisted_internal_wait_timeout is not None:
+            try:
+                container.vram_allocator.set_internal_vram_wait_timeout_seconds(
+                    float(persisted_internal_wait_timeout)
                 )
             except (TypeError, ValueError):
                 pass
@@ -2851,6 +2880,21 @@ def create_app(
                         "suffixKey": "settings.suffix.seconds",
                     },
                     {
+                        "key": "internalVramWaitTimeoutSeconds",
+                        "labelKey": "settings.fields.internalVramWaitTimeoutSeconds.label",
+                        "descriptionKey": (
+                            "settings.fields.internalVramWaitTimeoutSeconds.description"
+                        ),
+                        "type": "number",
+                        "value": float(
+                            db_settings.get(
+                                INTERNAL_VRAM_WAIT_TIMEOUT_SECONDS_KEY,
+                                app_container.vram_allocator.internal_vram_wait_timeout_seconds,
+                            )
+                        ),
+                        "suffixKey": "settings.suffix.seconds",
+                    },
+                    {
                         "key": "rateLimitPerHour",
                         "labelKey": "settings.fields.rateLimitPerHour.label",
                         "descriptionKey": "settings.fields.rateLimitPerHour.description",
@@ -2902,6 +2946,7 @@ def create_app(
             "maxLoadedModels",
             "maxTasksPerSlot",
             "externalVramWaitTimeoutSeconds",
+            "internalVramWaitTimeoutSeconds",
             "gpuDisabledDevices",
         }
         updates = {k: v for k, v in payload.items() if k in allowed_keys}
@@ -2994,6 +3039,28 @@ def create_app(
                 external_vram_wait_timeout_seconds
             )
 
+        if "internalVramWaitTimeoutSeconds" in updates:
+            try:
+                internal_vram_wait_timeout_seconds = float(
+                    updates["internalVramWaitTimeoutSeconds"]
+                )
+            except (TypeError, ValueError) as exc:
+                raise HTTPException(
+                    status_code=422,
+                    detail="internalVramWaitTimeoutSeconds must be a number",
+                ) from exc
+            if internal_vram_wait_timeout_seconds <= 0:
+                raise HTTPException(
+                    status_code=422,
+                    detail="internalVramWaitTimeoutSeconds must be > 0",
+                )
+            normalized_updates["internalVramWaitTimeoutSeconds"] = (
+                internal_vram_wait_timeout_seconds
+            )
+            persisted_updates[INTERNAL_VRAM_WAIT_TIMEOUT_SECONDS_KEY] = (
+                internal_vram_wait_timeout_seconds
+            )
+
         if "gpuDisabledDevices" in updates:
             try:
                 parsed_disabled_devices = _parse_gpu_disabled_devices_update(
@@ -3083,6 +3150,10 @@ def create_app(
         if "externalVramWaitTimeoutSeconds" in normalized_updates:
             app_container.vram_allocator.set_external_vram_wait_timeout_seconds(
                 normalized_updates["externalVramWaitTimeoutSeconds"]
+            )
+        if "internalVramWaitTimeoutSeconds" in normalized_updates:
+            app_container.vram_allocator.set_internal_vram_wait_timeout_seconds(
+                normalized_updates["internalVramWaitTimeoutSeconds"]
             )
 
         return {"ok": True, "updated": list(normalized_updates.keys())}

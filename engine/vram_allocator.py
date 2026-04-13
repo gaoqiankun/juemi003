@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from typing import Awaitable, Callable, Iterable
+from typing import Awaitable, Callable, Iterable, Protocol
+
+import structlog
 
 
 def _normalize_model_name(model_name: str) -> str:
@@ -54,13 +56,40 @@ class ExternalVRAMOccupationTimeoutError(VRAMAllocatorError):
     pass
 
 
+class InternalVRAMContentionTimeoutError(VRAMAllocatorError):
+    pass
+
+
 VRAMProbe = Callable[[str], int | None]
+
+
+class AcquireOutcomeCallback(Protocol):
+    def __call__(self, *, device: str, outcome: str) -> None: ...
+
+
+class AcquireWaitCallback(Protocol):
+    def __call__(self, *, device: str, wait_seconds: float) -> None: ...
+
+
+class EvictCallback(Protocol):
+    def __call__(self, *, device: str, result: str) -> None: ...
+
+
+@dataclass(slots=True)
+class VRAMMetricsHook:
+    on_acquire_outcome: AcquireOutcomeCallback | None = None
+    on_acquire_wait: AcquireWaitCallback | None = None
+    on_evict: EvictCallback | None = None
+
+
+_logger = structlog.get_logger(__name__)
 
 
 class VRAMAllocator:
     _INFERENCE_WAIT_SECONDS = 0.01
     _EVICT_WAIT_WINDOW_SECONDS = 2.0
     _DEFAULT_EXTERNAL_VRAM_WAIT_TIMEOUT_SECONDS = 30.0
+    _DEFAULT_INTERNAL_VRAM_WAIT_TIMEOUT_SECONDS = 60.0
 
     def __init__(
         self,
@@ -96,6 +125,10 @@ class VRAMAllocator:
         self._external_vram_wait_timeout_seconds = (
             self._DEFAULT_EXTERNAL_VRAM_WAIT_TIMEOUT_SECONDS
         )
+        self._internal_vram_wait_timeout_seconds = (
+            self._DEFAULT_INTERNAL_VRAM_WAIT_TIMEOUT_SECONDS
+        )
+        self._metrics_hook: VRAMMetricsHook | None = None
 
     @property
     def device_ids(self) -> tuple[str, ...]:
@@ -114,6 +147,9 @@ class VRAMAllocator:
         """Inject runtime per-device free VRAM probe (MB). None disables probing."""
         self._vram_probe = probe
 
+    def set_metrics_hook(self, hook: VRAMMetricsHook | None) -> None:
+        self._metrics_hook = hook
+
     def set_external_vram_wait_timeout_seconds(self, seconds: float | None) -> None:
         """Set external VRAM wait timeout. None/<=0 falls back to default."""
         if seconds is None or seconds <= 0:
@@ -126,6 +162,19 @@ class VRAMAllocator:
     @property
     def external_vram_wait_timeout_seconds(self) -> float:
         return self._external_vram_wait_timeout_seconds
+
+    def set_internal_vram_wait_timeout_seconds(self, seconds: float | None) -> None:
+        """Set internal contention timeout. None/<=0 falls back to default."""
+        if seconds is None or seconds <= 0:
+            self._internal_vram_wait_timeout_seconds = (
+                self._DEFAULT_INTERNAL_VRAM_WAIT_TIMEOUT_SECONDS
+            )
+            return
+        self._internal_vram_wait_timeout_seconds = float(seconds)
+
+    @property
+    def internal_vram_wait_timeout_seconds(self) -> float:
+        return self._internal_vram_wait_timeout_seconds
 
     def active_inference_model_names_on(self, device_id: str) -> frozenset[str]:
         normalized_device = _normalize_device_id(device_id)
@@ -214,8 +263,9 @@ class VRAMAllocator:
         required_mb = _normalize_vram_mb(inference_vram_mb)
         loop = asyncio.get_running_loop()
         wait_window_start = loop.time()
+        internal_wait_started_at: float | None = None
         external_occupied_since: float | None = None
-        evict_allowed = self._evict_callback is not None
+        evict_succeeded = False
 
         while True:
             allocation_id = self._try_acquire_inference(
@@ -224,35 +274,74 @@ class VRAMAllocator:
                 inference_vram_mb=required_mb,
             )
             if allocation_id is not None:
+                outcome = self._resolve_success_outcome(
+                    evict_succeeded=evict_succeeded,
+                    internal_wait_started_at=internal_wait_started_at,
+                )
+                self._emit_acquire_result(
+                    device_id=normalized_device,
+                    outcome=outcome,
+                    wait_seconds=self._wait_seconds(
+                        started_at=internal_wait_started_at,
+                        now=loop.time(),
+                    ),
+                )
                 return allocation_id
+            now = loop.time()
+            internal_wait_started_at = self._touch_internal_wait_or_raise(
+                device_id=normalized_device,
+                started_at=internal_wait_started_at,
+                now=now,
+            )
 
             budget = self._budgets.get(normalized_device)
             if budget is not None:
-                external_occupied_since = self._track_external_occupation_wait(
-                    device_id=normalized_device,
-                    budget=budget,
-                    external_occupied_since=external_occupied_since,
-                    now=loop.time(),
-                )
+                try:
+                    external_occupied_since = self._track_external_occupation_wait(
+                        device_id=normalized_device,
+                        budget=budget,
+                        external_occupied_since=external_occupied_since,
+                        now=now,
+                    )
+                except ExternalVRAMOccupationTimeoutError:
+                    self._emit_acquire_result(
+                        device_id=normalized_device,
+                        outcome="timeout_external",
+                        wait_seconds=self._wait_seconds(
+                            started_at=internal_wait_started_at,
+                            now=loop.time(),
+                        ),
+                    )
+                    raise
 
-            elapsed = loop.time() - wait_window_start
-            if evict_allowed and elapsed >= self._EVICT_WAIT_WINDOW_SECONDS:
-                evict_callback = self._evict_callback
-                if evict_callback is None:
-                    evict_allowed = False
-                else:
-                    evicted = await evict_callback(normalized_device, normalized_model)
-                    if evicted:
-                        allocation_id = self._try_acquire_inference(
-                            model_name=normalized_model,
-                            device_id=normalized_device,
-                            inference_vram_mb=required_mb,
-                        )
-                        if allocation_id is not None:
-                            return allocation_id
-                        wait_window_start = loop.time()
-                        continue
-                    evict_allowed = False
+            wait_window_start, evicted = await self._maybe_evict(
+                device_id=normalized_device,
+                model_name=normalized_model,
+                wait_window_start=wait_window_start,
+                now=loop.time(),
+            )
+            if evicted:
+                evict_succeeded = True
+                allocation_id = self._try_acquire_inference(
+                    model_name=normalized_model,
+                    device_id=normalized_device,
+                    inference_vram_mb=required_mb,
+                )
+                if allocation_id is not None:
+                    self._emit_acquire_result(
+                        device_id=normalized_device,
+                        outcome="after_evict",
+                        wait_seconds=self._wait_seconds(
+                            started_at=internal_wait_started_at,
+                            now=loop.time(),
+                        ),
+                    )
+                    return allocation_id
+                # A successful evict starts a new waiting round.
+                reset_at = loop.time()
+                wait_window_start = reset_at
+                internal_wait_started_at = reset_at
+                external_occupied_since = None
             await asyncio.sleep(self._INFERENCE_WAIT_SECONDS)
 
     def release_inference(self, allocation_id: str) -> None:
@@ -318,6 +407,137 @@ class VRAMAllocator:
             f"{self._external_vram_wait_timeout_seconds:.1f}s "
             f"on device {device_id}"
         )
+
+    async def _maybe_evict(
+        self,
+        *,
+        device_id: str,
+        model_name: str,
+        wait_window_start: float,
+        now: float,
+    ) -> tuple[float, bool]:
+        if now - wait_window_start < self._EVICT_WAIT_WINDOW_SECONDS:
+            return wait_window_start, False
+        evict_callback = self._evict_callback
+        if evict_callback is None:
+            return now, False
+        try:
+            evicted = await evict_callback(device_id, model_name)
+        except Exception:
+            self._emit_evict_result(device_id=device_id, result="failure")
+            raise
+        self._emit_evict_result(
+            device_id=device_id,
+            result="success" if evicted else "noop",
+        )
+        return asyncio.get_running_loop().time(), evicted
+
+    def _raise_internal_contention_timeout(
+        self,
+        *,
+        device_id: str,
+        started_at: float,
+        now: float,
+    ) -> None:
+        wait_seconds = self._wait_seconds(started_at=started_at, now=now)
+        self._emit_acquire_result(
+            device_id=device_id,
+            outcome="timeout_internal",
+            wait_seconds=wait_seconds,
+        )
+        raise InternalVRAMContentionTimeoutError(
+            "internal VRAM contention timeout after "
+            f"{self._internal_vram_wait_timeout_seconds:.1f}s "
+            f"on device {device_id}"
+        )
+
+    def _touch_internal_wait_or_raise(
+        self,
+        *,
+        device_id: str,
+        started_at: float | None,
+        now: float,
+    ) -> float:
+        if started_at is None:
+            return now
+        if now - started_at > self._internal_vram_wait_timeout_seconds:
+            self._raise_internal_contention_timeout(
+                device_id=device_id,
+                started_at=started_at,
+                now=now,
+            )
+        return started_at
+
+    def _emit_acquire_result(
+        self,
+        *,
+        device_id: str,
+        outcome: str,
+        wait_seconds: float,
+    ) -> None:
+        hook = self._metrics_hook
+        if hook is None:
+            return
+        if hook.on_acquire_outcome is not None:
+            try:
+                hook.on_acquire_outcome(
+                    device=device_id,
+                    outcome=outcome,
+                )
+            except Exception as exc:
+                _logger.warning(
+                    "vram_allocator.metrics_hook_failed",
+                    hook="on_acquire_outcome",
+                    error=str(exc),
+                )
+        if hook.on_acquire_wait is not None:
+            try:
+                hook.on_acquire_wait(
+                    device=device_id,
+                    wait_seconds=max(wait_seconds, 0.0),
+                )
+            except Exception as exc:
+                _logger.warning(
+                    "vram_allocator.metrics_hook_failed",
+                    hook="on_acquire_wait",
+                    error=str(exc),
+                )
+
+    def _emit_evict_result(
+        self,
+        *,
+        device_id: str,
+        result: str,
+    ) -> None:
+        hook = self._metrics_hook
+        if hook is None or hook.on_evict is None:
+            return
+        try:
+            hook.on_evict(device=device_id, result=result)
+        except Exception as exc:
+            _logger.warning(
+                "vram_allocator.metrics_hook_failed",
+                hook="on_evict",
+                error=str(exc),
+            )
+
+    @staticmethod
+    def _wait_seconds(*, started_at: float | None, now: float) -> float:
+        if started_at is None:
+            return 0.0
+        return max(now - started_at, 0.0)
+
+    @staticmethod
+    def _resolve_success_outcome(
+        *,
+        evict_succeeded: bool,
+        internal_wait_started_at: float | None,
+    ) -> str:
+        if evict_succeeded:
+            return "after_evict"
+        if internal_wait_started_at is not None:
+            return "after_wait"
+        return "immediate"
 
     def _resolve_candidate_ids(
         self,

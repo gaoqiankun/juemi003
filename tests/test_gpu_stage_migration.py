@@ -18,6 +18,7 @@ from gen3d.engine.model_registry import ModelRegistry, ModelRuntime
 from gen3d.engine.sequence import RequestSequence, TaskStatus
 from gen3d.engine.vram_allocator import (
     ExternalVRAMOccupationTimeoutError,
+    InternalVRAMContentionTimeoutError,
     VRAMAllocatorError,
 )
 from gen3d.model.base import BaseModelProvider, GenerationResult
@@ -223,6 +224,34 @@ def test_acquire_does_not_retry_on_other_vram_errors() -> None:
         with pytest.raises(VRAMAllocatorError):
             await stage.run(_build_sequence(model_name))
         assert registry.reload_calls == []
+
+    asyncio.run(scenario())
+
+
+def test_acquire_does_not_retry_on_internal_contention_timeout() -> None:
+    async def scenario() -> None:
+        model_name = "trellis2"
+        worker = FakeWorker(worker_id="worker-0", device_id="0")
+        scheduler = FakeScheduler(
+            outcomes=[InternalVRAMContentionTimeoutError("internal contention timeout")]
+        )
+        runtime = _build_runtime(
+            model_name=model_name,
+            device_id="0",
+            scheduler=scheduler,
+            worker=worker,
+        )
+        registry = FakeModelRegistry(runtime=runtime, reload_runtime=runtime)
+        stage = GPUStage(
+            delay_ms=0,
+            model_registry=cast(ModelRegistry, registry),
+            task_store=FakeTaskStore(),
+        )
+
+        with pytest.raises(InternalVRAMContentionTimeoutError):
+            await stage.run(_build_sequence(model_name))
+        assert registry.reload_calls == []
+        assert registry.wait_ready_calls == []
 
     asyncio.run(scenario())
 

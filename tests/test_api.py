@@ -1288,6 +1288,7 @@ def test_admin_settings_returns_dynamic_provider_options_and_excludes_deploy_fie
     generation_field_keys = {field["key"] for field in generation_fields}
     assert "maxLoadedModels" in generation_field_keys
     assert "maxTasksPerSlot" in generation_field_keys
+    assert "internalVramWaitTimeoutSeconds" in generation_field_keys
 
 
 def test_admin_settings_patch_updates_scheduler_limits(
@@ -1355,6 +1356,51 @@ def test_admin_settings_patch_hot_updates_rate_limit_and_queue_capacity(
     assert "max 1 task requests per hour" in second_task_same_key_response.json()["detail"]
     assert third_task_other_key_response.status_code == 503
     assert third_task_other_key_response.json()["detail"]["code"] == "queue_full"
+
+
+def test_admin_settings_patch_updates_internal_vram_wait_timeout(
+    tmp_path: Path,
+) -> None:
+    with make_client(tmp_path, admin_token="admin-token") as client:
+        patch_response = client.patch(
+            "/api/admin/settings",
+            headers=admin_headers(),
+            json={"internalVramWaitTimeoutSeconds": 12.5},
+        )
+        settings_response = client.get(
+            "/api/admin/settings",
+            headers=admin_headers(),
+        )
+        allocator_timeout = (
+            client.app.state.container.vram_allocator.internal_vram_wait_timeout_seconds
+        )
+
+    assert patch_response.status_code == 200
+    assert patch_response.json()["updated"] == ["internalVramWaitTimeoutSeconds"]
+    assert allocator_timeout == 12.5
+    assert settings_response.status_code == 200
+    sections = settings_response.json()["sections"]
+    generation_section = next(section for section in sections if section["key"] == "generation")
+    timeout_field = next(
+        field
+        for field in generation_section["fields"]
+        if field["key"] == "internalVramWaitTimeoutSeconds"
+    )
+    assert timeout_field["value"] == 12.5
+
+
+def test_admin_settings_patch_rejects_non_positive_internal_vram_wait_timeout(
+    tmp_path: Path,
+) -> None:
+    with make_client(tmp_path, admin_token="admin-token") as client:
+        response = client.patch(
+            "/api/admin/settings",
+            headers=admin_headers(),
+            json={"internalVramWaitTimeoutSeconds": 0},
+        )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "internalVramWaitTimeoutSeconds must be > 0"
 
 
 def test_admin_models_returns_friendly_error_message_when_runtime_load_fails(
@@ -3998,6 +4044,13 @@ def test_single_gpu_default_configuration_exposes_slot_metric(tmp_path: Path) ->
 
     assert "gpu_slot_active" in metrics_payload
     assert 'gpu_slot_active{device="0"}' in metrics_payload
+    assert "vram_acquire_inference_total" in metrics_payload
+    assert 'vram_acquire_inference_total{device="0",outcome="immediate"}' in metrics_payload
+    assert 'vram_acquire_inference_total{device="0",outcome="timeout_internal"}' in metrics_payload
+    assert "vram_acquire_inference_wait_seconds_bucket" in metrics_payload
+    assert 'vram_acquire_inference_wait_seconds_bucket{device="0",le="0.001"}' in metrics_payload
+    assert "vram_evict_total" in metrics_payload
+    assert 'vram_evict_total{device="0",result="success"}' in metrics_payload
 
 
 def test_gpu_queued_task_can_be_cancelled_and_repeat_cancel_is_rejected(tmp_path: Path) -> None:

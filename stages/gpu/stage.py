@@ -8,7 +8,10 @@ from dataclasses import dataclass
 import structlog
 from gen3d.engine.model_registry import ModelRegistry
 from gen3d.engine.sequence import RequestSequence, TaskStatus
-from gen3d.engine.vram_allocator import ExternalVRAMOccupationTimeoutError
+from gen3d.engine.vram_allocator import (
+    ExternalVRAMOccupationTimeoutError,
+    InternalVRAMContentionTimeoutError,
+)
 from gen3d.model.base import ModelProviderExecutionError, StageProgress
 from gen3d.observability.metrics import observe_stage_duration
 from gen3d.stages.base import BaseStage, StageExecutionError, StageUpdateHandler
@@ -85,6 +88,8 @@ class GPUStage(BaseStage):
                             options=sequence.options,
                         )
                         break
+                    except InternalVRAMContentionTimeoutError:
+                        raise
                     except ExternalVRAMOccupationTimeoutError as exc:
                         if migration_attempted:
                             raise
