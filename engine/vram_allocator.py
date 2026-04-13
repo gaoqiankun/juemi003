@@ -370,6 +370,13 @@ class VRAMAllocator:
                 "effective_free_vram_mb": self._effective_free_mb(device_id, budget),
                 "allocations": dict(budget.allocations),
                 "inference_allocations": dict(budget.inference_allocations),
+                "inference_allocation_models": {
+                    allocation_id: model_name
+                    for allocation_id in budget.inference_allocations
+                    if (
+                        model_name := self._inference_to_model.get(allocation_id)
+                    ) is not None
+                },
             }
         return result
 

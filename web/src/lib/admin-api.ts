@@ -22,6 +22,51 @@ export interface SettingsData extends MockSettingsData {
   gpuDevices?: GpuDeviceSetting[];
 }
 
+export interface GpuStateCluster {
+  deviceCount: number;
+  totalVramMb: number;
+  reservedVramMb: number;
+  usedWeightVramMb: number;
+  usedInferenceVramMb: number;
+  freeVramMb: number;
+  effectiveFreeVramMb: number;
+}
+
+export interface GpuStateWeightModel {
+  name: string;
+  vramMb: number;
+}
+
+export interface GpuStateHolder {
+  kind: "weight" | "inference";
+  modelName: string;
+  deviceId: string;
+  vramMb: number;
+  runtimeState?: string;
+  allocationId?: string;
+}
+
+export interface GpuStateDevice {
+  deviceId: string;
+  name: string;
+  totalVramMb: number;
+  reservedVramMb: number;
+  usedWeightVramMb: number;
+  usedInferenceVramMb: number;
+  freeVramMb: number;
+  effectiveFreeVramMb: number;
+  externalOccupationMb: number;
+  weightModels: GpuStateWeightModel[];
+  inferenceCount: number;
+  enabled: boolean;
+}
+
+export interface GpuStateResponse {
+  cluster: GpuStateCluster;
+  holders: GpuStateHolder[];
+  devices: GpuStateDevice[];
+}
+
 export function getAdminToken(): string {
   return localStorage.getItem(ADMIN_TOKEN_KEY) || "";
 }
@@ -360,6 +405,7 @@ export const fetchSettings = () => adminFetch<SettingsData>("/api/admin/settings
 export interface UpdateSettingsPayload extends Record<string, unknown> {
   gpuDisabledDevices?: string[];
 }
+export const getGpuState = () => adminFetch<GpuStateResponse>("/api/admin/gpu/state");
 
 export const updateSettings = (data: UpdateSettingsPayload) =>
   adminFetch<unknown>("/api/admin/settings", { method: "PATCH", body: JSON.stringify(data) });

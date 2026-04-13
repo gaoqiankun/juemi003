@@ -548,6 +548,37 @@
       "success": "Settings saved."
     }
   },
+  "system": {
+    "vramPanel": {
+      "title": "VRAM Usage",
+      "loading": "Loading...",
+      "cluster": {
+        "total": "Total",
+        "usedWeight": "Weight",
+        "usedInference": "Inference",
+        "free": "Free",
+        "effectiveFree": "Effective Free",
+        "externalOccupation": "External"
+      },
+      "holders": {
+        "columnHolder": "Holder",
+        "columnType": "Type",
+        "columnDevice": "Device",
+        "columnVram": "VRAM (MB)",
+        "typeWeight": "weight",
+        "typeInference": "inference",
+        "empty": "No VRAM allocations"
+      },
+      "device": {
+        "enabled": "Enabled",
+        "disabled": "Disabled",
+        "inferenceCount": "Active inferences"
+      },
+      "externalOccupation": {
+        "tooltip": "GPU memory used outside allocator: {{value}}"
+      }
+    }
+  },
   "storage": {
     "diskUsage": "Disk Usage",
     "cache": "Cache",

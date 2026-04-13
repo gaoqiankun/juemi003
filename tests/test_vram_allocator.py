@@ -75,6 +75,29 @@ def test_allocator_honors_preferred_device_and_release() -> None:
     assert assigned == "1"
 
 
+def test_vram_allocator_snapshot_includes_inference_models() -> None:
+    async def scenario() -> None:
+        allocator = VRAMAllocator(device_totals_mb={"0": 24_000})
+        allocator.reserve(
+            model_name="trellis2",
+            weight_vram_mb=16_000,
+            preferred_device_id="0",
+        )
+        allocation_id = await allocator.acquire_inference(
+            model_name="trellis2",
+            device_id="0",
+            inference_vram_mb=2_000,
+        )
+
+        snapshot = allocator.snapshot()
+        assert snapshot["0"]["inference_allocations"] == {allocation_id: 2_000}
+        assert snapshot["0"]["inference_allocation_models"] == {
+            allocation_id: "trellis2"
+        }
+
+    asyncio.run(scenario())
+
+
 def test_external_timeout_error_is_allocator_error_subclass() -> None:
     assert issubclass(ExternalVRAMOccupationTimeoutError, VRAMAllocatorError)
 

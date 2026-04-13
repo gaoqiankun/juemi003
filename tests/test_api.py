@@ -1553,6 +1553,41 @@ def test_admin_key_routes_require_admin_token(tmp_path: Path) -> None:
     assert key_manager_response.json()["detail"] == "invalid admin token"
 
 
+def test_admin_gpu_state_requires_admin_token_and_returns_snapshot(
+    tmp_path: Path,
+) -> None:
+    with make_client(tmp_path, admin_token="admin-token") as client:
+        missing_token_response = client.get("/api/admin/gpu/state")
+        admin_token_response = client.get(
+            "/api/admin/gpu/state",
+            headers=admin_headers(),
+        )
+
+    assert missing_token_response.status_code == 401
+    assert missing_token_response.json()["detail"] == "invalid admin token"
+    assert admin_token_response.status_code == 200
+
+    payload = admin_token_response.json()
+    assert payload["cluster"]["deviceCount"] >= 1
+    assert isinstance(payload["holders"], list)
+    assert isinstance(payload["devices"], list)
+    assert payload["devices"]
+    assert {
+        "deviceId",
+        "name",
+        "totalVramMb",
+        "reservedVramMb",
+        "usedWeightVramMb",
+        "usedInferenceVramMb",
+        "freeVramMb",
+        "effectiveFreeVramMb",
+        "externalOccupationMb",
+        "weightModels",
+        "inferenceCount",
+        "enabled",
+    } <= set(payload["devices"][0].keys())
+
+
 def test_admin_hf_routes_require_admin_token(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

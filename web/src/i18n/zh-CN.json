@@ -548,6 +548,37 @@
       "success": "设置已保存。"
     }
   },
+  "system": {
+    "vramPanel": {
+      "title": "显存占用",
+      "loading": "加载中...",
+      "cluster": {
+        "total": "总量",
+        "usedWeight": "权重",
+        "usedInference": "推理",
+        "free": "空闲",
+        "effectiveFree": "有效空闲",
+        "externalOccupation": "外部占用"
+      },
+      "holders": {
+        "columnHolder": "持有者",
+        "columnType": "类型",
+        "columnDevice": "设备",
+        "columnVram": "显存 (MB)",
+        "typeWeight": "权重",
+        "typeInference": "推理",
+        "empty": "当前没有显存分配"
+      },
+      "device": {
+        "enabled": "已启用",
+        "disabled": "已禁用",
+        "inferenceCount": "活跃推理数"
+      },
+      "externalOccupation": {
+        "tooltip": "由 allocator 之外占用的显存：{{value}}"
+      }
+    }
+  },
   "storage": {
     "diskUsage": "磁盘使用",
     "cache": "缓存",
