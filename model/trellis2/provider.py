@@ -40,7 +40,10 @@ class MockTrellis2Provider:
 
     def estimate_inference_vram_mb(self, batch_size: int, options: dict[str, Any]) -> int:
         _ = options
-        return max(batch_size, 1) * 20_000 - self.estimate_weight_vram_mb(options)
+        return max(
+            max(batch_size, 1) * 20_000 - self.estimate_weight_vram_mb(options),
+            1,
+        )
 
     def estimate_vram_mb(self, batch_size: int, options: dict[str, Any]) -> int:
         return self.estimate_weight_vram_mb(options) + self.estimate_inference_vram_mb(
@@ -236,6 +239,7 @@ class Trellis2Provider:
                     stage_name="gpu_run",
                     message=f"TRELLIS2 inference failed: {exc}",
                 ) from exc
+            await asyncio.to_thread(_move_mesh_to_cpu, mesh)
 
             results.append(
                 GenerationResult(
@@ -641,3 +645,42 @@ def _extract_pil_image(prepared_input: Any) -> Any:
     if isinstance(prepared_input, dict) and "image" in prepared_input:
         return prepared_input["image"]
     return prepared_input
+
+
+def _move_mesh_to_cpu(mesh: Any) -> None:
+    for field_name in ("vertices", "faces", "coords", "attrs"):
+        if not hasattr(mesh, field_name):
+            continue
+        moved_tensor = _detach_cpu_tensor(getattr(mesh, field_name))
+        if moved_tensor is None:
+            continue
+        try:
+            setattr(mesh, field_name, moved_tensor)
+        except (AttributeError, TypeError):
+            continue
+
+    layout = getattr(mesh, "layout", None)
+    if not isinstance(layout, dict):
+        return
+    for key, value in tuple(layout.items()):
+        moved_tensor = _detach_cpu_tensor(value)
+        if moved_tensor is None:
+            continue
+        try:
+            layout[key] = moved_tensor
+        except (AttributeError, TypeError):
+            continue
+
+
+def _detach_cpu_tensor(value: Any) -> Any | None:
+    if not getattr(value, "is_cuda", False):
+        return None
+    detach = getattr(value, "detach", None)
+    detached = detach() if callable(detach) else value
+    detached_cpu = getattr(detached, "cpu", None)
+    if not callable(detached_cpu):
+        return None
+    try:
+        return detached_cpu()
+    except Exception:
+        return None

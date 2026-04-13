@@ -880,6 +880,37 @@ def _detect_device_total_vram_mb(
     return totals
 
 
+def _summarize_inference_options(options: dict[str, Any]) -> list[str]:
+    option_keys = sorted(str(key) for key in options.keys())
+    if len(option_keys) <= 8:
+        return option_keys
+    return [*option_keys[:8], "..."]
+
+
+def _clamp_inference_estimate_mb(
+    *,
+    raw_value: Any,
+    model: str,
+    batch_size: int,
+    options: dict[str, Any],
+) -> int:
+    try:
+        normalized = int(float(raw_value))  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        normalized = 0
+    if normalized <= 0:
+        _logger.warning(
+            "estimate_inference_vram_mb_nonpositive",
+            model=model,
+            raw=raw_value,
+            clamped=1,
+            batch_size=batch_size,
+            options=_summarize_inference_options(options),
+        )
+        return 1
+    return normalized
+
+
 async def _resolve_model_definition_for_runtime(
     model_store: ModelStore,
     normalized_model_name: str,
@@ -1340,8 +1371,15 @@ def create_app(
         def estimate_inference_vram_mb(batch_size: int, options: dict[str, Any]) -> int:
             if config.is_mock_provider:
                 return 1
-            return runtime.provider.estimate_inference_vram_mb(
-                batch_size=max(int(batch_size), 1),
+            normalized_batch_size = max(int(batch_size), 1)
+            raw_value = runtime.provider.estimate_inference_vram_mb(
+                batch_size=normalized_batch_size,
+                options=options,
+            )
+            return _clamp_inference_estimate_mb(
+                raw_value=raw_value,
+                model=normalized_model_name,
+                batch_size=normalized_batch_size,
                 options=options,
             )
 

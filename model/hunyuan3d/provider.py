@@ -49,7 +49,10 @@ class MockHunyuan3DProvider:
 
     def estimate_inference_vram_mb(self, batch_size: int, options: dict[str, Any]) -> int:
         _ = options
-        return max(batch_size, 1) * 24_000 - self.estimate_weight_vram_mb(options)
+        return max(
+            max(batch_size, 1) * 24_000 - self.estimate_weight_vram_mb(options),
+            1,
+        )
 
     def estimate_vram_mb(self, batch_size: int, options: dict[str, Any]) -> int:
         return self.estimate_weight_vram_mb(options) + self.estimate_inference_vram_mb(
