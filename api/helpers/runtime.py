@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from gen3d.api.helpers.deps import _resolve_dep_paths
 from gen3d.api.helpers.gpu_device import _resolve_device_ids
@@ -73,6 +73,7 @@ async def build_model_runtime(
     model_name: str,
     device_ids: tuple[str, ...] | None = None,
     disabled_devices: set[str] | None = None,
+    measurement_callback: Callable[[str, str, int], None] | None = None,
 ) -> ModelRuntime:
     normalized_model_name = str(model_name).strip().lower()
     model_definition = await _resolve_model_definition_for_runtime(
@@ -148,6 +149,8 @@ async def build_model_runtime(
         model_path=provider_model_path,
         device_ids=resolved_device_ids,
         dep_paths=dep_paths,
+        model_name=normalized_model_name,
+        measurement_callback=measurement_callback,
     )
     return ModelRuntime(
         model_name=normalized_model_name,

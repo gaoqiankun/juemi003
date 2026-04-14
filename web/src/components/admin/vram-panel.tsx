@@ -10,8 +10,9 @@ import {
 
 const POLL_INTERVAL_MS = 3_000;
 
-function formatVramMb(value: number): string {
-  return `${Math.max(0, Math.round(value))} MB`;
+function formatVramGb(value: number): string {
+  const safeValue = Number.isFinite(value) ? value : 0;
+  return `${Math.max(0, safeValue / 1024).toFixed(1)} GB`;
 }
 function toPercent(value: number, total: number): number {
   if (total <= 0) return 0;
@@ -139,9 +140,9 @@ export function VramPanel() {
       <div className="flex flex-wrap items-start justify-between gap-2">
         <h2 className="text-lg font-semibold tracking-[-0.02em] text-text-primary">{t("system.vramPanel.title")}</h2>
         {clusterExternalOccupation > 0 ? (
-          <span className="inline-flex items-center gap-1 text-xs text-danger-text" title={t("system.vramPanel.externalOccupation.tooltip", { value: formatVramMb(clusterExternalOccupation) })}>
+          <span className="inline-flex items-center gap-1 text-xs text-danger-text" title={t("system.vramPanel.externalOccupation.tooltip", { value: formatVramGb(clusterExternalOccupation) })}>
             <span className="h-2 w-2 rounded-full bg-danger" />
-            <span>{t("system.vramPanel.cluster.externalOccupation")}: {formatVramMb(clusterExternalOccupation)}</span>
+            <span>{t("system.vramPanel.cluster.externalOccupation")}: {formatVramGb(clusterExternalOccupation)}</span>
           </span>
         ) : null}
       </div>
@@ -160,14 +161,14 @@ export function VramPanel() {
           })}
           <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-text-secondary">
             <div className="flex flex-wrap items-center gap-2">
-              <span>{t("system.vramPanel.cluster.total")}: {formatVramMb(cluster.totalVramMb)}</span>
-              <span>{t("system.vramPanel.cluster.usedWeight")}: {formatVramMb(cluster.usedWeightVramMb)}</span>
-              <span>{t("system.vramPanel.cluster.usedInference")}: {formatVramMb(cluster.usedInferenceVramMb)}</span>
-              <span>{t("system.vramPanel.cluster.free")}: {formatVramMb(cluster.freeVramMb)}</span>
-              <span>{t("system.vramPanel.cluster.effectiveFree")}: {formatVramMb(cluster.effectiveFreeVramMb)}</span>
+              <span>{t("system.vramPanel.cluster.total")}: {formatVramGb(cluster.totalVramMb)}</span>
+              <span>{t("system.vramPanel.cluster.usedWeight")}: {formatVramGb(cluster.usedWeightVramMb)}</span>
+              <span>{t("system.vramPanel.cluster.usedInference")}: {formatVramGb(cluster.usedInferenceVramMb)}</span>
+              <span>{t("system.vramPanel.cluster.free")}: {formatVramGb(cluster.freeVramMb)}</span>
+              <span>{t("system.vramPanel.cluster.effectiveFree")}: {formatVramGb(cluster.effectiveFreeVramMb)}</span>
             </div>
             <span className="text-sm font-medium text-text-primary">
-              {formatVramMb(clusterUsed)} / {formatVramMb(clusterUsableTotal)} ({t("system.vramPanel.cluster.effectiveFree")} {formatVramMb(cluster.effectiveFreeVramMb)})
+              {formatVramGb(clusterUsed)} / {formatVramGb(clusterUsableTotal)} ({t("system.vramPanel.cluster.effectiveFree")} {formatVramGb(cluster.effectiveFreeVramMb)})
             </span>
           </div>
         </div>
@@ -204,7 +205,7 @@ export function VramPanel() {
                   </Badge>
                 </td>
                 <td className="px-3 py-2.5 text-text-secondary">{t("settings.gpuDevices.device", { deviceId: holder.deviceId })}</td>
-                <td className="px-3 py-2.5 text-right tabular-nums text-text-primary">{formatVramMb(holder.vramMb)}</td>
+                <td className="px-3 py-2.5 text-right tabular-nums text-text-primary">{formatVramGb(holder.vramMb)}</td>
               </tr>
             ))}
           </tbody>
@@ -235,16 +236,16 @@ export function VramPanel() {
                   external: externalOccupation,
                 })}
                 <div className="grid gap-1 text-xs text-text-secondary">
-                  <span>{t("system.vramPanel.cluster.total")}: {formatVramMb(device.totalVramMb)}</span>
-                  <span>{t("system.vramPanel.cluster.usedWeight")}: {formatVramMb(device.usedWeightVramMb)}</span>
-                  <span>{t("system.vramPanel.cluster.usedInference")}: {formatVramMb(device.usedInferenceVramMb)}</span>
-                  <span>{t("system.vramPanel.cluster.free")}: {formatVramMb(device.freeVramMb)}</span>
-                  <span>{t("system.vramPanel.cluster.effectiveFree")}: {formatVramMb(device.effectiveFreeVramMb)}</span>
+                  <span>{t("system.vramPanel.cluster.total")}: {formatVramGb(device.totalVramMb)}</span>
+                  <span>{t("system.vramPanel.cluster.usedWeight")}: {formatVramGb(device.usedWeightVramMb)}</span>
+                  <span>{t("system.vramPanel.cluster.usedInference")}: {formatVramGb(device.usedInferenceVramMb)}</span>
+                  <span>{t("system.vramPanel.cluster.free")}: {formatVramGb(device.freeVramMb)}</span>
+                  <span>{t("system.vramPanel.cluster.effectiveFree")}: {formatVramGb(device.effectiveFreeVramMb)}</span>
                 </div>
                 {externalOccupation > 0 ? (
-                  <span className="inline-flex items-center gap-1 text-xs text-danger-text" title={t("system.vramPanel.externalOccupation.tooltip", { value: formatVramMb(externalOccupation) })}>
+                  <span className="inline-flex items-center gap-1 text-xs text-danger-text" title={t("system.vramPanel.externalOccupation.tooltip", { value: formatVramGb(externalOccupation) })}>
                     <span className="h-2 w-2 rounded-full bg-danger" />
-                    <span>{t("system.vramPanel.cluster.externalOccupation")}: {formatVramMb(externalOccupation)}</span>
+                    <span>{t("system.vramPanel.cluster.externalOccupation")}: {formatVramGb(externalOccupation)}</span>
                   </span>
                 ) : null}
                 <div className="flex flex-wrap gap-1.5">
@@ -253,7 +254,7 @@ export function VramPanel() {
                   ) : device.weightModels.map((model) => (
                     <span key={`${device.deviceId}-${model.name}`} className="inline-flex items-center gap-1 rounded-full border border-outline px-2 py-0.5 text-xs text-text-secondary">
                       <span className="truncate">{model.name}</span>
-                      <span className="tabular-nums">{formatVramMb(model.vramMb)}</span>
+                      <span className="tabular-nums">{formatVramGb(model.vramMb)}</span>
                     </span>
                   ))}
                 </div>

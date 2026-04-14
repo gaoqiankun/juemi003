@@ -1,3 +1,5 @@
+# ruff: noqa: E402
+
 from __future__ import annotations
 
 import asyncio
@@ -12,6 +14,7 @@ WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
 if str(WORKSPACE_ROOT) not in sys.path:
     sys.path.insert(0, str(WORKSPACE_ROOT))
 
+from gen3d.api.server import _persist_vram_estimate_measurement, _update_vram_estimate
 from gen3d.engine.model_registry import (
     ModelRegistry,
     ModelRegistryLoadError,
@@ -24,8 +27,13 @@ from gen3d.stages.gpu.worker import GPUWorkerHandle
 
 
 class FakeWorker:
-    def __init__(self, device_id: str = "0") -> None:
+    def __init__(
+        self,
+        device_id: str = "0",
+        startup_weight_mb: int | None = None,
+    ) -> None:
         self.device_id = device_id
+        self.startup_weight_mb = startup_weight_mb
         self.start_calls = 0
         self.stop_calls = 0
 
@@ -466,5 +474,205 @@ def test_model_registry_reload_failure_sets_error_state() -> None:
         with pytest.raises(RuntimeError):
             registry.get_runtime("trellis2")
         await registry.close()
+
+    asyncio.run(scenario())
+
+
+def test_model_registry_notifies_weight_measurement_listener() -> None:
+    async def scenario() -> None:
+        worker = FakeWorker(device_id="0", startup_weight_mb=12_000)
+        measurements: list[tuple[str, str, int]] = []
+
+        async def runtime_loader(model_name: str) -> ModelRuntime:
+            return ModelRuntime(
+                model_name=model_name,
+                provider=cast(BaseModelProvider, object()),
+                workers=[cast(GPUWorkerHandle, worker)],
+                scheduler=GPUSlotScheduler([cast(GPUWorkerHandle, worker)]),
+                assigned_device_id="0",
+            )
+
+        registry = ModelRegistry(runtime_loader)
+        registry.add_weight_measured_listener(
+            lambda model_name, device_id, measured_mb: measurements.append(
+                (model_name, device_id, measured_mb)
+            )
+        )
+        registry.load("trellis2")
+        await registry.wait_ready("trellis2")
+
+        assert measurements == [("trellis2", "0", 12_000)]
+        await registry.close()
+
+    asyncio.run(scenario())
+
+
+def test_model_registry_reports_zero_startup_weight_measurement() -> None:
+    async def scenario() -> None:
+        worker = FakeWorker(device_id="0", startup_weight_mb=0)
+        measurements: list[tuple[str, str, int]] = []
+
+        async def runtime_loader(model_name: str) -> ModelRuntime:
+            return ModelRuntime(
+                model_name=model_name,
+                provider=cast(BaseModelProvider, object()),
+                workers=[cast(GPUWorkerHandle, worker)],
+                scheduler=GPUSlotScheduler([cast(GPUWorkerHandle, worker)]),
+                assigned_device_id="0",
+            )
+
+        registry = ModelRegistry(runtime_loader)
+        registry.add_weight_measured_listener(
+            lambda model_name, device_id, measured_mb: measurements.append(
+                (model_name, device_id, measured_mb)
+            )
+        )
+        registry.load("trellis2")
+        await registry.wait_ready("trellis2")
+
+        assert measurements == [("trellis2", "0", 0)]
+        await registry.close()
+
+    asyncio.run(scenario())
+
+
+def test_model_registry_skips_none_startup_weight_measurement() -> None:
+    async def scenario() -> None:
+        worker = FakeWorker(device_id="0", startup_weight_mb=None)
+        measurements: list[tuple[str, str, int]] = []
+
+        async def runtime_loader(model_name: str) -> ModelRuntime:
+            return ModelRuntime(
+                model_name=model_name,
+                provider=cast(BaseModelProvider, object()),
+                workers=[cast(GPUWorkerHandle, worker)],
+                scheduler=GPUSlotScheduler([cast(GPUWorkerHandle, worker)]),
+                assigned_device_id="0",
+            )
+
+        registry = ModelRegistry(
+            runtime_loader,
+        )
+        registry.add_weight_measured_listener(
+            lambda model_name, device_id, measured_mb: measurements.append(
+                (model_name, device_id, measured_mb)
+            )
+        )
+        registry.load("trellis2")
+        await registry.wait_ready("trellis2")
+
+        assert measurements == []
+        assert registry.get_state("trellis2") == "ready"
+        await registry.close()
+
+    asyncio.run(scenario())
+
+
+def test_model_registry_skips_weight_measurement_when_disabled() -> None:
+    async def scenario() -> None:
+        worker = FakeWorker(device_id="0", startup_weight_mb=12_000)
+        measurements: list[tuple[str, str, int]] = []
+
+        async def runtime_loader(model_name: str) -> ModelRuntime:
+            return ModelRuntime(
+                model_name=model_name,
+                provider=cast(BaseModelProvider, object()),
+                workers=[cast(GPUWorkerHandle, worker)],
+                scheduler=GPUSlotScheduler([cast(GPUWorkerHandle, worker)]),
+                assigned_device_id="0",
+            )
+
+        registry = ModelRegistry(
+            runtime_loader,
+            weight_measurement_enabled=False,
+        )
+        registry.add_weight_measured_listener(
+            lambda model_name, device_id, measured_mb: measurements.append(
+                (model_name, device_id, measured_mb)
+            )
+        )
+        registry.load("trellis2")
+        await registry.wait_ready("trellis2")
+
+        assert measurements == []
+        await registry.close()
+
+    asyncio.run(scenario())
+
+
+def test_update_vram_estimate_threshold_and_ema() -> None:
+    first_measurement = _update_vram_estimate(
+        "trellis2",
+        "weight_vram_mb",
+        12_000,
+        stored_mb=None,
+    )
+    assert first_measurement.should_update is True
+    assert first_measurement.new_mb == 12_000
+
+    stable_measurement = _update_vram_estimate(
+        "trellis2",
+        "weight_vram_mb",
+        10_900,
+        stored_mb=10_000,
+    )
+    assert stable_measurement.should_update is False
+    assert stable_measurement.new_mb == 10_270
+
+    updated_measurement = _update_vram_estimate(
+        "trellis2",
+        "weight_vram_mb",
+        12_600,
+        stored_mb=10_000,
+    )
+    assert updated_measurement.should_update is True
+    assert updated_measurement.new_mb == 10_780
+
+
+def test_persist_vram_estimate_measurement_applies_ema_update() -> None:
+    class FakeModelStore:
+        def __init__(self) -> None:
+            self.model = {
+                "id": "trellis2",
+                "weight_vram_mb": 10_000,
+                "inference_vram_mb": 5_000,
+            }
+            self.updates: list[tuple[str, dict[str, object]]] = []
+
+        async def get_model(self, model_id: str) -> dict[str, object] | None:
+            if model_id == "trellis2":
+                return dict(self.model)
+            return None
+
+        async def update_model(self, model_id: str, **updates: object) -> dict[str, object]:
+            self.updates.append((model_id, dict(updates)))
+            self.model.update(updates)
+            return dict(self.model)
+
+    async def scenario() -> None:
+        store = FakeModelStore()
+
+        decision = await _persist_vram_estimate_measurement(
+            store,  # type: ignore[arg-type]
+            model_id="trellis2",
+            field_name="weight_vram_mb",
+            measured_mb=12_600,
+            device_id="0",
+        )
+
+        assert decision is not None
+        assert decision.should_update is True
+        assert store.updates == [("trellis2", {"weight_vram_mb": 10_780})]
+
+        stable_decision = await _persist_vram_estimate_measurement(
+            store,  # type: ignore[arg-type]
+            model_id="trellis2",
+            field_name="weight_vram_mb",
+            measured_mb=10_900,
+            device_id="0",
+        )
+        assert stable_decision is not None
+        assert stable_decision.should_update is False
+        assert store.updates == [("trellis2", {"weight_vram_mb": 10_780})]
 
     asyncio.run(scenario())

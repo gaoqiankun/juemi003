@@ -10,6 +10,7 @@ from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Protocol
 
+import structlog
 from gen3d.model.base import (
     BaseModelProvider,
     GenerationResult,
@@ -22,12 +23,17 @@ from gen3d.model.step1x3d.provider import Step1X3DProvider
 from gen3d.model.trellis2.provider import MockTrellis2Provider, Trellis2Provider
 
 ProgressCallback = Callable[[StageProgress], Awaitable[None] | None]
+MeasurementCallback = Callable[[str, str, int], None]
 _RESPONSE_QUEUE_POLL_TIMEOUT_SECONDS = 1.0
+_logger = structlog.get_logger(__name__)
 
 
 class GPUWorkerHandle(Protocol):
     worker_id: str
     device_id: str
+
+    @property
+    def startup_weight_mb(self) -> int | None: ...
 
     async def start(self) -> None: ...
 
@@ -66,6 +72,10 @@ class AsyncGPUWorker:
         self.device_id = device_id
         self._provider = provider
 
+    @property
+    def startup_weight_mb(self) -> int | None:
+        return None
+
     async def start(self) -> None:
         return None
 
@@ -91,24 +101,37 @@ class ProcessGPUWorker:
         *,
         worker_id: str,
         device_id: str,
+        model_name: str | None = None,
         process_config: WorkerProcessConfig,
+        measurement_callback: MeasurementCallback | None = None,
     ) -> None:
         self.worker_id = worker_id
         self.device_id = device_id
+        normalized_model_name = str(model_name or "").strip().lower()
+        if not normalized_model_name:
+            normalized_model_name = str(process_config.provider_name).strip().lower()
+        self._model_name = normalized_model_name
         self._process_config = process_config
+        self._measurement_callback = measurement_callback
         self._ctx = mp.get_context("spawn")
         self._request_queue: mp.Queue[dict[str, Any]] = self._ctx.Queue()
         self._response_queue: mp.Queue[dict[str, Any]] = self._ctx.Queue()
         self._process: mp.Process | None = None
         self._response_task: asyncio.Task[None] | None = None
         self._startup_future: asyncio.Future[None] | None = None
+        self._startup_weight_mb: int | None = None
         self._pending: dict[str, _PendingRequest] = {}
+
+    @property
+    def startup_weight_mb(self) -> int | None:
+        return self._startup_weight_mb
 
     async def start(self) -> None:
         if self._process is not None and self._process.is_alive():
             return
         loop = asyncio.get_running_loop()
         self._startup_future = loop.create_future()
+        self._startup_weight_mb = None
         self._process = self._ctx.Process(
             target=_worker_process_main,
             args=(
@@ -174,7 +197,7 @@ class ProcessGPUWorker:
         finally:
             self._pending.pop(request_id, None)
 
-    async def _pump_responses(self) -> None:
+    async def _pump_responses(self) -> None:  # noqa: C901
         while True:
             try:
                 message = await asyncio.to_thread(
@@ -191,6 +214,12 @@ class ProcessGPUWorker:
                 continue
             message_type = message.get("type")
             if message_type == "ready":
+                weight_allocated_mb = message.get("weight_allocated_mb")
+                self._startup_weight_mb = (
+                    int(weight_allocated_mb)
+                    if weight_allocated_mb is not None
+                    else None
+                )
                 if self._startup_future is not None and not self._startup_future.done():
                     self._startup_future.set_result(None)
                 continue
@@ -221,6 +250,24 @@ class ProcessGPUWorker:
                 continue
 
             if message_type == "result":
+                inference_peak_mb = message.get("inference_peak_mb")
+                if (
+                    self._measurement_callback is not None
+                    and inference_peak_mb is not None
+                ):
+                    try:
+                        self._measurement_callback(
+                            self._model_name,
+                            self.device_id,
+                            int(inference_peak_mb),
+                        )
+                    except Exception as exc:
+                        _logger.warning(
+                            "inference_measure.callback_failed",
+                            model_name=self._model_name,
+                            device_id=self.device_id,
+                            error=str(exc),
+                        )
                 if not pending.future.done():
                     pending.future.set_result(message["results"])
                 self._pending.pop(request_id, None)
@@ -269,6 +316,8 @@ def build_gpu_workers(
     model_path: str,
     device_ids: tuple[str, ...],
     dep_paths: dict[str, str] | None = None,
+    model_name: str | None = None,
+    measurement_callback: MeasurementCallback | None = None,
 ) -> list[GPUWorkerHandle]:
     normalized_mode = provider_mode.strip().lower()
     if normalized_mode == "mock" or isinstance(provider, MockTrellis2Provider):
@@ -290,7 +339,9 @@ def build_gpu_workers(
         ProcessGPUWorker(
             worker_id=f"gpu-worker-{device_id}",
             device_id=device_id,
+            model_name=(model_name or provider_name),
             process_config=process_config,
+            measurement_callback=measurement_callback,
         )
         for device_id in device_ids
     ]
@@ -307,7 +358,7 @@ async def _dispatch_progress(
         await callback_result
 
 
-def _worker_process_main(
+def _worker_process_main(  # noqa: C901
     device_id: str,
     request_queue: mp.Queue[dict[str, Any]],
     response_queue: mp.Queue[dict[str, Any]],
@@ -320,7 +371,13 @@ def _worker_process_main(
         response_queue.put({"type": "startup_error", "error": str(exc)})
         return
 
-    response_queue.put({"type": "ready"})
+    torch_module, torch_device, baseline_mb = _capture_cuda_baseline_mb()
+    response_queue.put(
+        {
+            "type": "ready",
+            "weight_allocated_mb": baseline_mb,
+        }
+    )
     while True:
         message = request_queue.get()
         message_type = message.get("type")
@@ -344,6 +401,12 @@ def _worker_process_main(
                     "total_steps": progress.total_steps,
                 }
             )
+
+        if torch_module is not None and torch_device is not None and baseline_mb is not None:
+            try:
+                torch_module.cuda.reset_peak_memory_stats(torch_device)
+            except Exception:
+                pass
 
         try:
             results = asyncio.run(
@@ -374,13 +437,41 @@ def _worker_process_main(
             )
             continue
 
+        inference_peak_mb: int | None = None
+        if torch_module is not None and torch_device is not None and baseline_mb is not None:
+            try:
+                peak_mb = int(
+                    torch_module.cuda.max_memory_allocated(torch_device)
+                    / (1024 * 1024)
+                )
+                inference_peak_mb = max(0, peak_mb - baseline_mb)
+            except Exception:
+                inference_peak_mb = None
+
         response_queue.put(
             {
                 "type": "result",
                 "request_id": request_id,
                 "results": results,
+                "inference_peak_mb": inference_peak_mb,
             }
         )
+
+
+def _capture_cuda_baseline_mb() -> tuple[Any | None, Any | None, int | None]:
+    try:
+        import torch  # type: ignore[import-not-found]
+    except Exception:
+        return None, None, None
+
+    try:
+        if not torch.cuda.is_available():
+            return torch, None, None
+        device = torch.device("cuda")
+        baseline_mb = int(torch.cuda.memory_allocated(device) / (1024 * 1024))
+    except Exception:
+        return torch, None, None
+    return torch, device, baseline_mb
 
 
 def _build_process_provider(process_config: WorkerProcessConfig) -> BaseModelProvider:

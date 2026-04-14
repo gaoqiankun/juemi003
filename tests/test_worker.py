@@ -1,3 +1,5 @@
+# ruff: noqa: E402
+
 from __future__ import annotations
 
 import asyncio
@@ -11,6 +13,7 @@ if str(WORKSPACE_ROOT) not in sys.path:
 
 from gen3d.model.base import ModelProviderExecutionError
 from gen3d.stages.gpu.worker import (
+    AsyncGPUWorker,
     ProcessGPUWorker,
     WorkerProcessConfig,
     _PendingRequest,
@@ -152,3 +155,19 @@ def test_process_gpu_worker_stop_waits_for_clean_shutdown() -> None:
         assert worker._pending == {}
 
     asyncio.run(scenario())
+
+
+def test_async_gpu_worker_startup_weight_mb_is_none() -> None:
+    class FakeProvider:
+        async def run_batch(self, images, options, progress_cb):  # noqa: ANN001
+            _ = images
+            _ = options
+            _ = progress_cb
+            return []
+
+    worker = AsyncGPUWorker(
+        worker_id="gpu-worker-test",
+        device_id="0",
+        provider=FakeProvider(),  # type: ignore[arg-type]
+    )
+    assert worker.startup_weight_mb is None

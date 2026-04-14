@@ -65,6 +65,7 @@ from gen3d.api.helpers.tasks import _friendly_model_error_message, _map_task_sta
 from gen3d.api.helpers.vram import (
     _clamp_inference_estimate_mb,  # noqa: F401
     _detect_device_total_vram_mb,
+    _normalize_vram_mb,
     _resolve_weight_vram_mb,
 )
 from gen3d.api.schemas import (
@@ -170,6 +171,11 @@ HOP_BY_HOP_HEADERS = {
 PROXY_REQUEST_HEADER_EXCLUSIONS = HOP_BY_HOP_HEADERS | {"host", "content-length"}
 ARTIFACT_STREAM_CHUNK_SIZE = 1024 * 1024
 _logger = structlog.get_logger(__name__)
+_VRAM_ESTIMATE_FIELDS = frozenset({"weight_vram_mb", "inference_vram_mb"})
+_VRAM_ESTIMATE_THRESHOLD_RATIO = 0.15
+_VRAM_ESTIMATE_MIN_DELTA_MB = 1024
+_VRAM_ESTIMATE_EMA_OLD_WEIGHT = 0.7
+_VRAM_ESTIMATE_EMA_NEW_WEIGHT = 0.3
 
 
 @dataclass(slots=True)
@@ -193,6 +199,118 @@ class AppContainer:
     model_scheduler: ModelScheduler
     weight_manager: WeightManager
     model_download_tasks: dict[str, asyncio.Task[None]]
+
+
+@dataclass(slots=True, frozen=True)
+class VramEstimateDecision:
+    model_id: str
+    field_name: str
+    measured_mb: int
+    stored_mb: int | None
+    new_mb: int
+    should_update: bool
+
+
+def _update_vram_estimate(
+    model_id: str,
+    field_name: str,
+    measured_mb: int,
+    *,
+    stored_mb: int | None,
+) -> VramEstimateDecision:
+    normalized_model_id = str(model_id).strip().lower()
+    normalized_field = str(field_name).strip()
+    if normalized_field not in _VRAM_ESTIMATE_FIELDS:
+        raise ValueError(f"unsupported VRAM estimate field: {field_name}")
+    normalized_measured_mb = max(int(measured_mb), 0)
+    normalized_stored_mb = (
+        max(int(stored_mb), 0)
+        if stored_mb is not None
+        else None
+    )
+    if normalized_stored_mb is None:
+        return VramEstimateDecision(
+            model_id=normalized_model_id,
+            field_name=normalized_field,
+            measured_mb=normalized_measured_mb,
+            stored_mb=None,
+            new_mb=normalized_measured_mb,
+            should_update=True,
+        )
+    threshold_mb = max(
+        normalized_stored_mb * _VRAM_ESTIMATE_THRESHOLD_RATIO,
+        _VRAM_ESTIMATE_MIN_DELTA_MB,
+    )
+    should_update = abs(normalized_measured_mb - normalized_stored_mb) > threshold_mb
+    new_mb = int(
+        round(
+            (_VRAM_ESTIMATE_EMA_OLD_WEIGHT * normalized_stored_mb)
+            + (_VRAM_ESTIMATE_EMA_NEW_WEIGHT * normalized_measured_mb)
+        )
+    )
+    return VramEstimateDecision(
+        model_id=normalized_model_id,
+        field_name=normalized_field,
+        measured_mb=normalized_measured_mb,
+        stored_mb=normalized_stored_mb,
+        new_mb=new_mb,
+        should_update=should_update,
+    )
+
+
+async def _persist_vram_estimate_measurement(
+    model_store: ModelStore,
+    *,
+    model_id: str,
+    field_name: str,
+    measured_mb: int,
+    device_id: str | None,
+) -> VramEstimateDecision | None:
+    normalized_model_id = str(model_id).strip().lower()
+    model_definition = await model_store.get_model(normalized_model_id)
+    if model_definition is None:
+        _logger.warning(
+            "vram_measure.model_not_found",
+            model_name=normalized_model_id,
+            device_id=device_id,
+            field=field_name,
+            measured_mb=measured_mb,
+        )
+        return None
+    stored_mb = _normalize_vram_mb(model_definition.get(field_name))
+    decision = _update_vram_estimate(
+        normalized_model_id,
+        field_name,
+        measured_mb,
+        stored_mb=stored_mb,
+    )
+    action = "update" if decision.should_update else "stable"
+    if decision.should_update:
+        await model_store.update_model(
+            normalized_model_id,
+            **{field_name: decision.new_mb},
+        )
+    measure_prefix = (
+        "weight_measure"
+        if field_name == "weight_vram_mb"
+        else "inference_measure"
+    )
+    event_name = (
+        f"{measure_prefix}.updated"
+        if action == "update"
+        else f"{measure_prefix}.stable"
+    )
+    _logger.info(
+        event_name,
+        model_name=normalized_model_id,
+        device_id=device_id,
+        field=field_name,
+        measured_mb=decision.measured_mb,
+        stored_mb=decision.stored_mb,
+        new_mb=decision.new_mb,
+        action=action,
+    )
+    return decision
 
 class SPAStaticFiles(StaticFiles):
     def __init__(self, *args, spa_index_path: Path, **kwargs) -> None:
@@ -250,6 +368,93 @@ def create_app(
     settings_store = SettingsStore(config.database_path)
     artifact_store = build_artifact_store(config)
     preview_renderer_service = preview_renderer_service or PreviewRendererService()
+    pending_vram_measurement_tasks: set[asyncio.Task[None]] = set()
+    weight_measurements_by_device: dict[str, dict[str, int]] = {}
+
+    def _track_vram_measurement_task(task: asyncio.Task[None]) -> None:
+        pending_vram_measurement_tasks.add(task)
+
+        def _finalize(done_task: asyncio.Task[None]) -> None:
+            pending_vram_measurement_tasks.discard(done_task)
+            if done_task.cancelled():
+                return
+            error = done_task.exception()
+            if error is None:
+                return
+            _logger.warning(
+                "vram_measure.update_task_failed",
+                error=str(error),
+            )
+
+        task.add_done_callback(_finalize)
+
+    async def _apply_vram_estimate_update(
+        model_id: str,
+        field_name: str,
+        measured_mb: int,
+        *,
+        device_id: str | None,
+    ) -> None:
+        await _persist_vram_estimate_measurement(
+            model_store,
+            model_id=model_id,
+            field_name=field_name,
+            measured_mb=measured_mb,
+            device_id=device_id,
+        )
+
+    def _schedule_vram_estimate_update(
+        model_id: str,
+        field_name: str,
+        measured_mb: int,
+        *,
+        device_id: str | None,
+    ) -> None:
+        update_task = asyncio.create_task(
+            _apply_vram_estimate_update(
+                model_id,
+                field_name,
+                measured_mb,
+                device_id=device_id,
+            )
+        )
+        _track_vram_measurement_task(update_task)
+
+    async def _on_weight_measured(
+        model_name: str,
+        device_id: str,
+        measured_weight_mb: int,
+    ) -> None:
+        normalized_model_name = str(model_name).strip().lower()
+        normalized_device_id = str(device_id).strip()
+        normalized_measured_mb = max(int(measured_weight_mb), 0)
+        device_samples = weight_measurements_by_device.setdefault(
+            normalized_model_name,
+            {},
+        )
+        device_samples[normalized_device_id] = normalized_measured_mb
+        positive_samples = [sample for sample in device_samples.values() if sample > 0]
+        if len(positive_samples) >= 2:
+            min_sample = min(positive_samples)
+            max_sample = max(positive_samples)
+            variance_ratio = (
+                (max_sample - min_sample) / max_sample
+                if max_sample > 0
+                else 0.0
+            )
+            if variance_ratio > 0.2:
+                _logger.warning(
+                    "weight_measure.device_variance",
+                    model_name=normalized_model_name,
+                    variance_ratio=variance_ratio,
+                    measurements=dict(sorted(device_samples.items())),
+                )
+        await _apply_vram_estimate_update(
+            normalized_model_name,
+            "weight_vram_mb",
+            normalized_measured_mb,
+            device_id=normalized_device_id or None,
+        )
 
     async def runtime_loader(
         model_name: str,
@@ -293,6 +498,18 @@ def create_app(
             raise ModelProviderConfigurationError(str(exc)) from exc
 
         try:
+            def on_inference_measured(
+                callback_model_name: str,
+                callback_device_id: str,
+                inference_peak_mb: int,
+            ) -> None:
+                _schedule_vram_estimate_update(
+                    callback_model_name,
+                    "inference_vram_mb",
+                    int(inference_peak_mb),
+                    device_id=callback_device_id,
+                )
+
             try:
                 runtime = await build_model_runtime(
                     model_store,
@@ -300,12 +517,14 @@ def create_app(
                     model_name,
                     device_ids=(assigned_device_id,),
                     disabled_devices=disabled_devices,
+                    measurement_callback=on_inference_measured,
                 )
             except TypeError as exc:
                 message = str(exc)
                 if (
                     "unexpected keyword argument 'device_ids'" not in message
                     and "unexpected keyword argument 'disabled_devices'" not in message
+                    and "unexpected keyword argument 'measurement_callback'" not in message
                 ):
                     raise
                 runtime = await build_model_runtime(
@@ -342,8 +561,12 @@ def create_app(
         runtime.weight_vram_mb = weight_vram_mb
         return runtime
 
-    model_registry = ModelRegistry(runtime_loader)
+    model_registry = ModelRegistry(
+        runtime_loader,
+        weight_measurement_enabled=not config.is_mock_provider,
+    )
     model_registry.add_model_unloaded_listener(vram_allocator.release)
+    model_registry.add_weight_measured_listener(_on_weight_measured)
     model_scheduler = ModelScheduler(
         model_registry=model_registry,
         task_store=task_store,
@@ -579,6 +802,11 @@ def create_app(
         await container.engine.start()
         yield
         await container.engine.stop()
+        if pending_vram_measurement_tasks:
+            await asyncio.gather(
+                *tuple(pending_vram_measurement_tasks),
+                return_exceptions=True,
+            )
         await preview_renderer_service.stop()
         if proxy_client is not None:
             await proxy_client.aclose()

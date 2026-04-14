@@ -16,6 +16,7 @@ _ORIGINAL_ASYNCIO_SLEEP = asyncio.sleep
 ModelRuntimeLoader = Callable[..., "ModelRuntime | Awaitable[ModelRuntime]"]
 ModelLoadedListener = Callable[[str], Awaitable[None] | None]
 ModelUnloadedListener = Callable[[str], Awaitable[None] | None]
+WeightMeasuredListener = Callable[[str, str, int], Awaitable[None] | None]
 
 
 @dataclass(slots=True)
@@ -47,12 +48,19 @@ class ModelRegistry:
     _WAIT_READY_POLL_SECONDS = 0.1
     _WAIT_READY_TIMEOUT_SECONDS = 1800.0
 
-    def __init__(self, runtime_loader: ModelRuntimeLoader) -> None:
+    def __init__(
+        self,
+        runtime_loader: ModelRuntimeLoader,
+        *,
+        weight_measurement_enabled: bool = True,
+    ) -> None:
         self._runtime_loader = runtime_loader
         self._entries: dict[str, _ModelEntry] = {}
         self._lock = asyncio.Lock()
         self._model_loaded_listeners: list[ModelLoadedListener] = []
         self._model_unloaded_listeners: list[ModelUnloadedListener] = []
+        self._weight_measured_listeners: list[WeightMeasuredListener] = []
+        self._weight_measurement_enabled = bool(weight_measurement_enabled)
         self._logger = structlog.get_logger(__name__)
 
     async def close(self) -> None:
@@ -99,6 +107,9 @@ class ModelRegistry:
 
     def add_model_unloaded_listener(self, listener: ModelUnloadedListener) -> None:
         self._model_unloaded_listeners.append(listener)
+
+    def add_weight_measured_listener(self, listener: WeightMeasuredListener) -> None:
+        self._weight_measured_listeners.append(listener)
 
     def load(self, model_name: str, *, device_id: str | None = None) -> None:
         normalized = self._normalize_name(model_name)
@@ -243,14 +254,37 @@ class ModelRegistry:
             await self._notify_model_unloaded(normalized)
 
     async def _load_runtime(self, model_name: str, entry: _ModelEntry) -> None:
+        measured_weight_mb: int | None = None
+        measured_weight_device_id: str | None = None
         try:
             runtime = await self._invoke_runtime_loader(
                 model_name,
                 device_id=entry.requested_device_id,
                 exclude_device_ids=entry.excluded_device_ids or None,
             )
+            measured_weight_device_id = self._resolve_weight_measure_device_id(
+                runtime,
+                entry,
+            )
             for worker in runtime.workers:
                 await worker.start()
+            if self._weight_measurement_enabled:
+                for worker in runtime.workers:
+                    startup_weight_mb = getattr(worker, "startup_weight_mb", None)
+                    if startup_weight_mb is not None:
+                        measured_weight_mb = startup_weight_mb
+                        break
+                if measured_weight_mb is None:
+                    self._logger.debug(
+                        "weight_measure.not_reported",
+                        model_name=model_name,
+                    )
+                else:
+                    self._logger.info(
+                        "weight_measure.reported",
+                        model_name=model_name,
+                        measured_mb=measured_weight_mb,
+                    )
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -272,6 +306,15 @@ class ModelRegistry:
                 model_name=model_name,
                 worker_count=len(runtime.workers),
             )
+            if (
+                measured_weight_mb is not None
+                and measured_weight_device_id is not None
+            ):
+                await self._notify_weight_measured(
+                    model_name,
+                    measured_weight_device_id,
+                    measured_weight_mb,
+                )
             await self._notify_model_loaded(model_name)
         finally:
             entry.load_task = None
@@ -300,6 +343,30 @@ class ModelRegistry:
                 self._logger.warning(
                     "model.unloaded_listener_failed",
                     model_name=model_name,
+                    error=str(exc),
+                )
+
+    async def _notify_weight_measured(
+        self,
+        model_name: str,
+        device_id: str,
+        measured_weight_mb: int,
+    ) -> None:
+        for listener in self._weight_measured_listeners:
+            try:
+                maybe_awaitable = listener(
+                    model_name,
+                    device_id,
+                    measured_weight_mb,
+                )
+                if inspect.isawaitable(maybe_awaitable):
+                    await maybe_awaitable
+            except Exception as exc:
+                self._logger.warning(
+                    "weight_measure.listener_failed",
+                    model_name=model_name,
+                    device_id=device_id,
+                    measured_mb=measured_weight_mb,
                     error=str(exc),
                 )
 
@@ -368,6 +435,23 @@ class ModelRegistry:
     @staticmethod
     def _normalize_name(model_name: str) -> str:
         return str(model_name).strip().lower()
+
+    @staticmethod
+    def _resolve_weight_measure_device_id(
+        runtime: ModelRuntime,
+        entry: _ModelEntry,
+    ) -> str | None:
+        assigned = str(runtime.assigned_device_id or "").strip()
+        if assigned:
+            return assigned
+        requested = str(entry.requested_device_id or "").strip()
+        if requested:
+            return requested
+        for worker in runtime.workers:
+            candidate = str(getattr(worker, "device_id", "")).strip()
+            if candidate:
+                return candidate
+        return None
 
 
 def _maybe_empty_cuda_cache() -> None:
