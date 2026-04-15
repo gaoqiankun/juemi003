@@ -444,6 +444,14 @@
         "label": "单槽处理任务上限",
         "description": "达到该次数后模型可被调度器驱逐。"
       },
+      "externalVramWaitTimeoutSeconds": {
+        "label": "外部请求显存等待超时",
+        "description": "外部请求等待显存释放的最长时间（秒），超时后请求失败。"
+      },
+      "internalVramWaitTimeoutSeconds": {
+        "label": "内部请求显存等待超时",
+        "description": "内部请求等待显存释放的最长时间（秒），超时后请求失败。"
+      },
       "rateLimitPerHour": {
         "label": "每小时限流",
         "description": "单个 API Key 每小时可发起的最大请求数。"

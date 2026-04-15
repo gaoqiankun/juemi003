@@ -444,6 +444,14 @@
         "label": "Max tasks per slot",
         "description": "Tasks processed before the loaded model becomes evictable."
       },
+      "externalVramWaitTimeoutSeconds": {
+        "label": "External VRAM wait timeout",
+        "description": "Seconds an external request waits for VRAM to become available before timing out."
+      },
+      "internalVramWaitTimeoutSeconds": {
+        "label": "Internal VRAM wait timeout",
+        "description": "Seconds an internal request waits for VRAM to become available before timing out."
+      },
       "rateLimitPerHour": {
         "label": "Rate limit per hour",
         "description": "Maximum requests per API key in one hour."
