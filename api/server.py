@@ -573,7 +573,6 @@ def create_app(
         model_store=model_store,
         settings_store=settings_store,
         enabled=not config.is_mock_provider,
-        vram_detection_enabled=config.vram_detection_enabled,
         gpu_device_count=len(all_device_ids),
     )
 
@@ -2182,7 +2181,6 @@ def create_app(
                                 app_container.model_scheduler.max_loaded_models,
                             )
                         ),
-                        "suffix": f"<= {app_container.model_scheduler.max_possible_loaded}",
                     },
                     {
                         "key": "maxTasksPerSlot",
@@ -2325,11 +2323,10 @@ def create_app(
                     status_code=422,
                     detail="maxLoadedModels must be an integer",
                 ) from exc
-            max_possible_loaded = app_container.model_scheduler.max_possible_loaded
-            if max_loaded_models < 1 or max_loaded_models > max_possible_loaded:
+            if max_loaded_models < 1:
                 raise HTTPException(
                     status_code=422,
-                    detail=f"maxLoadedModels must be between 1 and {max_possible_loaded}",
+                    detail="maxLoadedModels must be >= 1",
                 )
             normalized_updates["maxLoadedModels"] = max_loaded_models
             persisted_updates[MAX_LOADED_MODELS_KEY] = max_loaded_models

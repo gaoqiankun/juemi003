@@ -146,11 +146,6 @@ class ServingConfig(BaseSettings):
         alias="RATE_LIMIT_PER_HOUR",
         ge=1,
     )
-    vram_detection_enabled: bool = Field(
-        default=True,
-        alias="VRAM_DETECTION_ENABLED",
-    )
-
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

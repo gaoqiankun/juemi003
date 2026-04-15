@@ -87,7 +87,6 @@ def test_scheduler_auto_load_on_task_queued() -> None:
                 }
             ),
             enabled=True,
-            vram_detection_enabled=False,
         )
         await scheduler.initialize()
         await scheduler.on_task_queued("trellis2")
@@ -119,7 +118,6 @@ def test_scheduler_eviction_lru() -> None:
                 }
             ),
             enabled=True,
-            vram_detection_enabled=False,
         )
         await scheduler.initialize()
         await scheduler.on_model_loaded("trellis2")
@@ -155,7 +153,6 @@ def test_scheduler_quota_prevents_starvation() -> None:
                 }
             ),
             enabled=True,
-            vram_detection_enabled=False,
         )
         await scheduler.initialize()
         await scheduler.on_model_loaded("trellis2")
@@ -181,7 +178,6 @@ def test_scheduler_on_task_queued_is_noop_when_disabled() -> None:
             model_store=FakeModelStore([{"id": "trellis2", "vram_gb": 24.0}]),
             settings_store=FakeSettingsStore(),
             enabled=False,
-            vram_detection_enabled=True,
         )
         await scheduler.initialize()
         await scheduler.on_task_queued("trellis2")
@@ -189,29 +185,6 @@ def test_scheduler_on_task_queued_is_noop_when_disabled() -> None:
 
     asyncio.run(scenario())
 
-
-def test_scheduler_vram_detection_failure_falls_back_to_one_slot() -> None:
-    async def scenario() -> None:
-        settings_store = FakeSettingsStore({MAX_LOADED_MODELS_KEY: 4})
-        scheduler = ModelScheduler(
-            model_registry=FakeRegistry(states={}),
-            task_store=FakeTaskStore(),
-            model_store=FakeModelStore(
-                [
-                    {"id": "trellis2", "vram_gb": 24.0},
-                    {"id": "hunyuan3d", "vram_gb": 24.0},
-                ]
-            ),
-            settings_store=settings_store,
-            enabled=True,
-            vram_detection_enabled=True,
-        )
-        scheduler._detect_total_vram_gb = lambda: None  # type: ignore[method-assign]
-        await scheduler.initialize()
-        assert scheduler.max_possible_loaded == 1
-        assert scheduler.max_loaded_models == 1
-
-    asyncio.run(scenario())
 
 
 def test_scheduler_normalize_model_name_keeps_empty_string() -> None:
@@ -242,9 +215,7 @@ def test_scheduler_startup_scan_loads_model_with_oldest_task() -> None:
                 }
             ),
             enabled=True,
-            vram_detection_enabled=True,
         )
-        scheduler._detect_total_vram_gb = lambda: 48.0  # type: ignore[method-assign]
         await scheduler.initialize()
         assert registry.load_calls == ["trellis2", "hunyuan3d"]
 
@@ -275,7 +246,6 @@ def test_scheduler_startup_scan_respects_slot_limit() -> None:
                 }
             ),
             enabled=True,
-            vram_detection_enabled=False,
         )
         await scheduler.initialize()
         assert registry.load_calls == ["trellis2"]
@@ -302,7 +272,6 @@ def test_scheduler_startup_scan_skips_when_disabled() -> None:
                 }
             ),
             enabled=False,
-            vram_detection_enabled=False,
         )
         await scheduler.initialize()
         assert registry.load_calls == []
@@ -335,7 +304,6 @@ def test_scheduler_on_model_loaded_rescans_and_loads_pending_model() -> None:
                 }
             ),
             enabled=True,
-            vram_detection_enabled=False,
         )
         await scheduler.initialize()
         assert registry.load_calls == []
@@ -383,7 +351,6 @@ def test_scheduler_on_model_loaded_scan_does_not_evict_just_loaded_model() -> No
                 }
             ),
             enabled=True,
-            vram_detection_enabled=False,
         )
         await scheduler.initialize()
 

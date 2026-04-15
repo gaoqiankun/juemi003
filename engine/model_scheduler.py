@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import math
-import subprocess
 from datetime import UTC, datetime
 from typing import Protocol
 
@@ -63,7 +61,6 @@ class ModelScheduler:
         model_store: _ModelStoreProtocol,
         settings_store: _SettingsStoreProtocol,
         enabled: bool,
-        vram_detection_enabled: bool = True,
         gpu_device_count: int = 1,
     ) -> None:
         self._model_registry = model_registry
@@ -71,9 +68,7 @@ class ModelScheduler:
         self._model_store = model_store
         self._settings_store = settings_store
         self._enabled = bool(enabled)
-        self._vram_detection_enabled = bool(vram_detection_enabled)
         self._gpu_device_count = max(1, int(gpu_device_count))
-        self._max_possible_loaded = self._gpu_device_count
         self._max_loaded_models = self.DEFAULT_MAX_LOADED_MODELS
         self._max_tasks_per_slot = self.DEFAULT_MAX_TASKS_PER_SLOT
         self._tasks_processed: dict[str, int] = {}
@@ -82,10 +77,6 @@ class ModelScheduler:
         self._last_used: dict[str, int] = {}
         self._lock = asyncio.Lock()
         self._logger = structlog.get_logger(__name__)
-
-    @property
-    def max_possible_loaded(self) -> int:
-        return self._max_possible_loaded
 
     @property
     def enabled(self) -> bool:
@@ -108,19 +99,6 @@ class ModelScheduler:
         return int(self._last_used.get(normalized, 0))
 
     async def initialize(self) -> None:
-        model_definitions = await self._model_store.list_models()
-        known_model_vram = _extract_known_model_vram(model_definitions)
-        total_vram_gb = (
-            self._detect_total_vram_gb()
-            if self._enabled and self._vram_detection_enabled
-            else None
-        )
-        self._max_possible_loaded = _compute_max_possible_loaded(
-            total_vram_gb=total_vram_gb,
-            known_model_vram_gb=known_model_vram,
-            gpu_device_count=self._gpu_device_count,
-        )
-
         configured_max_loaded_models = await self._settings_store.get(MAX_LOADED_MODELS_KEY)
         configured_max_tasks_per_slot = await self._settings_store.get(MAX_TASKS_PER_SLOT_KEY)
         self._max_loaded_models = self._normalize_max_loaded_models(configured_max_loaded_models)
@@ -137,8 +115,6 @@ class ModelScheduler:
         self._logger.info(
             "scheduler.initialized",
             enabled=self._enabled,
-            vram_detection_enabled=self._vram_detection_enabled,
-            max_possible_loaded=self._max_possible_loaded,
             max_loaded_models=self._max_loaded_models,
             max_tasks_per_slot=self._max_tasks_per_slot,
         )
@@ -321,8 +297,7 @@ class ModelScheduler:
             parsed = int(value)
         except (TypeError, ValueError):
             parsed = self.DEFAULT_MAX_LOADED_MODELS
-        parsed = max(parsed, 1)
-        return min(parsed, self._max_possible_loaded)
+        return max(parsed, 1)
 
     def _normalize_max_tasks_per_slot(self, value: object) -> int:
         try:
@@ -335,58 +310,8 @@ class ModelScheduler:
         self._last_used_tick += 1
         self._last_used[model_name] = self._last_used_tick
 
-    def _detect_total_vram_gb(self) -> float | None:
-        total_from_torch = _detect_total_vram_with_torch()
-        if total_from_torch is not None:
-            return total_from_torch
-        total_from_nvidia_smi = _detect_total_vram_with_nvidia_smi()
-        if total_from_nvidia_smi is not None:
-            return total_from_nvidia_smi
-        self._logger.warning("scheduler.vram_detection_failed")
-        return None
-
-
 def _normalize_model_name(model_name: str) -> str:
     return str(model_name).strip().lower()
-
-
-def _extract_known_model_vram(model_definitions: list[dict]) -> tuple[float, ...]:
-    values: list[float] = []
-    for model in model_definitions:
-        raw_weight_vram_mb = model.get("weight_vram_mb")
-        if raw_weight_vram_mb is not None:
-            try:
-                parsed_weight = float(raw_weight_vram_mb) / 1024.0
-            except (TypeError, ValueError):
-                parsed_weight = 0.0
-            if parsed_weight > 0:
-                values.append(parsed_weight)
-                continue
-        raw_value = model.get("vram_gb")
-        if raw_value is None:
-            continue
-        try:
-            parsed = float(raw_value)
-        except (TypeError, ValueError):
-            continue
-        if parsed > 0:
-            values.append(parsed)
-    return tuple(values)
-
-
-def _compute_max_possible_loaded(
-    *,
-    total_vram_gb: float | None,
-    known_model_vram_gb: tuple[float, ...],
-    gpu_device_count: int = 1,
-) -> int:
-    gpu_count = max(1, gpu_device_count)
-    if total_vram_gb is None or total_vram_gb <= 0 or not known_model_vram_gb:
-        return gpu_count
-    largest_model = max(known_model_vram_gb)
-    if largest_model <= 0:
-        return gpu_count
-    return max(gpu_count, math.floor(total_vram_gb / largest_model))
 
 
 def _parse_iso_datetime(value: str) -> datetime:
@@ -399,46 +324,3 @@ def _parse_iso_datetime(value: str) -> datetime:
     return parsed.astimezone(UTC)
 
 
-def _detect_total_vram_with_torch() -> float | None:
-    try:
-        import torch  # type: ignore[import-not-found]
-    except Exception:
-        return None
-    try:
-        if not torch.cuda.is_available():
-            return None
-        _, total_bytes = torch.cuda.mem_get_info()
-        if total_bytes <= 0:
-            return None
-        return float(total_bytes) / (1024.0 ** 3)
-    except Exception:
-        return None
-
-
-def _detect_total_vram_with_nvidia_smi() -> float | None:
-    try:
-        output = subprocess.check_output(
-            [
-                "nvidia-smi",
-                "--query-gpu=memory.total",
-                "--format=csv,noheader,nounits",
-            ],
-            stderr=subprocess.DEVNULL,
-            text=True,
-            timeout=2.0,
-        )
-    except Exception:
-        return None
-
-    values: list[float] = []
-    for raw_line in output.splitlines():
-        line = raw_line.strip()
-        if not line:
-            continue
-        try:
-            values.append(float(line))
-        except ValueError:
-            continue
-    if not values:
-        return None
-    return max(values) / 1024.0
