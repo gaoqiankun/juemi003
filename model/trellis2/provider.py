@@ -239,8 +239,6 @@ class Trellis2Provider:
                     stage_name="gpu_run",
                     message=f"TRELLIS2 inference failed: {exc}",
                 ) from exc
-            await asyncio.to_thread(_move_mesh_to_cpu, mesh)
-
             results.append(
                 GenerationResult(
                     mesh=mesh,
@@ -306,7 +304,10 @@ class Trellis2Provider:
                 remesh_project=options.get("remesh_project", 0),
                 verbose=options.get("export_verbose", False),
             )
-            glb.export(str(output_path), extension_webp=True)
+            try:
+                glb.export(str(output_path), extension_webp=True)
+            except KeyError:
+                glb.export(str(output_path), extension_webp=False)
         except Exception as exc:  # pragma: no cover - depends on external runtime
             raise ModelProviderExecutionError(
                 stage_name="exporting",
@@ -645,42 +646,3 @@ def _extract_pil_image(prepared_input: Any) -> Any:
     if isinstance(prepared_input, dict) and "image" in prepared_input:
         return prepared_input["image"]
     return prepared_input
-
-
-def _move_mesh_to_cpu(mesh: Any) -> None:
-    for field_name in ("vertices", "faces", "coords", "attrs"):
-        if not hasattr(mesh, field_name):
-            continue
-        moved_tensor = _detach_cpu_tensor(getattr(mesh, field_name))
-        if moved_tensor is None:
-            continue
-        try:
-            setattr(mesh, field_name, moved_tensor)
-        except (AttributeError, TypeError):
-            continue
-
-    layout = getattr(mesh, "layout", None)
-    if not isinstance(layout, dict):
-        return
-    for key, value in tuple(layout.items()):
-        moved_tensor = _detach_cpu_tensor(value)
-        if moved_tensor is None:
-            continue
-        try:
-            layout[key] = moved_tensor
-        except (AttributeError, TypeError):
-            continue
-
-
-def _detach_cpu_tensor(value: Any) -> Any | None:
-    if not getattr(value, "is_cuda", False):
-        return None
-    detach = getattr(value, "detach", None)
-    detached = detach() if callable(detach) else value
-    detached_cpu = getattr(detached, "cpu", None)
-    if not callable(detached_cpu):
-        return None
-    try:
-        return detached_cpu()
-    except Exception:
-        return None

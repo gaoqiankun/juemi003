@@ -4481,53 +4481,6 @@ def test_trellis2_provider_run_single_uses_official_pipeline_kwargs() -> None:
         "max_num_tokens": 49_152,
     }
 
-
-@pytest.mark.anyio
-async def test_trellis2_provider_run_batch_moves_mesh_tensors_to_cpu() -> None:
-    class FakeTensor:
-        def __init__(self, device_type: str) -> None:
-            self.device = types.SimpleNamespace(type=device_type)
-
-        @property
-        def is_cuda(self) -> bool:
-            return self.device.type == "cuda"
-
-        def detach(self):
-            return self
-
-        def cpu(self):
-            return FakeTensor("cpu")
-
-    class FakeMesh:
-        def __init__(self) -> None:
-            self.vertices = FakeTensor("cuda")
-            self.faces = FakeTensor("cuda")
-            self.coords = FakeTensor("cuda")
-            self.attrs = FakeTensor("cuda")
-            self.layout = {"nested": FakeTensor("cuda")}
-
-    class FakePipeline:
-        def run(self, image, **kwargs):
-            _ = image
-            _ = kwargs
-            return [FakeMesh()]
-
-    provider = Trellis2Provider(
-        pipeline=FakePipeline(),
-        model_path="microsoft/TRELLIS.2-4B",
-    )
-
-    results = await provider.run_batch(images=[{"image": "stub"}], options={})
-
-    assert len(results) == 1
-    mesh = results[0].mesh
-    assert mesh.vertices.device.type == "cpu"
-    assert mesh.faces.device.type == "cpu"
-    assert mesh.coords.device.type == "cpu"
-    assert mesh.attrs.device.type == "cpu"
-    assert mesh.layout["nested"].device.type == "cpu"
-
-
 def test_trellis2_provider_export_glb_uses_mesh_with_voxel_fields(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
