@@ -109,6 +109,7 @@ class ModelStore:
         await self._ensure_vram_gb_column()
         await self._ensure_vram_split_columns()
         await self._ensure_download_columns()
+        await self._migrate_trellis2_weight_vram()
         await self._db.commit()
 
         # Seed defaults if table is empty.
@@ -602,6 +603,17 @@ class ModelStore:
             """
         )
 
+    async def _migrate_trellis2_weight_vram(self) -> None:
+        """Fix Trellis2 weight_vram_mb=0 written by the short-lived low_vram seed."""
+        db = self._require_db()
+        await db.execute(
+            """
+            UPDATE model_definitions
+            SET weight_vram_mb = 16000
+            WHERE id = 'trellis2' AND weight_vram_mb = 0
+            """
+        )
+
     def _require_db(self) -> aiosqlite.Connection:
         if self._db is None:
             raise RuntimeError("ModelStore.initialize() must be called first")
@@ -661,7 +673,7 @@ def _normalize_optional_vram_mb(value: object) -> int | None:
         normalized = int(float(value))  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return None
-    if normalized <= 0:
+    if normalized < 0:
         return None
     return normalized
 

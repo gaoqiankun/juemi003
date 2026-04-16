@@ -178,23 +178,17 @@ class Trellis2Provider:
         return report
 
     def estimate_weight_vram_mb(self, options: dict[str, Any]) -> int:
-        resolution = int(options.get("resolution", 1024))
-        batch_total = {
-            512: 16_000,
-            1024: 24_000,
-            1536: 32_000,
-        }.get(resolution, 24_000)
-        return int(batch_total * 1.2 * 0.75)
+        _ = options
+        return 16_000
 
     def estimate_inference_vram_mb(self, batch_size: int, options: dict[str, Any]) -> int:
         resolution = int(options.get("resolution", 1024))
-        base = {
-            512: 16_000,
-            1024: 24_000,
-            1536: 32_000,
-        }.get(resolution, 24_000)
-        total = int(base * 1.2 * max(batch_size, 1))
-        return max(total - self.estimate_weight_vram_mb(options), 1)
+        activation_base = {
+            512: 4_000,
+            1024: 6_000,
+            1536: 10_000,
+        }.get(resolution, 6_000)
+        return max(activation_base * max(batch_size, 1), 1)
 
     def estimate_vram_mb(self, batch_size: int, options: dict[str, Any]) -> int:
         return self.estimate_weight_vram_mb(options) + self.estimate_inference_vram_mb(

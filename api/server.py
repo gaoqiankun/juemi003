@@ -237,6 +237,16 @@ def _update_vram_estimate(
             new_mb=normalized_measured_mb,
             should_update=True,
         )
+    if normalized_field == "weight_vram_mb":
+        should_update = normalized_measured_mb != normalized_stored_mb
+        return VramEstimateDecision(
+            model_id=normalized_model_id,
+            field_name=normalized_field,
+            measured_mb=normalized_measured_mb,
+            stored_mb=normalized_stored_mb,
+            new_mb=normalized_measured_mb,
+            should_update=should_update,
+        )
     threshold_mb = max(
         normalized_stored_mb * _VRAM_ESTIMATE_THRESHOLD_RATIO,
         _VRAM_ESTIMATE_MIN_DELTA_MB,
@@ -455,6 +465,11 @@ def create_app(
             normalized_measured_mb,
             device_id=normalized_device_id or None,
         )
+        vram_allocator.reserve(
+            model_name=normalized_model_name,
+            weight_vram_mb=normalized_measured_mb,
+            allowed_device_ids=all_device_ids,
+        )
 
     async def runtime_loader(
         model_name: str,
@@ -497,12 +512,17 @@ def create_app(
         except VRAMAllocatorError as exc:
             raise ModelProviderConfigurationError(str(exc)) from exc
 
+        _inference_mb_holder: list[int | None] = [
+            _normalize_vram_mb(model_definition.get("inference_vram_mb"))
+        ]
+
         try:
             def on_inference_measured(
                 callback_model_name: str,
                 callback_device_id: str,
                 inference_peak_mb: int,
             ) -> None:
+                _inference_mb_holder[0] = max(int(inference_peak_mb), 1)
                 _schedule_vram_estimate_update(
                     callback_model_name,
                     "inference_vram_mb",
@@ -544,12 +564,16 @@ def create_app(
                 batch_size=normalized_batch_size,
                 options=options,
             )
-            return _clamp_inference_estimate_mb(
+            formula = _clamp_inference_estimate_mb(
                 raw_value=raw_value,
                 model=normalized_model_name,
                 batch_size=normalized_batch_size,
                 options=options,
             )
+            measured = _inference_mb_holder[0]
+            if measured is not None:
+                return max(formula, measured)
+            return formula
 
         runtime.scheduler.configure_inference_admission(
             allocator=vram_allocator,

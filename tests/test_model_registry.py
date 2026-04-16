@@ -600,7 +600,8 @@ def test_model_registry_skips_weight_measurement_when_disabled() -> None:
     asyncio.run(scenario())
 
 
-def test_update_vram_estimate_threshold_and_ema() -> None:
+def test_update_vram_estimate_weight_uses_measured_value() -> None:
+    # weight_vram_mb: always uses measured value directly, no EMA
     first_measurement = _update_vram_estimate(
         "trellis2",
         "weight_vram_mb",
@@ -610,26 +611,35 @@ def test_update_vram_estimate_threshold_and_ema() -> None:
     assert first_measurement.should_update is True
     assert first_measurement.new_mb == 12_000
 
-    stable_measurement = _update_vram_estimate(
+    changed_measurement = _update_vram_estimate(
         "trellis2",
         "weight_vram_mb",
         10_900,
         stored_mb=10_000,
     )
-    assert stable_measurement.should_update is False
-    assert stable_measurement.new_mb == 10_270
+    assert changed_measurement.should_update is True
+    assert changed_measurement.new_mb == 10_900
 
-    updated_measurement = _update_vram_estimate(
+    same_measurement = _update_vram_estimate(
         "trellis2",
         "weight_vram_mb",
-        12_600,
+        10_000,
         stored_mb=10_000,
     )
-    assert updated_measurement.should_update is True
-    assert updated_measurement.new_mb == 10_780
+    assert same_measurement.should_update is False
+    assert same_measurement.new_mb == 10_000
+
+    zero_measurement = _update_vram_estimate(
+        "trellis2",
+        "weight_vram_mb",
+        0,
+        stored_mb=10_000,
+    )
+    assert zero_measurement.should_update is True
+    assert zero_measurement.new_mb == 0
 
 
-def test_persist_vram_estimate_measurement_applies_ema_update() -> None:
+def test_persist_vram_estimate_measurement_weight_uses_measured_value() -> None:
     class FakeModelStore:
         def __init__(self) -> None:
             self.model = {
@@ -662,17 +672,17 @@ def test_persist_vram_estimate_measurement_applies_ema_update() -> None:
 
         assert decision is not None
         assert decision.should_update is True
-        assert store.updates == [("trellis2", {"weight_vram_mb": 10_780})]
+        assert store.updates == [("trellis2", {"weight_vram_mb": 12_600})]
 
-        stable_decision = await _persist_vram_estimate_measurement(
+        same_decision = await _persist_vram_estimate_measurement(
             store,  # type: ignore[arg-type]
             model_id="trellis2",
             field_name="weight_vram_mb",
-            measured_mb=10_900,
+            measured_mb=12_600,
             device_id="0",
         )
-        assert stable_decision is not None
-        assert stable_decision.should_update is False
-        assert store.updates == [("trellis2", {"weight_vram_mb": 10_780})]
+        assert same_decision is not None
+        assert same_decision.should_update is False
+        assert store.updates == [("trellis2", {"weight_vram_mb": 12_600})]
 
     asyncio.run(scenario())

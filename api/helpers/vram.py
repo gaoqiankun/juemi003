@@ -18,7 +18,7 @@ def _normalize_vram_mb(value: object) -> int | None:
         normalized = int(float(value))  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return None
-    if normalized <= 0:
+    if normalized < 0:
         return None
     return normalized
 

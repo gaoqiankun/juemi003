@@ -105,7 +105,7 @@ class Trellis2ImageTo3DPipeline(Pipeline):
         pipeline.image_cond_model = getattr(image_feature_extractor, args['image_cond_model']['name'])(**args['image_cond_model']['args'])
         pipeline.rembg_model = getattr(rembg, args['rembg_model']['name'])(**args['rembg_model']['args'])
         
-        pipeline.low_vram = args.get('low_vram', True)
+        pipeline.low_vram = False
         pipeline.default_pipeline_type = args.get('default_pipeline_type', '1024_cascade')
         pipeline.pbr_attr_layout = {
             'base_color': slice(0, 3),
