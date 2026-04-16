@@ -470,6 +470,12 @@ def _worker_process_main(  # noqa: C901
             }
         )
 
+        if torch_module is not None:
+            try:
+                torch_module.cuda.empty_cache()
+            except Exception:
+                pass
+
 
 def _capture_cuda_baseline_mb() -> tuple[Any | None, Any | None, int | None, int | None]:
     try:
