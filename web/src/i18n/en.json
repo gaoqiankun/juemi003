@@ -218,6 +218,7 @@
       "defaultTag": "Default",
       "setDefault": "Set as default",
       "load": "Load",
+      "unload": "Unload",
       "details": "Details",
       "retry": "Retry",
       "loading": "Loading",

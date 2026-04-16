@@ -323,6 +323,10 @@ export const loadModel = (id: string) =>
   adminFetch<unknown>(`/api/admin/models/${encodeURIComponent(id)}/load`, {
     method: "POST",
   });
+export const unloadModel = (id: string) =>
+  adminFetch<unknown>(`/api/admin/models/${encodeURIComponent(id)}/unload`, {
+    method: "POST",
+  });
 export const deleteModel = (id: string) =>
   adminFetch<unknown>(`/api/admin/models/${encodeURIComponent(id)}`, {
     method: "DELETE",

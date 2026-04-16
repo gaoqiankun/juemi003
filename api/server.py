@@ -1816,6 +1816,28 @@ def create_app(
         }
 
     @app.post(
+        "/api/admin/models/{model_id}/unload",
+        dependencies=[Depends(require_admin_token)],
+    )
+    async def unload_model(
+        model_id: str,
+        app_container: AppContainer = Depends(get_container),
+    ) -> dict:
+        model = await app_container.model_store.get_model(model_id)
+        if model is None:
+            raise HTTPException(status_code=404, detail="model not found")
+        runtime_state = app_container.model_registry.get_state(model_id)
+        if runtime_state == "not_loaded":
+            raise HTTPException(status_code=400, detail="model is not loaded")
+        await app_container.model_registry.unload(model_id)
+        runtime_state = app_container.model_registry.get_state(model_id)
+        return {
+            "id": str(model["id"]),
+            "runtime_state": runtime_state,
+            "runtimeState": runtime_state,
+        }
+
+    @app.post(
         "/api/admin/models",
         status_code=status.HTTP_201_CREATED,
         dependencies=[Depends(require_admin_token)],

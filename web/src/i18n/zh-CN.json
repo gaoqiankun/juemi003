@@ -218,6 +218,7 @@
       "defaultTag": "默认",
       "setDefault": "设为默认",
       "load": "加载",
+      "unload": "卸载",
       "details": "详情",
       "retry": "重试",
       "loading": "加载中",

@@ -293,6 +293,7 @@ export function ModelsPage() {
     setModelEnabled,
     setModelDefault,
     requestModelLoad,
+    requestModelUnload,
     addModel,
     cancelDownload,
     removeModel,
@@ -325,6 +326,10 @@ export function ModelsPage() {
   const handleLoadOrRetry = useCallback((model: AdminModelItem) => {
     runModelAction(() => requestModelLoad(model.id));
   }, [requestModelLoad, runModelAction]);
+
+  const handleUnload = useCallback((model: AdminModelItem) => {
+    runModelAction(() => requestModelUnload(model.id));
+  }, [requestModelUnload, runModelAction]);
 
   const handleAddModel = useCallback(async (data: Record<string, unknown>) => {
     await addModel(data);
@@ -534,10 +539,10 @@ export function ModelsPage() {
                           type="button"
                           size="sm"
                           variant="outline"
-                          disabled={isBusy || model.runtimeState === "ready" || model.runtimeState === "loading"}
-                          onClick={() => handleLoadOrRetry(model)}
+                          disabled={isBusy || model.runtimeState === "loading"}
+                          onClick={() => model.runtimeState === "ready" ? handleUnload(model) : handleLoadOrRetry(model)}
                         >
-                          {t("models.list.load")}
+                          {model.runtimeState === "ready" ? t("models.list.unload") : t("models.list.load")}
                         </Button>
                         <Button
                           type="button"
