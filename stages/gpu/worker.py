@@ -371,11 +371,16 @@ def _worker_process_main(  # noqa: C901
         response_queue.put({"type": "startup_error", "error": str(exc)})
         return
 
-    torch_module, torch_device, baseline_mb = _capture_cuda_baseline_mb()
+    (
+        torch_module,
+        torch_device,
+        weight_mb,
+        inference_baseline_mb,
+    ) = _capture_cuda_baseline_mb()
     response_queue.put(
         {
             "type": "ready",
-            "weight_allocated_mb": baseline_mb,
+            "weight_allocated_mb": weight_mb,
         }
     )
     while True:
@@ -402,7 +407,11 @@ def _worker_process_main(  # noqa: C901
                 }
             )
 
-        if torch_module is not None and torch_device is not None and baseline_mb is not None:
+        if (
+            torch_module is not None
+            and torch_device is not None
+            and inference_baseline_mb is not None
+        ):
             try:
                 torch_module.cuda.reset_peak_memory_stats(torch_device)
             except Exception:
@@ -438,13 +447,17 @@ def _worker_process_main(  # noqa: C901
             continue
 
         inference_peak_mb: int | None = None
-        if torch_module is not None and torch_device is not None and baseline_mb is not None:
+        if (
+            torch_module is not None
+            and torch_device is not None
+            and inference_baseline_mb is not None
+        ):
             try:
                 peak_mb = int(
                     torch_module.cuda.max_memory_allocated(torch_device)
                     / (1024 * 1024)
                 )
-                inference_peak_mb = max(0, peak_mb - baseline_mb)
+                inference_peak_mb = max(0, peak_mb - inference_baseline_mb)
             except Exception:
                 inference_peak_mb = None
 
@@ -458,20 +471,23 @@ def _worker_process_main(  # noqa: C901
         )
 
 
-def _capture_cuda_baseline_mb() -> tuple[Any | None, Any | None, int | None]:
+def _capture_cuda_baseline_mb() -> tuple[Any | None, Any | None, int | None, int | None]:
     try:
         import torch  # type: ignore[import-not-found]
     except Exception:
-        return None, None, None
+        return None, None, None, None
 
     try:
         if not torch.cuda.is_available():
-            return torch, None, None
+            return torch, None, None, None
         device = torch.device("cuda")
-        baseline_mb = int(torch.cuda.memory_allocated(device) / (1024 * 1024))
+        weight_reserved_mb = int(torch.cuda.memory_reserved(device) / (1024 * 1024))
+        inference_baseline_allocated_mb = int(
+            torch.cuda.memory_allocated(device) / (1024 * 1024)
+        )
     except Exception:
-        return torch, None, None
-    return torch, device, baseline_mb
+        return torch, None, None, None
+    return torch, device, weight_reserved_mb, inference_baseline_allocated_mb
 
 
 def _build_process_provider(process_config: WorkerProcessConfig) -> BaseModelProvider:

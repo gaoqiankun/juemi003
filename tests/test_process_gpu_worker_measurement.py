@@ -63,6 +63,11 @@ def test_worker_process_main_reports_inference_peak_mb(
             return True
 
         @staticmethod
+        def memory_reserved(device):  # noqa: ANN001
+            _ = device
+            return 6144 * 1024 * 1024
+
+        @staticmethod
         def memory_allocated(device):  # noqa: ANN001
             _ = device
             return 4096 * 1024 * 1024
@@ -106,7 +111,7 @@ def test_worker_process_main_reports_inference_peak_mb(
 
     ready_message = response_queue.get(timeout=1.0)
     assert ready_message["type"] == "ready"
-    assert ready_message["weight_allocated_mb"] == 4096
+    assert ready_message["weight_allocated_mb"] == 6144
 
     request_queue.put(
         {
