@@ -470,8 +470,12 @@ def _worker_process_main(  # noqa: C901
             }
         )
 
+        del results
+        prepared_inputs = []
         if torch_module is not None:
             try:
+                import gc
+                gc.collect()
                 torch_module.cuda.empty_cache()
             except Exception:
                 pass
