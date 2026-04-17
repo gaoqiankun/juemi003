@@ -21,9 +21,6 @@ class _RegistryProtocol(Protocol):
     def load(self, model_name: str, *, device_id: str | None = None) -> None:
         ...
 
-    async def unload(self, model_name: str) -> None:
-        ...
-
 
 class _TaskStoreProtocol(Protocol):
     async def count_pending_tasks_by_model(self) -> dict[str, int]:
@@ -186,7 +183,6 @@ class ModelScheduler:
                 for model_name in tuple(self._quota_exceeded):
                     if self._tasks_processed.get(model_name, 0) < self._max_tasks_per_slot:
                         self._quota_exceeded.discard(model_name)
-        await self._enforce_loaded_slot_limit()
 
     async def _load_or_queue(self, target_model: str) -> None:
         if not target_model:
@@ -204,80 +200,10 @@ class ModelScheduler:
             for model_name, runtime_state in runtime_states.items()
             if runtime_state in {"ready", "loading"}
         )
-        if len(loaded_models) < self._max_loaded_models:
-            self._model_registry.load(target_model)
+        if len(loaded_models) >= self._max_loaded_models:
             return
 
-        candidate = await self._select_eviction_candidate(
-            loaded_models=loaded_models,
-            pending_counts=await self._task_store.count_pending_tasks_by_model(),
-            running_counts=await self._task_store.count_running_tasks_by_model(),
-            exclude_model=target_model,
-        )
-        if candidate is None:
-            return
-        await self._evict_and_load(candidate_model=candidate, target_model=target_model)
-
-    async def _select_eviction_candidate(
-        self,
-        *,
-        loaded_models: tuple[str, ...],
-        pending_counts: dict[str, int],
-        running_counts: dict[str, int],
-        exclude_model: str,
-    ) -> str | None:
-        eligible: list[str] = []
-        async with self._lock:
-            for model_name in loaded_models:
-                if model_name == exclude_model:
-                    continue
-                if self._model_registry.get_state(model_name) != "ready":
-                    continue
-                if running_counts.get(model_name, 0) > 0:
-                    continue
-                pending_count = pending_counts.get(model_name, 0)
-                if model_name in self._quota_exceeded or pending_count == 0:
-                    eligible.append(model_name)
-            if not eligible:
-                return None
-            return min(
-                eligible,
-                key=lambda model_name: self._last_used.get(model_name, 0),
-            )
-
-    async def _evict_and_load(self, *, candidate_model: str, target_model: str) -> None:
-        await self._model_registry.unload(candidate_model)
-        async with self._lock:
-            self._quota_exceeded.discard(candidate_model)
-            self._tasks_processed.pop(candidate_model, None)
-            self._last_used.pop(candidate_model, None)
         self._model_registry.load(target_model)
-
-    async def _enforce_loaded_slot_limit(self) -> None:
-        if not self._enabled:
-            return
-        while True:
-            runtime_states = self._model_registry.runtime_states()
-            loaded_models = tuple(
-                model_name
-                for model_name, state in runtime_states.items()
-                if state in {"ready", "loading"}
-            )
-            if len(loaded_models) <= self._max_loaded_models:
-                return
-            candidate = await self._select_eviction_candidate(
-                loaded_models=loaded_models,
-                pending_counts=await self._task_store.count_pending_tasks_by_model(),
-                running_counts=await self._task_store.count_running_tasks_by_model(),
-                exclude_model="",
-            )
-            if candidate is None:
-                return
-            await self._model_registry.unload(candidate)
-            async with self._lock:
-                self._quota_exceeded.discard(candidate)
-                self._tasks_processed.pop(candidate, None)
-                self._last_used.pop(candidate, None)
 
     async def _startup_scan_queued_models(self) -> None:
         if not self._enabled:
@@ -310,6 +236,7 @@ class ModelScheduler:
         self._last_used_tick += 1
         self._last_used[model_name] = self._last_used_tick
 
+
 def _normalize_model_name(model_name: str) -> str:
     return str(model_name).strip().lower()
 
@@ -322,5 +249,3 @@ def _parse_iso_datetime(value: str) -> datetime:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=UTC)
     return parsed.astimezone(UTC)
-
-

@@ -4,19 +4,19 @@ import asyncio
 import gc
 import inspect
 from dataclasses import dataclass, field
-from typing import Awaitable, Callable, Iterable
+from typing import Any, Awaitable, Callable, Iterable, Protocol
 
 import structlog
+from gen3d.engine.model_worker import ModelWorker
 from gen3d.model.base import BaseModelProvider
 from gen3d.stages.gpu.scheduler import GPUSlotScheduler
 from gen3d.stages.gpu.worker import GPUWorkerHandle
 
 _ORIGINAL_ASYNCIO_SLEEP = asyncio.sleep
 
-ModelRuntimeLoader = Callable[..., "ModelRuntime | Awaitable[ModelRuntime]"]
+ModelWorkerFactory = Callable[..., Any]
 ModelLoadedListener = Callable[[str], Awaitable[None] | None]
 ModelUnloadedListener = Callable[[str], Awaitable[None] | None]
-WeightMeasuredListener = Callable[[str, str, int], Awaitable[None] | None]
 
 
 @dataclass(slots=True)
@@ -29,11 +29,50 @@ class ModelRuntime:
     weight_vram_mb: int | None = None
 
 
+class _RegistryWorker(Protocol):
+    async def load(self) -> None: ...
+
+    async def unload(self) -> None: ...
+
+    @property
+    def runtime(self) -> ModelRuntime: ...
+
+
+class _CompatRuntimeWorker:
+    def __init__(self, runtime: ModelRuntime) -> None:
+        self._runtime = runtime
+        self._loaded = False
+
+    @property
+    def runtime(self) -> ModelRuntime:
+        return self._runtime
+
+    async def load(self) -> None:
+        if self._loaded:
+            return
+        for worker in self._runtime.workers:
+            await worker.start()
+        self._loaded = True
+
+    async def unload(self) -> None:
+        if not self._loaded:
+            scheduler_shutdown = getattr(self._runtime.scheduler, "shutdown", None)
+            if callable(scheduler_shutdown):
+                scheduler_shutdown()
+            return
+        scheduler_shutdown = getattr(self._runtime.scheduler, "shutdown", None)
+        if callable(scheduler_shutdown):
+            scheduler_shutdown()
+        for worker in self._runtime.workers:
+            await worker.stop()
+        self._loaded = False
+
+
 @dataclass(slots=True)
 class _ModelEntry:
     state: str = "not_loaded"
     event: asyncio.Event = field(default_factory=asyncio.Event)
-    runtime: ModelRuntime | None = None
+    worker: _RegistryWorker | None = None
     error: Exception | None = None
     load_task: asyncio.Task[None] | None = None
     requested_device_id: str | None = None
@@ -50,17 +89,16 @@ class ModelRegistry:
 
     def __init__(
         self,
-        runtime_loader: ModelRuntimeLoader,
+        worker_factory: ModelWorkerFactory,
         *,
         weight_measurement_enabled: bool = True,
     ) -> None:
-        self._runtime_loader = runtime_loader
+        _ = weight_measurement_enabled
+        self._worker_factory = worker_factory
         self._entries: dict[str, _ModelEntry] = {}
         self._lock = asyncio.Lock()
         self._model_loaded_listeners: list[ModelLoadedListener] = []
         self._model_unloaded_listeners: list[ModelUnloadedListener] = []
-        self._weight_measured_listeners: list[WeightMeasuredListener] = []
-        self._weight_measurement_enabled = bool(weight_measurement_enabled)
         self._logger = structlog.get_logger(__name__)
 
     async def close(self) -> None:
@@ -96,11 +134,15 @@ class ModelRegistry:
         )
 
     def iter_schedulers(self) -> Iterable[GPUSlotScheduler]:
-        return tuple(
-            entry.runtime.scheduler
-            for entry in self._entries.values()
-            if entry.state == "ready" and entry.runtime is not None
-        )
+        schedulers: list[GPUSlotScheduler] = []
+        for entry in self._entries.values():
+            if entry.state != "ready" or entry.worker is None:
+                continue
+            try:
+                schedulers.append(entry.worker.runtime.scheduler)
+            except Exception:
+                continue
+        return tuple(schedulers)
 
     def add_model_loaded_listener(self, listener: ModelLoadedListener) -> None:
         self._model_loaded_listeners.append(listener)
@@ -108,8 +150,9 @@ class ModelRegistry:
     def add_model_unloaded_listener(self, listener: ModelUnloadedListener) -> None:
         self._model_unloaded_listeners.append(listener)
 
-    def add_weight_measured_listener(self, listener: WeightMeasuredListener) -> None:
-        self._weight_measured_listeners.append(listener)
+    def add_weight_measured_listener(self, listener) -> None:
+        # Deprecated: kept as no-op compatibility API.
+        _ = listener
 
     def load(self, model_name: str, *, device_id: str | None = None) -> None:
         normalized = self._normalize_name(model_name)
@@ -129,7 +172,7 @@ class ModelRegistry:
         )
         entry.excluded_device_ids = ()
         entry.load_task = asyncio.create_task(
-            self._load_runtime(normalized, entry),
+            self._load_worker(normalized, entry),
             name=f"model-load-{normalized}",
         )
 
@@ -150,10 +193,6 @@ class ModelRegistry:
             if entry is not None and entry.state == "loading" and entry.excluded_device_ids:
                 pass
             else:
-                if entry is not None and entry.runtime is not None:
-                    scheduler_shutdown = getattr(entry.runtime.scheduler, "shutdown", None)
-                    if callable(scheduler_shutdown):
-                        scheduler_shutdown()
                 await self.unload(normalized)
                 entry = _ModelEntry(
                     state="loading",
@@ -162,7 +201,7 @@ class ModelRegistry:
                 )
                 self._entries[normalized] = entry
                 entry.load_task = asyncio.create_task(
-                    self._load_runtime(normalized, entry),
+                    self._load_worker(normalized, entry),
                     name=f"model-reload-{normalized}",
                 )
         return await self.wait_ready(normalized)
@@ -183,8 +222,8 @@ class ModelRegistry:
             state = "not_loaded" if entry is None else entry.state
 
             if state == "ready":
-                if entry is not None and entry.runtime is not None:
-                    return entry.runtime
+                if entry is not None and entry.worker is not None:
+                    return entry.worker.runtime
                 raise ModelRegistryLoadError(f"model {normalized} failed to load")
 
             if state == "error":
@@ -208,10 +247,10 @@ class ModelRegistry:
     def get_runtime(self, model_name: str) -> ModelRuntime:
         normalized = self._normalize_name(model_name)
         entry = self._entries.get(normalized)
-        if entry is None or entry.state != "ready" or entry.runtime is None:
+        if entry is None or entry.state != "ready" or entry.worker is None:
             state = entry.state if entry is not None else "not_loaded"
             raise RuntimeError(f"model {normalized} is not ready (state={state})")
-        return entry.runtime
+        return entry.worker.runtime
 
     async def unload(self, model_name: str) -> None:
         normalized = self._normalize_name(model_name)
@@ -220,7 +259,7 @@ class ModelRegistry:
             return
         if entry.state == "unloading":
             return
-        had_runtime_or_task = entry.runtime is not None or entry.load_task is not None
+        had_runtime_or_task = entry.worker is not None or entry.load_task is not None
         entry.state = "unloading"
 
         load_task = entry.load_task
@@ -228,11 +267,10 @@ class ModelRegistry:
             load_task.cancel()
             await asyncio.gather(load_task, return_exceptions=True)
 
-        runtime = entry.runtime
-        if runtime is not None:
-            for worker in runtime.workers:
-                await worker.stop()
-            entry.runtime = None
+        worker = entry.worker
+        if worker is not None:
+            await worker.unload()
+            entry.worker = None
 
         entry.error = None
         entry.state = "not_loaded"
@@ -241,8 +279,8 @@ class ModelRegistry:
         entry.requested_device_id = None
         entry.excluded_device_ids = ()
 
-        if runtime is not None:
-            del runtime
+        if worker is not None:
+            del worker
             gc.collect()
             _maybe_empty_cuda_cache()
 
@@ -253,42 +291,18 @@ class ModelRegistry:
         if had_runtime_or_task:
             await self._notify_model_unloaded(normalized)
 
-    async def _load_runtime(self, model_name: str, entry: _ModelEntry) -> None:
-        measured_weight_mb: int | None = None
-        measured_weight_device_id: str | None = None
+    async def _load_worker(self, model_name: str, entry: _ModelEntry) -> None:
         try:
-            runtime = await self._invoke_runtime_loader(
+            worker = await self._invoke_worker_factory(
                 model_name,
                 device_id=entry.requested_device_id,
                 exclude_device_ids=entry.excluded_device_ids or None,
             )
-            measured_weight_device_id = self._resolve_weight_measure_device_id(
-                runtime,
-                entry,
-            )
-            for worker in runtime.workers:
-                await worker.start()
-            if self._weight_measurement_enabled:
-                for worker in runtime.workers:
-                    startup_weight_mb = getattr(worker, "startup_weight_mb", None)
-                    if startup_weight_mb is not None:
-                        measured_weight_mb = startup_weight_mb
-                        break
-                if measured_weight_mb is None:
-                    self._logger.debug(
-                        "weight_measure.not_reported",
-                        model_name=model_name,
-                    )
-                else:
-                    self._logger.info(
-                        "weight_measure.reported",
-                        model_name=model_name,
-                        measured_mb=measured_weight_mb,
-                    )
+            await worker.load()
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            entry.runtime = None
+            entry.worker = None
             entry.error = exc
             entry.state = "error"
             self._logger.warning(
@@ -298,23 +312,14 @@ class ModelRegistry:
             )
             await self._notify_model_unloaded(model_name)
         else:
-            entry.runtime = runtime
+            entry.worker = worker
             entry.error = None
             entry.state = "ready"
             self._logger.info(
                 "model.ready",
                 model_name=model_name,
-                worker_count=len(runtime.workers),
+                worker_count=1,
             )
-            if (
-                measured_weight_mb is not None
-                and measured_weight_device_id is not None
-            ):
-                await self._notify_weight_measured(
-                    model_name,
-                    measured_weight_device_id,
-                    measured_weight_mb,
-                )
             await self._notify_model_loaded(model_name)
         finally:
             entry.load_task = None
@@ -346,75 +351,34 @@ class ModelRegistry:
                     error=str(exc),
                 )
 
-    async def _notify_weight_measured(
-        self,
-        model_name: str,
-        device_id: str,
-        measured_weight_mb: int,
-    ) -> None:
-        for listener in self._weight_measured_listeners:
-            try:
-                maybe_awaitable = listener(
-                    model_name,
-                    device_id,
-                    measured_weight_mb,
-                )
-                if inspect.isawaitable(maybe_awaitable):
-                    await maybe_awaitable
-            except Exception as exc:
-                self._logger.warning(
-                    "weight_measure.listener_failed",
-                    model_name=model_name,
-                    device_id=device_id,
-                    measured_mb=measured_weight_mb,
-                    error=str(exc),
-                )
-
-    async def _invoke_runtime_loader(
+    async def _invoke_worker_factory(
         self,
         model_name: str,
         *,
         device_id: str | None,
         exclude_device_ids: tuple[str, ...] | None,
-    ) -> ModelRuntime:
-        if inspect.iscoroutinefunction(self._runtime_loader):
-            runtime = await self._call_runtime_loader(
-                self._runtime_loader,
-                model_name,
-                device_id=device_id,
-                exclude_device_ids=exclude_device_ids,
-            )
-            return runtime
-        maybe_runtime = await asyncio.to_thread(
-            self._call_runtime_loader,
-            self._runtime_loader,
-            model_name,
-            device_id,
-            exclude_device_ids,
-        )
-        if inspect.isawaitable(maybe_runtime):
-            return await maybe_runtime
-        return maybe_runtime
-
-    @staticmethod
-    def _call_runtime_loader(
-        runtime_loader: ModelRuntimeLoader,
-        model_name: str,
-        device_id: str | None,
-        exclude_device_ids: tuple[str, ...] | None,
-    ) -> ModelRuntime | Awaitable[ModelRuntime]:
+    ) -> _RegistryWorker:
         kwargs: dict[str, str | tuple[str, ...]] = {}
         if device_id is not None:
             kwargs["device_id"] = device_id
         if exclude_device_ids:
             kwargs["exclude_device_ids"] = exclude_device_ids
 
-        if not kwargs:
-            return runtime_loader(model_name)
-
         while True:
             try:
-                return runtime_loader(model_name, **kwargs)
+                maybe_worker = self._worker_factory(model_name, **kwargs)
+                if inspect.isawaitable(maybe_worker):
+                    worker_obj = await maybe_worker
+                else:
+                    worker_obj = maybe_worker
+                if isinstance(worker_obj, ModelWorker):
+                    return worker_obj
+                if isinstance(worker_obj, ModelRuntime):
+                    return _CompatRuntimeWorker(worker_obj)
+                raise TypeError(
+                    "worker_factory must return ModelWorker or ModelRuntime; "
+                    f"got {type(worker_obj).__name__}"
+                )
             except TypeError as exc:
                 message = str(exc)
                 if (
@@ -422,36 +386,18 @@ class ModelRegistry:
                     and "exclude_device_ids" in kwargs
                 ):
                     kwargs.pop("exclude_device_ids", None)
-                elif (
+                    continue
+                if (
                     "unexpected keyword argument 'device_id'" in message
                     and "device_id" in kwargs
                 ):
                     kwargs.pop("device_id", None)
-                else:
-                    raise
-                if not kwargs:
-                    return runtime_loader(model_name)
+                    continue
+                raise
 
     @staticmethod
     def _normalize_name(model_name: str) -> str:
         return str(model_name).strip().lower()
-
-    @staticmethod
-    def _resolve_weight_measure_device_id(
-        runtime: ModelRuntime,
-        entry: _ModelEntry,
-    ) -> str | None:
-        assigned = str(runtime.assigned_device_id or "").strip()
-        if assigned:
-            return assigned
-        requested = str(entry.requested_device_id or "").strip()
-        if requested:
-            return requested
-        for worker in runtime.workers:
-            candidate = str(getattr(worker, "device_id", "")).strip()
-            if candidate:
-                return candidate
-        return None
 
 
 def _maybe_empty_cuda_cache() -> None:

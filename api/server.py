@@ -57,16 +57,12 @@ from gen3d.api.helpers.preflight import (
     run_real_mode_preflight,  # noqa: F401
     validate_runtime_security_config,
 )
-from gen3d.api.helpers.runtime import (
-    _resolve_model_definition_for_runtime,
-    build_model_runtime,
-)
+from gen3d.api.helpers.runtime import build_model_runtime
 from gen3d.api.helpers.tasks import _friendly_model_error_message, _map_task_status
 from gen3d.api.helpers.vram import (
-    _clamp_inference_estimate_mb,  # noqa: F401
+    _clamp_inference_estimate_mb,  # noqa: F401 — re-exported for tests
     _detect_device_total_vram_mb,
     _normalize_vram_mb,
-    _resolve_weight_vram_mb,
 )
 from gen3d.api.schemas import (
     AdminApiKeyCreateRequest,
@@ -95,13 +91,12 @@ from gen3d.api.schemas import (
 )
 from gen3d.config import ServingConfig
 from gen3d.engine.async_engine import AsyncGen3DEngine
-from gen3d.engine.model_registry import ModelRegistry, ModelRuntime
+from gen3d.engine.model_registry import ModelRegistry
 from gen3d.engine.model_scheduler import ModelScheduler
 from gen3d.engine.pipeline import PipelineCoordinator, PipelineQueueFullError
 from gen3d.engine.sequence import TERMINAL_STATUSES, TaskStatus
 from gen3d.engine.vram_allocator import (
     VRAMAllocator,
-    VRAMAllocatorError,
     VRAMMetricsHook,
 )
 from gen3d.engine.weight_manager import WeightManager, get_provider_deps
@@ -378,219 +373,70 @@ def create_app(
     settings_store = SettingsStore(config.database_path)
     artifact_store = build_artifact_store(config)
     preview_renderer_service = preview_renderer_service or PreviewRendererService()
-    pending_vram_measurement_tasks: set[asyncio.Task[None]] = set()
-    weight_measurements_by_device: dict[str, dict[str, int]] = {}
 
-    def _track_vram_measurement_task(task: asyncio.Task[None]) -> None:
-        pending_vram_measurement_tasks.add(task)
-
-        def _finalize(done_task: asyncio.Task[None]) -> None:
-            pending_vram_measurement_tasks.discard(done_task)
-            if done_task.cancelled():
-                return
-            error = done_task.exception()
-            if error is None:
-                return
-            _logger.warning(
-                "vram_measure.update_task_failed",
-                error=str(error),
-            )
-
-        task.add_done_callback(_finalize)
-
-    async def _apply_vram_estimate_update(
-        model_id: str,
-        field_name: str,
-        measured_mb: int,
-        *,
-        device_id: str | None,
-    ) -> None:
-        await _persist_vram_estimate_measurement(
-            model_store,
-            model_id=model_id,
-            field_name=field_name,
-            measured_mb=measured_mb,
-            device_id=device_id,
-        )
-
-    def _schedule_vram_estimate_update(
-        model_id: str,
-        field_name: str,
-        measured_mb: int,
-        *,
-        device_id: str | None,
-    ) -> None:
-        update_task = asyncio.create_task(
-            _apply_vram_estimate_update(
-                model_id,
-                field_name,
-                measured_mb,
-                device_id=device_id,
-            )
-        )
-        _track_vram_measurement_task(update_task)
-
-    async def _on_weight_measured(
+    async def _build_runtime_for_device(
         model_name: str,
+        *,
         device_id: str,
-        measured_weight_mb: int,
-    ) -> None:
+        measurement_callback=None,
+    ):
         normalized_model_name = str(model_name).strip().lower()
         normalized_device_id = str(device_id).strip()
-        normalized_measured_mb = max(int(measured_weight_mb), 0)
-        device_samples = weight_measurements_by_device.setdefault(
-            normalized_model_name,
-            {},
-        )
-        device_samples[normalized_device_id] = normalized_measured_mb
-        positive_samples = [sample for sample in device_samples.values() if sample > 0]
-        if len(positive_samples) >= 2:
-            min_sample = min(positive_samples)
-            max_sample = max(positive_samples)
-            variance_ratio = (
-                (max_sample - min_sample) / max_sample
-                if max_sample > 0
-                else 0.0
+        if not normalized_device_id:
+            raise ModelProviderConfigurationError(
+                f"device_id is required for model runtime creation: {normalized_model_name}"
             )
-            if variance_ratio > 0.2:
-                _logger.warning(
-                    "weight_measure.device_variance",
-                    model_name=normalized_model_name,
-                    variance_ratio=variance_ratio,
-                    measurements=dict(sorted(device_samples.items())),
-                )
-        await _apply_vram_estimate_update(
-            normalized_model_name,
-            "weight_vram_mb",
-            normalized_measured_mb,
-            device_id=normalized_device_id or None,
-        )
-        vram_allocator.reserve(
-            model_name=normalized_model_name,
-            weight_vram_mb=normalized_measured_mb,
-            allowed_device_ids=all_device_ids,
-        )
-
-    async def runtime_loader(
-        model_name: str,
-        device_id: str | None = None,
-        exclude_device_ids: Iterable[str] | None = None,
-    ) -> ModelRuntime:
-        normalized_model_name = str(model_name).strip().lower()
-        model_definition = await _resolve_model_definition_for_runtime(
-            model_store,
-            normalized_model_name,
-        )
-        weight_vram_mb = _resolve_weight_vram_mb(model_definition)
-        required_weight_vram_mb = 1 if config.is_mock_provider else weight_vram_mb
-        excluded_device_ids = {
-            str(candidate).strip()
-            for candidate in (exclude_device_ids or ())
-            if str(candidate).strip()
-        }
-        allocatable_device_ids = tuple(
-            current_device_id
-            for current_device_id in all_device_ids
+        if normalized_device_id not in set(all_device_ids):
+            raise ModelProviderConfigurationError(
+                f"unknown GPU device: {normalized_device_id}"
+            )
+        if normalized_device_id in disabled_devices:
+            raise ModelProviderConfigurationError(
+                f"GPU device is disabled: {normalized_device_id}"
+            )
+        try:
+            runtime = await build_model_runtime(
+                model_store,
+                config,
+                normalized_model_name,
+                device_ids=(normalized_device_id,),
+                disabled_devices=disabled_devices,
+                measurement_callback=measurement_callback,
+            )
+        except TypeError as exc:
+            message = str(exc)
             if (
-                current_device_id not in disabled_devices
-                and current_device_id not in excluded_device_ids
+                "unexpected keyword argument 'device_ids'" not in message
+                and "unexpected keyword argument 'disabled_devices'" not in message
+                and "unexpected keyword argument 'measurement_callback'" not in message
+            ):
+                raise
+            runtime = await build_model_runtime(
+                model_store,
+                config,
+                normalized_model_name,
             )
-        )
-        if not allocatable_device_ids:
-            raise ModelProviderConfigurationError("all GPU devices are disabled")
-        try:
-            assigned_device_id = vram_allocator.reserve(
-                model_name=normalized_model_name,
-                weight_vram_mb=required_weight_vram_mb,
-                allowed_device_ids=allocatable_device_ids,
-                preferred_device_id=(
-                    device_id
-                    if device_id is not None and device_id not in excluded_device_ids
-                    else None
-                ),
-            )
-        except VRAMAllocatorError as exc:
-            raise ModelProviderConfigurationError(str(exc)) from exc
-
-        _inference_mb_holder: list[int | None] = [
-            _normalize_vram_mb(model_definition.get("inference_vram_mb"))
-        ]
-
-        try:
-            def on_inference_measured(
-                callback_model_name: str,
-                callback_device_id: str,
-                inference_peak_mb: int,
-            ) -> None:
-                _inference_mb_holder[0] = max(int(inference_peak_mb), 1)
-                _schedule_vram_estimate_update(
-                    callback_model_name,
-                    "inference_vram_mb",
-                    int(inference_peak_mb),
-                    device_id=callback_device_id,
-                )
-
-            try:
-                runtime = await build_model_runtime(
-                    model_store,
-                    config,
-                    model_name,
-                    device_ids=(assigned_device_id,),
-                    disabled_devices=disabled_devices,
-                    measurement_callback=on_inference_measured,
-                )
-            except TypeError as exc:
-                message = str(exc)
-                if (
-                    "unexpected keyword argument 'device_ids'" not in message
-                    and "unexpected keyword argument 'disabled_devices'" not in message
-                    and "unexpected keyword argument 'measurement_callback'" not in message
-                ):
-                    raise
-                runtime = await build_model_runtime(
-                    model_store,
-                    config,
-                    model_name,
-                )
-        except Exception:
-            vram_allocator.release(normalized_model_name)
-            raise
-
-        def estimate_inference_vram_mb(batch_size: int, options: dict[str, Any]) -> int:
-            if config.is_mock_provider:
-                return 1
-            normalized_batch_size = max(int(batch_size), 1)
-            raw_value = runtime.provider.estimate_inference_vram_mb(
-                batch_size=normalized_batch_size,
-                options=options,
-            )
-            formula = _clamp_inference_estimate_mb(
-                raw_value=raw_value,
-                model=normalized_model_name,
-                batch_size=normalized_batch_size,
-                options=options,
-            )
-            measured = _inference_mb_holder[0]
-            if measured is not None:
-                return max(formula, measured)
-            return formula
-
-        runtime.scheduler.configure_inference_admission(
-            allocator=vram_allocator,
-            model_name=normalized_model_name,
-            device_id=assigned_device_id,
-            estimate_inference_vram_mb=estimate_inference_vram_mb,
-        )
-        runtime.assigned_device_id = assigned_device_id
-        runtime.weight_vram_mb = weight_vram_mb
+        runtime.assigned_device_id = normalized_device_id
         return runtime
 
-    model_registry = ModelRegistry(
-        runtime_loader,
-        weight_measurement_enabled=not config.is_mock_provider,
-    )
-    model_registry.add_model_unloaded_listener(vram_allocator.release)
-    model_registry.add_weight_measured_listener(_on_weight_measured)
+    def _create_model_worker(
+        model_name: str,
+        *,
+        device_id: str | None = None,
+        exclude_device_ids: Iterable[str] | None = None,
+    ):
+        _ = device_id
+        _ = exclude_device_ids
+        from gen3d.engine.model_worker import ModelWorker
+
+        return ModelWorker(
+            model_id=model_name,
+            allocator=vram_allocator,
+            gpu_worker_factory=_build_runtime_for_device,
+            db_store=model_store,
+        )
+
+    model_registry = ModelRegistry(_create_model_worker)
     model_scheduler = ModelScheduler(
         model_registry=model_registry,
         task_store=task_store,
@@ -599,36 +445,6 @@ def create_app(
         enabled=not config.is_mock_provider,
         gpu_device_count=len(all_device_ids),
     )
-
-    async def _evict_idle_on_device(device_id: str, requester_model_name: str) -> bool:
-        snapshot = vram_allocator.snapshot().get(device_id)
-        if snapshot is None:
-            return False
-        loaded_on_device = set(snapshot["allocations"].keys())
-        active_model_names = vram_allocator.active_inference_model_names_on(device_id)
-        candidates = [
-            model_name
-            for model_name in loaded_on_device
-            if model_name != requester_model_name
-            and model_name not in active_model_names
-            and model_registry.get_state(model_name) == "ready"
-        ]
-        if not candidates:
-            return False
-        victim = min(candidates, key=model_scheduler.get_last_used_tick)
-        try:
-            await model_registry.unload(victim)
-        except Exception:
-            structlog.get_logger(__name__).warning(
-                "vram_allocator.evict_failed",
-                victim=victim,
-                device_id=device_id,
-                requester=requester_model_name,
-            )
-            return False
-        return True
-
-    vram_allocator.set_evict_callback(_evict_idle_on_device)
     weight_manager = WeightManager(
         model_store=model_store,
         cache_dir=config.model_cache_dir,
@@ -825,11 +641,6 @@ def create_app(
         await container.engine.start()
         yield
         await container.engine.stop()
-        if pending_vram_measurement_tasks:
-            await asyncio.gather(
-                *tuple(pending_vram_measurement_tasks),
-                return_exceptions=True,
-            )
         await preview_renderer_service.stop()
         if proxy_client is not None:
             await proxy_client.aclose()

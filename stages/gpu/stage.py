@@ -8,14 +8,10 @@ from dataclasses import dataclass
 import structlog
 from gen3d.engine.model_registry import ModelRegistry
 from gen3d.engine.sequence import RequestSequence, TaskStatus
-from gen3d.engine.vram_allocator import (
-    ExternalVRAMOccupationTimeoutError,
-    InternalVRAMContentionTimeoutError,
-)
+from gen3d.engine.vram_allocator import InternalVRAMContentionTimeoutError
 from gen3d.model.base import ModelProviderExecutionError, StageProgress
 from gen3d.observability.metrics import observe_stage_duration
 from gen3d.stages.base import BaseStage, StageExecutionError, StageUpdateHandler
-from gen3d.stages.gpu.scheduler import SchedulerShutdownError
 from structlog.contextvars import bound_contextvars
 
 
@@ -80,52 +76,14 @@ class GPUStage(BaseStage):
                     return latest
 
                 prepared_inputs = [sequence.prepared_input or {"image_url": sequence.input_url}]
-                migration_attempted = False
-                while True:
-                    try:
-                        slot = await runtime.scheduler.acquire(
-                            batch_size=len(prepared_inputs),
-                            options=sequence.options,
-                        )
-                        break
-                    except InternalVRAMContentionTimeoutError:
-                        raise
-                    except ExternalVRAMOccupationTimeoutError as exc:
-                        if migration_attempted:
-                            raise
-                        migration_attempted = True
-                        previous_device = runtime.assigned_device_id
-                        self._logger.warning(
-                            "gpu.model_migration_triggered",
-                            model=sequence.model,
-                            old_device=previous_device,
-                            reason=str(exc),
-                        )
-                        runtime = await self._model_registry.reload(
-                            sequence.model,
-                            exclude_device_ids=(
-                                (previous_device,)
-                                if previous_device is not None
-                                else ()
-                            ),
-                        )
-                        self._logger.info(
-                            "gpu.model_migrated",
-                            model=sequence.model,
-                            old_device=previous_device,
-                            new_device=runtime.assigned_device_id,
-                            reason="external_vram_occupation_timeout",
-                        )
-                    except SchedulerShutdownError:
-                        if migration_attempted:
-                            raise
-                        migration_attempted = True
-                        runtime = await self._model_registry.wait_ready(sequence.model)
-                        self._logger.info(
-                            "gpu.acquire_retry_after_scheduler_shutdown",
-                            model=sequence.model,
-                            new_device=runtime.assigned_device_id,
-                        )
+                try:
+                    slot = await runtime.scheduler.acquire(
+                        batch_size=len(prepared_inputs),
+                        options=sequence.options,
+                    )
+                except InternalVRAMContentionTimeoutError:
+                    raise
+
                 sequence.assigned_worker_id = slot.worker.worker_id
                 timings = _GPUStageTiming(stage_started_at=time.perf_counter())
                 try:
