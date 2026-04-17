@@ -345,7 +345,19 @@ class Trellis2Provider:
             emit_stage("shape")
             emit_stage("material")
 
-        return result[0]
+        mesh = result[0]
+        del result
+        if hasattr(mesh, "cpu"):
+            mesh = mesh.cpu()
+        import gc
+        gc.collect()
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
+        return mesh
 
     @classmethod
     def _resolve_pipeline_type(cls, options: dict[str, Any]) -> str:
