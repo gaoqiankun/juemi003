@@ -329,6 +329,7 @@ class Step1X3DProvider:
             num_inference_steps=num_steps,
         )
         mesh = output.mesh[0] if hasattr(output, "mesh") else output
+        del output
 
         if emit_stage:
             emit_stage("shape")
