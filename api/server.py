@@ -1386,7 +1386,8 @@ def create_app(
             used_weight_vram_mb = int(snapshot.get("used_weight_vram_mb", 0))
             used_inference_vram_mb = int(snapshot.get("used_inference_vram_mb", 0))
             free_vram_mb = int(snapshot.get("free_vram_mb", 0))
-            effective_free_vram_mb = int(snapshot.get("effective_free_vram_mb", 0))
+            external_baseline_mb = int(snapshot.get("external_baseline_mb", 0))
+            effective_free_vram_mb = max(free_vram_mb - external_baseline_mb, 0)
             allocations = {
                 str(model_name).strip().lower(): int(vram_mb)
                 for model_name, vram_mb in dict(snapshot.get("allocations", {})).items()
