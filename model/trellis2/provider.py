@@ -311,9 +311,6 @@ class Trellis2Provider:
     def _run_single(self, image: Any, options: dict[str, Any], emit_stage=None) -> Any:
         pipeline_type = self._resolve_pipeline_type(options)
 
-        if emit_stage:
-            emit_stage("ss")
-
         result = self._pipeline.run(
             image,
             pipeline_type=pipeline_type,
@@ -339,11 +336,8 @@ class Trellis2Provider:
                 ),
             },
             max_num_tokens=options.get("max_num_tokens", 49_152),
+            stage_cb=emit_stage,
         )
-
-        if emit_stage:
-            emit_stage("shape")
-            emit_stage("material")
 
         return result[0]
 

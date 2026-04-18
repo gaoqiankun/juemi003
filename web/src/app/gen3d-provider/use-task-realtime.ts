@@ -128,6 +128,9 @@ export function useTaskRealtime({
             window.clearTimeout(firstEventWatchdog);
             firstEventWatchdog = null;
           }
+          if (payload.event === "heartbeat") {
+            continue;
+          }
           await applyEventPayload(taskId, payload, "sse");
           if (TERMINAL_STATUSES.has(payload.status as TaskStatus)) {
             reachedTerminal = true;
@@ -141,9 +144,11 @@ export function useTaskRealtime({
           window.clearTimeout(firstEventWatchdog);
           firstEventWatchdog = null;
         }
-        await applyEventPayload(taskId, tail, "sse");
-        if (TERMINAL_STATUSES.has(tail.status as TaskStatus)) {
-          reachedTerminal = true;
+        if (tail.event !== "heartbeat") {
+          await applyEventPayload(taskId, tail, "sse");
+          if (TERMINAL_STATUSES.has(tail.status as TaskStatus)) {
+            reachedTerminal = true;
+          }
         }
       }
     } catch (error) {

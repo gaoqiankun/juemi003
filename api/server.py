@@ -1143,7 +1143,7 @@ def create_app(
         async def event_stream():
             async for event in app_container.engine.stream_events(task_id):
                 if event is None:
-                    yield ": heartbeat\n\n"
+                    yield "event: heartbeat\ndata: {}\n\n"
                     continue
                 yield (
                     f"event: {event['event']}\n"
@@ -1156,6 +1156,7 @@ def create_app(
             headers={
                 "Cache-Control": "no-cache",
                 "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
             },
         )
 
