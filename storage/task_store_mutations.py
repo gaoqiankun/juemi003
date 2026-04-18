@@ -69,11 +69,11 @@ async def create_task(
             conflict_text = str(exc).lower()
             if not sequence.idempotency_key or "idempotency_key" not in conflict_text:
                 raise
-            cursor = await db.execute(
+            async with db.execute(
                 "SELECT * FROM tasks WHERE idempotency_key = ?",
                 (sequence.idempotency_key,),
-            )
-            row = await cursor.fetchone()
+            ) as cursor:
+                row = await cursor.fetchone()
             if row is None:
                 raise
             raise TaskIdempotencyConflictError(row_to_sequence(row)) from exc
@@ -195,7 +195,7 @@ async def requeue_task(
 ) -> bool:
     async with lock:
         now = _serialize_datetime(utcnow())
-        cursor = await db.execute(
+        async with db.execute(
             """
             UPDATE tasks
             SET status = ?,
@@ -219,9 +219,10 @@ async def requeue_task(
                 now,
                 task_id,
             ),
-        )
+        ) as cursor:
+            was_updated = cursor.rowcount > 0
         await db.commit()
-        return cursor.rowcount > 0
+        return was_updated
 
 
 async def delete_task(
@@ -243,7 +244,7 @@ async def soft_delete_task(
     deleted_at: datetime | None = None,
 ) -> bool:
     async with lock:
-        cursor = await db.execute(
+        async with db.execute(
             """
             UPDATE tasks
             SET deleted_at = ?, cleanup_done = 0, updated_at = ?
@@ -254,9 +255,10 @@ async def soft_delete_task(
                 _serialize_datetime(utcnow()),
                 task_id,
             ),
-        )
+        ) as cursor:
+            was_deleted = cursor.rowcount > 0
         await db.commit()
-        return cursor.rowcount > 0
+        return was_deleted
 
 
 async def mark_cleanup_done(
@@ -265,7 +267,7 @@ async def mark_cleanup_done(
     task_id: str,
 ) -> bool:
     async with lock:
-        cursor = await db.execute(
+        async with db.execute(
             """
             UPDATE tasks
             SET cleanup_done = 1, updated_at = ?
@@ -274,9 +276,10 @@ async def mark_cleanup_done(
               AND COALESCE(cleanup_done, 0) = 0
             """,
             (_serialize_datetime(utcnow()), task_id),
-        )
+        ) as cursor:
+            was_marked = cursor.rowcount > 0
         await db.commit()
-        return cursor.rowcount > 0
+        return was_marked
 
 
 async def insert_task_event(

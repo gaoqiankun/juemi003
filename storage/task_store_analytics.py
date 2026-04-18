@@ -23,15 +23,15 @@ async def update_stage_stats(
 
     duration = max(float(duration_seconds), 0.0)
     async with lock:
-        cursor = await db.execute(
+        async with db.execute(
             """
             SELECT count, mean_seconds, m2_seconds
             FROM stage_stats
             WHERE model_name = ? AND stage_name = ?
             """,
             (normalized_model, normalized_stage),
-        )
-        row = await cursor.fetchone()
+        ) as cursor:
+            row = await cursor.fetchone()
         if row is None:
             await db.execute(
                 """
@@ -79,15 +79,15 @@ async def get_stage_stats(
     model: str,
 ) -> dict[str, dict[str, float | int]]:
     normalized_model = model.strip() or "trellis"
-    cursor = await db.execute(
+    async with db.execute(
         """
         SELECT stage_name, count, mean_seconds, m2_seconds
         FROM stage_stats
         WHERE model_name = ?
         """,
         (normalized_model,),
-    )
-    rows = await cursor.fetchall()
+    ) as cursor:
+        rows = await cursor.fetchall()
     return {
         str(row["stage_name"]): {
             "count": int(row["count"]),
@@ -100,15 +100,15 @@ async def get_stage_stats(
 
 async def count_tasks_by_status(db: aiosqlite.Connection) -> dict[str, int]:
     result: dict[str, int] = {s.value: 0 for s in TaskStatus}
-    cursor = await db.execute(
+    async with db.execute(
         """
         SELECT status, COUNT(*) AS cnt
         FROM tasks
         WHERE deleted_at IS NULL
         GROUP BY status
         """
-    )
-    rows = await cursor.fetchall()
+    ) as cursor:
+        rows = await cursor.fetchall()
     for row in rows:
         result[str(row["status"])] = int(row["cnt"])
     return result
@@ -119,7 +119,7 @@ async def get_recent_tasks(
     limit: int = 10,
 ) -> list[dict]:
     clamped = max(1, min(limit, 50))
-    cursor = await db.execute(
+    async with db.execute(
         """
         SELECT id, status, model, input_url, progress, current_stage,
                created_at, started_at, completed_at, key_id, error_message
@@ -129,8 +129,8 @@ async def get_recent_tasks(
         LIMIT ?
         """,
         (clamped,),
-    )
-    rows = await cursor.fetchall()
+    ) as cursor:
+        rows = await cursor.fetchall()
     return [
         {
             "id": row["id"],
@@ -155,7 +155,7 @@ async def get_throughput_stats(
 ) -> dict:
     safe_hours = max(1, int(hours))
     cutoff = _serialize_datetime(utcnow() - timedelta(hours=safe_hours))
-    cursor = await db.execute(
+    async with db.execute(
         """
         SELECT
             SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) AS completed_count,
@@ -179,8 +179,8 @@ async def get_throughput_stats(
             TaskStatus.FAILED.value,
             cutoff,
         ),
-    )
-    row = await cursor.fetchone()
+    ) as cursor:
+        row = await cursor.fetchone()
     return {
         "completed_count": int(row["completed_count"] or 0) if row else 0,
         "failed_count": int(row["failed_count"] or 0) if row else 0,
@@ -195,7 +195,7 @@ async def get_throughput_stats(
 async def get_active_task_count(db: aiosqlite.Connection) -> int:
     terminal_values = tuple(s.value for s in TERMINAL_STATUSES)
     placeholders = ", ".join("?" for _ in terminal_values)
-    cursor = await db.execute(
+    async with db.execute(
         f"""
         SELECT COUNT(*) AS c
         FROM tasks
@@ -203,6 +203,6 @@ async def get_active_task_count(db: aiosqlite.Connection) -> int:
           AND status NOT IN ({placeholders})
         """,
         terminal_values,
-    )
-    row = await cursor.fetchone()
+    ) as cursor:
+        row = await cursor.fetchone()
     return int(row["c"] if row else 0)

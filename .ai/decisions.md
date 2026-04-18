@@ -5,6 +5,17 @@
 
 ---
 
+## 2026-04-19
+
+- **TaskStore claim 路径 SELECT+UPDATE 原子化进单一 asyncio.Lock 临界区**（plan: `2026-04-18-taskstore-cursor-leak-fix.md`）：
+  现象：生产观测到 `claim_next_queued_task` 抛 `sqlite3.OperationalError: database is locked`，5ms 间隔连续失败，busy_timeout=5000 不生效；task 卡 QUEUED，UI 进度 0%。
+  根因：`storage/task_store_queries.py` 原实现 SELECT cursor 在 lock 外执行后未关闭，接着在同 connection 同张 `tasks` 表上 UPDATE，触发 **SQLITE_LOCKED**（非 SQLITE_BUSY）—— `busy_timeout` PRAGMA 不作用于 SQLITE_LOCKED，立即失败。
+  决策：所有 storage 层 cursor 统一改 `async with db.execute(...) as cursor` 上下文管理（`task_store_queries.py` / `task_store_mutations.py` / `task_store_analytics.py`）；`claim_next_queued_task` 把 SELECT + UPDATE + commit 整体放进 `asyncio.Lock` 临界区，消除同 connection 上的 statement 交叠。
+  取舍：牺牲同一 `TaskStore` 连接内 claim 的"SELECT 并行度"。这是无损取舍 —— aiosqlite 单 connection 本来就是 sqlite3 线程池串行执行，并行 SELECT 是伪并行；换来 SQLITE_LOCKED 绝迹。
+  触发加剧因素：最近 VRAM 重构（commit `c204aac` / `01029b3`）新增 `_persist_estimate` 在每次 inference 后写 `model_store`（EMA 更新），6 个 store 共享同一 DB 文件下写入频率↑，暴露了本来潜伏的 cursor leak。
+  验证：新增 `tests/test_task_store.py:287` 并发回归（120 task × 2 worker claim + 240 次 `model_store.update_model` 并发），无异常、claim 唯一、末态 queued=0；全量 `214 passed`。
+  影响文件：`storage/task_store_queries.py` / `task_store_mutations.py` / `task_store_analytics.py` / `tests/test_task_store.py`。其他 store（`model_store.py` / `dep_store.py` / `settings_store.py` / `api_key_store.py`）cursor 用法未纳入本次范围，留待后续观察。
+
 ## 2026-04-18
 
 - **Inference allocation 生命周期从 ModelWorker 搬到 pipeline（设计中，代码待改）**：

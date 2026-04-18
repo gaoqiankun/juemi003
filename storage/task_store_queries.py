@@ -13,7 +13,7 @@ from gen3d.storage.task_store_codec import _deserialize_datetime, _serialize_dat
 
 
 async def count_incomplete_tasks(db: aiosqlite.Connection) -> int:
-    cursor = await db.execute(
+    async with db.execute(
         """
         SELECT COUNT(*) AS c
         FROM tasks
@@ -25,13 +25,13 @@ async def count_incomplete_tasks(db: aiosqlite.Connection) -> int:
             TaskStatus.FAILED.value,
             TaskStatus.CANCELLED.value,
         ),
-    )
-    row = await cursor.fetchone()
+    ) as cursor:
+        row = await cursor.fetchone()
     return int(row["c"] if row else 0)
 
 
 async def count_queued_tasks(db: aiosqlite.Connection) -> int:
-    cursor = await db.execute(
+    async with db.execute(
         """
         SELECT COUNT(*) AS c
         FROM tasks
@@ -40,13 +40,13 @@ async def count_queued_tasks(db: aiosqlite.Connection) -> int:
           AND assigned_worker_id IS NULL
         """,
         (TaskStatus.QUEUED.value,),
-    )
-    row = await cursor.fetchone()
+    ) as cursor:
+        row = await cursor.fetchone()
     return int(row["c"] if row else 0)
 
 
 async def count_pending_tasks_by_model(db: aiosqlite.Connection) -> dict[str, int]:
-    cursor = await db.execute(
+    async with db.execute(
         """
         SELECT model, COUNT(*) AS c
         FROM tasks
@@ -56,13 +56,13 @@ async def count_pending_tasks_by_model(db: aiosqlite.Connection) -> dict[str, in
         GROUP BY model
         """,
         (TaskStatus.QUEUED.value,),
-    )
-    rows = await cursor.fetchall()
+    ) as cursor:
+        rows = await cursor.fetchall()
     return {str(row["model"]).strip().lower(): int(row["c"]) for row in rows}
 
 
 async def count_running_tasks_by_model(db: aiosqlite.Connection) -> dict[str, int]:
-    cursor = await db.execute(
+    async with db.execute(
         """
         SELECT model, COUNT(*) AS c
         FROM tasks
@@ -76,13 +76,13 @@ async def count_running_tasks_by_model(db: aiosqlite.Connection) -> dict[str, in
             TaskStatus.FAILED.value,
             TaskStatus.CANCELLED.value,
         ),
-    )
-    rows = await cursor.fetchall()
+    ) as cursor:
+        rows = await cursor.fetchall()
     return {str(row["model"]).strip().lower(): int(row["c"]) for row in rows}
 
 
 async def get_oldest_queued_task_time_by_model(db: aiosqlite.Connection) -> dict[str, str]:
-    cursor = await db.execute(
+    async with db.execute(
         """
         SELECT model, MIN(created_at) AS oldest_created_at
         FROM tasks
@@ -92,8 +92,8 @@ async def get_oldest_queued_task_time_by_model(db: aiosqlite.Connection) -> dict
         GROUP BY model
         """,
         (TaskStatus.QUEUED.value,),
-    )
-    rows = await cursor.fetchall()
+    ) as cursor:
+        rows = await cursor.fetchall()
     return {
         str(row["model"]).strip().lower(): str(row["oldest_created_at"])
         for row in rows
@@ -109,25 +109,25 @@ async def claim_next_queued_task(
     get_task: Callable[[str], Awaitable[RequestSequence | None]],
 ) -> RequestSequence | None:
     while True:
-        cursor = await db.execute(
-            """
-            SELECT id
-            FROM tasks
-            WHERE deleted_at IS NULL
-              AND status = ?
-              AND assigned_worker_id IS NULL
-            ORDER BY queued_at ASC, id ASC
-            LIMIT 1
-            """,
-            (TaskStatus.QUEUED.value,),
-        )
-        row = await cursor.fetchone()
-        if row is None:
-            return None
-
-        now = _serialize_datetime(utcnow())
         async with lock:
-            update_cursor = await db.execute(
+            async with db.execute(
+                """
+                SELECT id
+                FROM tasks
+                WHERE deleted_at IS NULL
+                  AND status = ?
+                  AND assigned_worker_id IS NULL
+                ORDER BY queued_at ASC, id ASC
+                LIMIT 1
+                """,
+                (TaskStatus.QUEUED.value,),
+            ) as cursor:
+                row = await cursor.fetchone()
+            if row is None:
+                return None
+
+            now = _serialize_datetime(utcnow())
+            async with db.execute(
                 """
                 UPDATE tasks
                 SET assigned_worker_id = ?,
@@ -145,10 +145,11 @@ async def claim_next_queued_task(
                     row["id"],
                     TaskStatus.QUEUED.value,
                 ),
-            )
+            ) as update_cursor:
+                was_claimed = update_cursor.rowcount > 0
             await db.commit()
-            if update_cursor.rowcount == 0:
-                continue
+        if not was_claimed:
+            continue
         return await get_task(str(row["id"]))
 
 
@@ -160,18 +161,16 @@ async def get_task(
     include_deleted: bool = False,
 ) -> RequestSequence | None:
     if include_deleted:
-        cursor = await db.execute("SELECT * FROM tasks WHERE id = ?", (task_id,))
+        query = "SELECT * FROM tasks WHERE id = ?"
     else:
-        cursor = await db.execute(
-            "SELECT * FROM tasks WHERE id = ? AND deleted_at IS NULL",
-            (task_id,),
-        )
-    row = await cursor.fetchone()
+        query = "SELECT * FROM tasks WHERE id = ? AND deleted_at IS NULL"
+    async with db.execute(query, (task_id,)) as cursor:
+        row = await cursor.fetchone()
     return row_to_sequence(row) if row is not None else None
 
 
 async def list_task_events(db: aiosqlite.Connection, task_id: str) -> list[dict[str, Any]]:
-    cursor = await db.execute(
+    async with db.execute(
         """
         SELECT id, task_id, event, metadata_json, created_at
         FROM task_events
@@ -179,8 +178,8 @@ async def list_task_events(db: aiosqlite.Connection, task_id: str) -> list[dict[
         ORDER BY id ASC
         """,
         (task_id,),
-    )
-    rows = await cursor.fetchall()
+    ) as cursor:
+        rows = await cursor.fetchall()
     return [
         {
             "id": row["id"],
@@ -201,19 +200,14 @@ async def get_task_by_idempotency_key(
     include_deleted: bool = False,
 ) -> RequestSequence | None:
     if include_deleted:
-        cursor = await db.execute(
-            "SELECT * FROM tasks WHERE idempotency_key = ?",
-            (idempotency_key,),
-        )
+        query = "SELECT * FROM tasks WHERE idempotency_key = ?"
     else:
-        cursor = await db.execute(
-            """
+        query = """
             SELECT * FROM tasks
             WHERE idempotency_key = ? AND deleted_at IS NULL
-            """,
-            (idempotency_key,),
-        )
-    row = await cursor.fetchone()
+            """
+    async with db.execute(query, (idempotency_key,)) as cursor:
+        row = await cursor.fetchone()
     return row_to_sequence(row) if row is not None else None
 
 
@@ -222,7 +216,7 @@ async def list_incomplete_tasks(
     *,
     row_to_sequence: Callable[[aiosqlite.Row], RequestSequence],
 ) -> list[RequestSequence]:
-    cursor = await db.execute(
+    async with db.execute(
         """
         SELECT * FROM tasks
         WHERE deleted_at IS NULL
@@ -234,8 +228,8 @@ async def list_incomplete_tasks(
             TaskStatus.FAILED.value,
             TaskStatus.CANCELLED.value,
         ),
-    )
-    rows = await cursor.fetchall()
+    ) as cursor:
+        rows = await cursor.fetchall()
     return [row_to_sequence(row) for row in rows]
 
 
@@ -257,7 +251,7 @@ async def list_tasks(
         where_parts.append("created_at < ?")
         parameters.append(_serialize_datetime(before))
     where_sql = " AND ".join(where_parts)
-    cursor = await db.execute(
+    async with db.execute(
         f"""
         SELECT * FROM tasks
         WHERE {where_sql}
@@ -265,8 +259,8 @@ async def list_tasks(
         LIMIT ?
         """,
         (*parameters, normalized_limit + 1),
-    )
-    rows = await cursor.fetchall()
+    ) as cursor:
+        rows = await cursor.fetchall()
     page_rows = rows[:normalized_limit]
     items = [row_to_sequence(row) for row in page_rows]
     has_more = len(rows) > normalized_limit
@@ -283,7 +277,7 @@ async def list_tasks(
 
 
 async def get_queue_position(db: aiosqlite.Connection, task_id: str) -> int:
-    cursor = await db.execute(
+    async with db.execute(
         """
         SELECT queued_at, id
         FROM tasks
@@ -296,12 +290,12 @@ async def get_queue_position(db: aiosqlite.Connection, task_id: str) -> int:
             task_id,
             TaskStatus.QUEUED.value,
         ),
-    )
-    row = await cursor.fetchone()
+    ) as cursor:
+        row = await cursor.fetchone()
     if row is None:
         return 0
 
-    count_cursor = await db.execute(
+    async with db.execute(
         """
         SELECT COUNT(*) AS c
         FROM tasks
@@ -319,8 +313,8 @@ async def get_queue_position(db: aiosqlite.Connection, task_id: str) -> int:
             row["queued_at"],
             row["id"],
         ),
-    )
-    count_row = await count_cursor.fetchone()
+    ) as count_cursor:
+        count_row = await count_cursor.fetchone()
     return int(count_row["c"] if count_row else 0)
 
 
@@ -330,7 +324,7 @@ async def list_pending_cleanups(
     limit: int = 20,
 ) -> list[str]:
     normalized_limit = max(int(limit), 1)
-    cursor = await db.execute(
+    async with db.execute(
         """
         SELECT id
         FROM tasks
@@ -340,6 +334,6 @@ async def list_pending_cleanups(
         LIMIT ?
         """,
         (normalized_limit,),
-    )
-    rows = await cursor.fetchall()
+    ) as cursor:
+        rows = await cursor.fetchall()
     return [str(row["id"]) for row in rows]
