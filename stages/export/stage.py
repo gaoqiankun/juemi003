@@ -80,6 +80,7 @@ class ExportStage(BaseStage):
                                 Path(staging_path),
                                 sequence.options,
                             )
+                            sequence.generation_result = None  # Release CUDA IPC tensors
                         except ModelProviderExecutionError as exc:
                             raise StageExecutionError(exc.stage_name, str(exc)) from exc
                         except Exception as exc:

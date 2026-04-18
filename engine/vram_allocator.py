@@ -848,10 +848,15 @@ class VRAMAllocator:
                     - budget.used_weight_vram_mb
                 )
                 external_observed_mb = max(expected_free_mb - max(int(probed_free_mb), 0), 0)
+                baseline = self._external_baselines.get(device_id, 0)
+
                 if external_observed_mb <= self._EXTERNAL_BASELINE_NOISE_MB:
+                    if baseline <= self._EXTERNAL_BASELINE_NOISE_MB:
+                        continue  # Both small — genuine noise, no update needed
+                    # Observed dropped below noise floor but baseline is still large — decay toward zero
+                    self._external_baselines[device_id] = max(int(round(baseline * 0.5)), 0)
                     continue
 
-                baseline = self._external_baselines.get(device_id, 0)
                 if external_observed_mb > baseline:
                     baseline = int(round((0.8 * baseline) + (0.2 * external_observed_mb)))
                 elif external_observed_mb < baseline * 0.5:
