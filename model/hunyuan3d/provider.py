@@ -295,7 +295,6 @@ class Hunyuan3DProvider:
             octree_resolution=octree_resolution,
         )
         mesh = out[0]
-        del out
 
         if emit_stage:
             emit_stage("shape")
@@ -306,16 +305,6 @@ class Hunyuan3DProvider:
         if emit_stage:
             emit_stage("material")
 
-        if hasattr(mesh, "cpu"):
-            mesh = mesh.cpu()
-        import gc
-        gc.collect()
-        try:
-            import torch
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-        except Exception:
-            pass
         return mesh
 
     @classmethod

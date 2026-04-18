@@ -329,7 +329,6 @@ class Step1X3DProvider:
             num_inference_steps=num_steps,
         )
         mesh = output.mesh[0] if hasattr(output, "mesh") else output
-        del output
 
         if emit_stage:
             emit_stage("shape")
@@ -366,16 +365,6 @@ class Step1X3DProvider:
         if emit_stage:
             emit_stage("material")
 
-        if hasattr(mesh, "cpu"):
-            mesh = mesh.cpu()
-        import gc
-        gc.collect()
-        try:
-            import torch
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-        except Exception:
-            pass
         return mesh
 
     @classmethod
