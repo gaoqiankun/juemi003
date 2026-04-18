@@ -370,6 +370,11 @@ class VRAMAllocator:
             if normalized_device != assigned_device:
                 normalized_device = assigned_device
 
+            # Reset stale external baseline accumulated during the previous export window.
+            # The probe is suspended while inference is active (used_inference_vram_mb > 0),
+            # so any prior baseline would persist unchanged and inflate the "external" display.
+            self._external_baselines[normalized_device] = 0
+
             wait_deadline = loop.time() + self._MIGRATION_WAIT_SECONDS
             while True:
                 inference_allocation_id = self._try_book_inference(

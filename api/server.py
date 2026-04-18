@@ -1142,6 +1142,9 @@ def create_app(
 
         async def event_stream():
             async for event in app_container.engine.stream_events(task_id):
+                if event is None:
+                    yield ": heartbeat\n\n"
+                    continue
                 yield (
                     f"event: {event['event']}\n"
                     f"data: {json.dumps(event, ensure_ascii=False)}\n\n"

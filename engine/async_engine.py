@@ -289,7 +289,20 @@ class AsyncGen3DEngine:
     def ready(self) -> bool:
         return self._started and self._model_registry.has_ready_model()
 
-    async def stream_events(self, task_id: str) -> AsyncIterator[dict[str, Any]]:
+    async def stream_events(
+        self,
+        task_id: str,
+        *,
+        heartbeat_interval: float = 15.0,
+    ) -> AsyncIterator[dict[str, Any] | None]:
+        """Yield event payloads for the given task.
+
+        Yields ``None`` as a heartbeat sentinel every *heartbeat_interval*
+        seconds when no real event arrives.  Callers must filter out ``None``
+        values and treat them as keep-alive signals (e.g. send an SSE comment).
+        This prevents reverse-proxy idle-timeout disconnections during long
+        inference gaps (e.g. between GPU_SS and GPU_SHAPE).
+        """
         queue = subscribe_event_queue(self._event_queues, task_id)
         try:
             history = await self._task_store.list_task_events(task_id)
@@ -299,7 +312,11 @@ class AsyncGen3DEngine:
             if current is not None and is_terminal_task_status(current.status):
                 return
             while True:
-                payload = await queue.get()
+                try:
+                    payload = await asyncio.wait_for(queue.get(), timeout=heartbeat_interval)
+                except asyncio.TimeoutError:
+                    yield None  # heartbeat — no event within interval
+                    continue
                 yield payload
                 if is_terminal_event_status(payload.get("status")):
                     break
