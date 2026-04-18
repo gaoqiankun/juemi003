@@ -38,6 +38,7 @@ Architecture: **API → Engine (async worker) → Stage Pipeline → Provider**.
 
 ## Rules
 
+- All agent responses must be written in Chinese or English
 - `Hunyuan3D-2/` directory is untracked in git — expected
 - Plan files are created by Orchestrator — Worker reads only, never writes; on completion write report to `.ai/tmp/report-{task}.md`
 - Worker only writes to `.ai/tmp/`; all persistent `.ai/*.md` files (decisions, friction-log, impact-map, snapshot, etc.) are Orchestrator-owned
