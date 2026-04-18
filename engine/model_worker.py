@@ -69,6 +69,11 @@ def _looks_like_oom(error: BaseException) -> bool:
     return "out of memory" in message or "cuda oom" in message or "cuda out of memory" in message
 
 
+def _looks_like_worker_crash(error: BaseException) -> bool:
+    message = str(error).lower()
+    return "exited unexpectedly" in message or "worker process" in message and "exit" in message
+
+
 def _maybe_empty_cuda_cache() -> None:
     try:
         import torch  # type: ignore[import-not-found]
@@ -299,6 +304,10 @@ class ModelWorker:
             await self._apply_successful_inference_measurement()
             _maybe_empty_cuda_cache()
             return results
+        except Exception as exc:
+            if _looks_like_worker_crash(exc):
+                await self._reset_after_crash()
+            raise
         finally:
             if inference_allocation is not None:
                 self._allocator.release_inference(inference_allocation.inference_allocation_id)
@@ -381,6 +390,22 @@ class ModelWorker:
             return max(int(startup_weight_mb), 0)
         except (TypeError, ValueError):
             return None
+
+    async def _reset_after_crash(self) -> None:
+        """Release allocator state after subprocess crash.
+
+        The subprocess has already died and the OS has reclaimed its CUDA
+        memory, but the allocator still tracks the weight allocation.  Reset
+        everything so load() can run cleanly on the next request.
+        """
+        if self._weight_allocation is not None:
+            self._allocator.release_weight(self._weight_allocation.allocation_id)
+        self._allocator.unregister_worker(self.model_id)
+        self._weight_allocation = None
+        self._device_id = None
+        self._weight_allocated = False
+        self._gpu_worker = None
+        self._runtime = None
 
     async def _stop_runtime(self) -> None:
         runtime = self._runtime
