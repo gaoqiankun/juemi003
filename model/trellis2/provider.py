@@ -311,33 +311,35 @@ class Trellis2Provider:
     def _run_single(self, image: Any, options: dict[str, Any], emit_stage=None) -> Any:
         pipeline_type = self._resolve_pipeline_type(options)
 
-        result = self._pipeline.run(
-            image,
-            pipeline_type=pipeline_type,
-            sparse_structure_sampler_params={
+        run_kwargs: dict[str, Any] = {
+            "pipeline_type": pipeline_type,
+            "sparse_structure_sampler_params": {
                 "steps": options.get("ss_steps", 12),
                 "guidance_strength": options.get(
                     "ss_guidance_strength",
                     options.get("ss_guidance_scale", 7.5),
                 ),
             },
-            shape_slat_sampler_params={
+            "shape_slat_sampler_params": {
                 "steps": options.get("shape_steps", 20),
                 "guidance_strength": options.get(
                     "shape_guidance_strength",
                     options.get("shape_guidance_scale", 7.5),
                 ),
             },
-            tex_slat_sampler_params={
+            "tex_slat_sampler_params": {
                 "steps": options.get("material_steps", 12),
                 "guidance_strength": options.get(
                     "material_guidance_strength",
                     options.get("material_guidance_scale", 3.0),
                 ),
             },
-            max_num_tokens=options.get("max_num_tokens", 49_152),
-            stage_cb=emit_stage,
-        )
+            "max_num_tokens": options.get("max_num_tokens", 49_152),
+        }
+        if emit_stage is not None:
+            run_kwargs["stage_cb"] = emit_stage
+
+        result = self._pipeline.run(image, **run_kwargs)
 
         return result[0]
 

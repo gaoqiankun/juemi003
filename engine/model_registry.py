@@ -252,6 +252,15 @@ class ModelRegistry:
             raise RuntimeError(f"model {normalized} is not ready (state={state})")
         return entry.worker.runtime
 
+    def get_worker(self, model_name: str) -> ModelWorker | None:
+        normalized = self._normalize_name(model_name)
+        entry = self._entries.get(normalized)
+        if entry is None or entry.state != "ready" or entry.worker is None:
+            return None
+        if not isinstance(entry.worker, ModelWorker):
+            return None
+        return entry.worker
+
     async def unload(self, model_name: str) -> None:
         normalized = self._normalize_name(model_name)
         entry = self._entries.get(normalized)

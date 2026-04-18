@@ -208,11 +208,18 @@ def test_model_worker_migrates_on_inference_allocation_response() -> None:
         )
         allocator.register_worker("blocker", blocker)
 
-        result = await worker.run_inference(
-            batch=[{"image_url": "https://example.com/demo.png"}],
-            options={},
-            progress_cb=None,
+        lease = allocator.reserve_for_task(
+            model_id="model-a",
+            estimate_mb=worker.estimate_inference_mb({}),
+            weight_mb=worker.weight_vram_mb,
         )
+        async with lease:
+            await worker.apply_inference_allocation(lease.allocation)
+            result = await worker.run_batch(
+                batch=[{"image_url": "https://example.com/demo.png"}],
+                options={},
+                progress_cb=None,
+            )
 
         assert result[0].mesh == {"ok": True}
         assert worker.device_id == "1"
@@ -222,7 +229,7 @@ def test_model_worker_migrates_on_inference_allocation_response() -> None:
     asyncio.run(scenario())
 
 
-def test_model_worker_oom_self_heal_retries_once() -> None:
+def test_model_worker_public_inference_estimate_helpers() -> None:
     async def scenario() -> None:
         allocator = VRAMAllocator(device_totals_mb={"0": 24_000})
         store = FakeModelStore(
@@ -241,10 +248,7 @@ def test_model_worker_oom_self_heal_retries_once() -> None:
                 worker_id=f"gpu-{device_id}",
                 device_id=device_id,
                 startup_weight_mb=8_000,
-                outcomes=[
-                    RuntimeError("CUDA out of memory"),
-                    [GenerationResult(mesh={"ok": True})],
-                ],
+                outcomes=[[GenerationResult(mesh={"ok": True})]],
                 measurement_callback=measurement_callback,
                 model_id=model_name,
                 measured_peak_mb=2_200,
@@ -255,14 +259,24 @@ def test_model_worker_oom_self_heal_retries_once() -> None:
         worker = ModelWorker("trellis2", allocator, factory, store)
         await worker.load()
 
-        result = await worker.run_inference(
+        estimate = worker.estimate_inference_mb({})
+        assert estimate == 1_000
+
+        result = await worker.run_batch(
             batch=[{"image_url": "https://example.com/demo.png"}],
             options={},
             progress_cb=None,
         )
+        await worker.apply_successful_inference_measurement()
 
         assert result[0].mesh == {"ok": True}
-        assert created_workers[0].run_calls == 2
+        assert created_workers[0].run_calls == 1
+        assert worker.inference_vram_mb >= 2_200
+
+        worker._on_inference_measured("trellis2", "0", 2_600)
+        bump_target_mb = worker.resolve_oom_bump_target_mb()
+        assert bump_target_mb >= 2_600
+        await worker.apply_oom_bump_target_mb(bump_target_mb)
         assert worker.inference_vram_mb > 1_000
         assert any(
             model_id == "trellis2" and "inference_vram_mb" in updates

@@ -5,6 +5,46 @@
 
 ---
 
+## 2026-04-18
+
+- **Inference allocation 生命周期从 ModelWorker 搬到 pipeline（设计中，代码待改）**：
+  现象：生产观测到 gpu stage 结束 → export stage 启动的 ~1s 窗口内，admin 面板
+  从 "推理 5.5 GB / 外部 0" 突变为 "推理 0 / 外部 4 GB"，直到 export 完才恢复。
+  根因：`engine/model_worker.py` 的 `run_inference` 在 `finally` 里提前 release
+  inference allocation，但 `run_batch` 返回的 mesh 仍是 CUDA tensor，export stage
+  才 `.cpu()` 转换释放显存 —— 中间 ~1s 显存被占着但账本写 0，差值被 dashboard
+  归为 "外部占用"。
+  决策：inference allocation 是 **per-task 资源**（不是 per-run_batch 执行资源），
+  生命周期覆盖 gpu + export 两个 GPU-bound stage。引入 `InferenceLease` context
+  manager + `VRAMAllocator.reserve_for_task`，由 pipeline 协调层持有；
+  ModelWorker 退出 allocation 管理职责，只保留 run_batch / 估算 / OOM bump
+  target / 迁移物理执行。
+  替代方案：mesh 同步 `.cpu()` 后再 release（已被 commit `c61a17a` 回滚，
+  会触发 SIGBUS） · 忽略面板显示（与用户语义要求不符） · 延长 release 时机
+  但留在 ModelWorker 内（反向耦合）—— 均否决。
+  影响：`engine/vram_allocator.py`（加 Lease）、`engine/model_worker.py`（剥离
+  allocation）、pipeline 协调层（接 lease + OOM 重试搬家）、`stages/gpu/scheduler.py`
+  （删 `configure_inference_admission` 死代码）。weight allocation、`_do_migration`
+  核心逻辑、Model Scheduler、前端面板均不动。
+  （plan: `.ai/plan/2026-04-18-inference-lease-lifecycle.md` · 设计更新:
+  `.ai/vram-management-design.md` §1、§2、§3.4–3.6、§11）
+
+- **SSE 进度上报修复：pipeline stage_cb + heartbeat 可解析事件**（commit `d903d56`）：
+  `model/trellis2/pipeline/pipelines/trellis2_image_to_3d.py` `run()` 加 `stage_cb`
+  参数，四个 pipeline_type 分支（512/1024/1024_cascade/1536_cascade）均在
+  sparse_structure / shape_slat / tex_slat 完成后触发回调。
+  `model/trellis2/provider.py:_run_single` 移除前后包裹的 emit_stage，改用
+  `stage_cb=emit_stage` 传入。
+  `api/server.py` SSE heartbeat 从 `": heartbeat\n\n"` 改为 `"event: heartbeat\ndata: {}\n\n"`，
+  并加 `X-Accel-Buffering: no` 响应头防 nginx 缓冲。
+  `web/src/app/gen3d-provider/use-task-realtime.ts` 在 `applyEventPayload` 之前
+  guard 掉 heartbeat 事件 —— 否则 `applyTaskSnapshot` 在 payload 缺 progress 时
+  会 fallback 到 `defaultProgressForStatus(status)`，每次心跳都把进度回退到该
+  状态默认值（gpu_material 90% → 82%）。clear watchdog 放在 guard 之前。
+  生产验证：进度从"5% → 直接 100%"变成"5% → 25% → 60% → 90% → 95% → 100%"，
+  SSE 不再因 watchdog 超时回退到 polling。
+  （plan: `.ai/plan/2026-04-18-fix-progress-reporting.md`）
+
 ## 2026-04-13
 
 - **GPUSlotScheduler 支持 shutdown，reload/unload 不再挂死 in-flight 请求**：`stages/gpu/scheduler.py` 新增 `SchedulerShutdownError` + `GPUSlotScheduler.shutdown()`；`acquire()` 改为 `asyncio.wait({queue.get, shutdown_event}, FIRST_COMPLETED)` 模式，shutdown 触发时立刻抛错，异常路径释放 `inference_allocation_id` 防止账本漏账。竞态保护：`_restore_slot_from_task` 在 shutdown 赢但 get 也拿到 device_id 时把 device 回填队列，避免 slot 永久消失。`release()` 在 shutdown 后 early return 不回填 queue。（plan: 2026-04-12-gpu-inflight-hang-fix.md）

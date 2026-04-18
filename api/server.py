@@ -482,6 +482,8 @@ def create_app(
                 delay_ms=config.mock_export_delay_ms,
             ),
         ],
+        inference_allocator=vram_allocator,
+        model_registry=model_registry,
         task_timeout_seconds=config.task_timeout_seconds,
         queue_max_size=config.queue_max_size,
         worker_count=len(all_device_ids),

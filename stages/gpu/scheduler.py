@@ -4,7 +4,7 @@ import asyncio
 from collections import deque
 from contextlib import suppress
 from dataclasses import dataclass
-from typing import Any, Callable, Generic, Iterable, Protocol, TypeVar
+from typing import Any, Generic, Iterable, TypeVar
 
 from gen3d.observability.metrics import initialize_gpu_slots, set_gpu_slot_active
 from gen3d.stages.gpu.worker import GPUWorkerHandle
@@ -34,23 +34,6 @@ class GPUSlot:
     worker: GPUWorkerHandle
 
 
-class _InferenceAllocatorProtocol(Protocol):
-    async def acquire_inference(
-        self,
-        *,
-        model_name: str,
-        device_id: str,
-        inference_vram_mb: int,
-    ) -> str:
-        ...
-
-    def release_inference(self, allocation_id: str) -> None:
-        ...
-
-
-InferenceVRAMEstimator = Callable[[int, dict[str, Any]], int]
-
-
 class SchedulerShutdownError(RuntimeError):
     pass
 
@@ -70,11 +53,6 @@ class GPUSlotScheduler:
         self._parked: set[str] = set()
         self._waiting_count = 0
         self._shutdown_event = asyncio.Event()
-        self._inference_allocator: _InferenceAllocatorProtocol | None = None
-        self._inference_model_name: str | None = None
-        self._inference_device_id: str | None = None
-        self._estimate_inference_vram_mb: InferenceVRAMEstimator | None = None
-        self._inference_allocations_by_device: dict[str, str] = {}
         for device_id in disabled_device_ids or ():
             normalized = str(device_id).strip()
             if normalized in self._slots:
@@ -86,25 +64,6 @@ class GPUSlotScheduler:
                 continue
             self._available.put_nowait(device_id)
 
-    def configure_inference_admission(
-        self,
-        *,
-        allocator: _InferenceAllocatorProtocol,
-        model_name: str,
-        device_id: str,
-        estimate_inference_vram_mb: InferenceVRAMEstimator,
-    ) -> None:
-        normalized_device = str(device_id).strip()
-        if normalized_device not in self._slots:
-            raise ValueError(f"unknown scheduler device: {normalized_device}")
-        normalized_model = str(model_name).strip().lower()
-        if not normalized_model:
-            raise ValueError("model_name must not be empty")
-        self._inference_allocator = allocator
-        self._inference_model_name = normalized_model
-        self._inference_device_id = normalized_device
-        self._estimate_inference_vram_mb = estimate_inference_vram_mb
-
     async def acquire(
         self,
         *,
@@ -114,44 +73,32 @@ class GPUSlotScheduler:
         get_task: asyncio.Task[str] | None = None
         shutdown_task: asyncio.Task[bool] | None = None
         acquired_device_id: str | None = None
-        inference_allocation_id = await self._acquire_inference_allocation(
-            batch_size=batch_size,
-            options=options or {},
-        )
+        _ = batch_size
+        _ = options
+        self._waiting_count += 1
         try:
-            self._waiting_count += 1
-            try:
-                get_task = asyncio.create_task(self._available.get())
-                shutdown_task = asyncio.create_task(self._shutdown_event.wait())
-                done, _ = await asyncio.wait(
-                    {get_task, shutdown_task},
-                    return_when=asyncio.FIRST_COMPLETED,
+            get_task = asyncio.create_task(self._available.get())
+            shutdown_task = asyncio.create_task(self._shutdown_event.wait())
+            done, _ = await asyncio.wait(
+                {get_task, shutdown_task},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if shutdown_task in done:
+                raise SchedulerShutdownError(
+                    f"scheduler {id(self)} was shut down while acquiring slot"
                 )
-                if shutdown_task in done:
-                    raise SchedulerShutdownError(
-                        f"scheduler {id(self)} was shut down while acquiring slot"
-                    )
-                acquired_device_id = get_task.result()
-            finally:
-                self._waiting_count = max(self._waiting_count - 1, 0)
-                await self._cancel_task(shutdown_task)
-                await self._cancel_task(get_task)
-                if acquired_device_id is None:
-                    self._restore_slot_from_task(get_task)
+            acquired_device_id = get_task.result()
+        finally:
+            self._waiting_count = max(self._waiting_count - 1, 0)
+            await self._cancel_task(shutdown_task)
+            await self._cancel_task(get_task)
+            if acquired_device_id is None:
+                self._restore_slot_from_task(get_task)
 
-            if inference_allocation_id is not None:
-                self._inference_allocations_by_device[acquired_device_id] = inference_allocation_id
-            set_gpu_slot_active(device=acquired_device_id, active=True)
-            return self._slots[acquired_device_id]
-        except BaseException:
-            if inference_allocation_id is not None and self._inference_allocator is not None:
-                self._inference_allocator.release_inference(inference_allocation_id)
-            raise
+        set_gpu_slot_active(device=acquired_device_id, active=True)
+        return self._slots[acquired_device_id]
 
     async def release(self, device_id: str) -> None:
-        inference_allocation_id = self._inference_allocations_by_device.pop(device_id, None)
-        if inference_allocation_id is not None and self._inference_allocator is not None:
-            self._inference_allocator.release_inference(inference_allocation_id)
         set_gpu_slot_active(device=device_id, active=False)
         if self._shutdown_event.is_set():
             return
@@ -205,31 +152,6 @@ class GPUSlotScheduler:
 
     def device_ids(self) -> tuple[str, ...]:
         return tuple(self._slots)
-
-    async def _acquire_inference_allocation(
-        self,
-        *,
-        batch_size: int,
-        options: dict[str, Any],
-    ) -> str | None:
-        if (
-            self._inference_allocator is None
-            or self._inference_model_name is None
-            or self._inference_device_id is None
-            or self._estimate_inference_vram_mb is None
-        ):
-            return None
-
-        normalized_batch_size = max(int(batch_size), 1)
-        required_inference_vram_mb = self._estimate_inference_vram_mb(
-            normalized_batch_size,
-            options,
-        )
-        return await self._inference_allocator.acquire_inference(
-            model_name=self._inference_model_name,
-            device_id=self._inference_device_id,
-            inference_vram_mb=required_inference_vram_mb,
-        )
 
     @staticmethod
     async def _cancel_task(task: asyncio.Task[Any] | None) -> None:

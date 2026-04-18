@@ -141,3 +141,72 @@ def test_request_inference_supports_migration_booking() -> None:
         assert inference.weight_allocation_id is not None
 
     asyncio.run(scenario())
+
+
+def test_inference_lease_releases_on_normal_exit() -> None:
+    async def scenario() -> None:
+        allocator = VRAMAllocator(device_totals_mb={"0": 24_000})
+        await allocator.request_weight("model-a", 12_000)
+
+        async with allocator.reserve_for_task(
+            model_id="model-a",
+            estimate_mb=3_000,
+            weight_mb=12_000,
+        ) as lease:
+            allocation_id = str(lease.allocation.inference_allocation_id)
+            snapshot = allocator.snapshot()["0"]
+            assert snapshot["used_inference_vram_mb"] == 3_000
+            assert allocation_id in snapshot["inference_allocations"]
+
+        snapshot_after = allocator.snapshot()["0"]
+        assert snapshot_after["used_inference_vram_mb"] == 0
+        assert snapshot_after["inference_allocations"] == {}
+
+    asyncio.run(scenario())
+
+
+def test_inference_lease_releases_on_exception() -> None:
+    async def scenario() -> None:
+        allocator = VRAMAllocator(device_totals_mb={"0": 24_000})
+        await allocator.request_weight("model-a", 12_000)
+
+        with pytest.raises(RuntimeError, match="boom"):
+            async with allocator.reserve_for_task(
+                model_id="model-a",
+                estimate_mb=3_000,
+                weight_mb=12_000,
+            ):
+                raise RuntimeError("boom")
+
+        snapshot = allocator.snapshot()["0"]
+        assert snapshot["used_inference_vram_mb"] == 0
+        assert snapshot["inference_allocations"] == {}
+
+    asyncio.run(scenario())
+
+
+def test_inference_lease_bump_rebooks_allocation() -> None:
+    async def scenario() -> None:
+        allocator = VRAMAllocator(device_totals_mb={"0": 24_000})
+        await allocator.request_weight("model-a", 12_000)
+
+        async with allocator.reserve_for_task(
+            model_id="model-a",
+            estimate_mb=2_000,
+            weight_mb=12_000,
+        ) as lease:
+            first_allocation_id = str(lease.allocation.inference_allocation_id)
+            await lease.bump_and_retry_once(3_500)
+            second_allocation_id = str(lease.allocation.inference_allocation_id)
+
+            assert first_allocation_id != second_allocation_id
+            snapshot = allocator.snapshot()["0"]
+            assert snapshot["used_inference_vram_mb"] == 3_500
+            assert first_allocation_id not in snapshot["inference_allocations"]
+            assert second_allocation_id in snapshot["inference_allocations"]
+
+        snapshot_after = allocator.snapshot()["0"]
+        assert snapshot_after["used_inference_vram_mb"] == 0
+        assert snapshot_after["inference_allocations"] == {}
+
+    asyncio.run(scenario())

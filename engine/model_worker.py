@@ -12,7 +12,7 @@ from gen3d.engine.vram_allocator import (
     WeightAllocation,
     WeightAllocationID,
 )
-from gen3d.model.base import GenerationResult, ModelProviderExecutionError, StageProgress
+from gen3d.model.base import GenerationResult, StageProgress
 from gen3d.stages.gpu.scheduler import GPUSlotScheduler
 from gen3d.stages.gpu.worker import GPUWorkerHandle
 
@@ -64,11 +64,6 @@ def _resolve_total_vram_mb(model_definition: dict[str, Any]) -> int | None:
     return min_vram
 
 
-def _looks_like_oom(error: BaseException) -> bool:
-    message = str(error).lower()
-    return "out of memory" in message or "cuda oom" in message or "cuda out of memory" in message
-
-
 def _looks_like_worker_crash(error: BaseException) -> bool:
     message = str(error).lower()
     return "exited unexpectedly" in message or "worker process" in message and "exit" in message
@@ -115,7 +110,7 @@ class _ModelWorkerSchedulerAdapter:
         progress_cb=None,
     ) -> list[GenerationResult]:
         callback = cast(Callable[[StageProgress], Awaitable[None] | None] | None, progress_cb)
-        return await self._owner.run_inference(
+        return await self._owner.run_batch(
             batch=prepared_inputs,
             options=options,
             progress_cb=callback,
@@ -140,7 +135,7 @@ class ModelWorker:
         self._db_store = db_store
         self._logger = structlog.get_logger(__name__)
         self._weight_allocated = False
-        self._inference_busy = False
+        self._inference_busy_holds = 0
         self._evicting = False
         self.weight_vram_mb = 1
         self.inference_vram_mb = 1
@@ -175,7 +170,7 @@ class ModelWorker:
 
     @property
     def inference_busy(self) -> bool:
-        return self._inference_busy
+        return self._inference_busy_holds > 0
 
     @property
     def evicting(self) -> bool:
@@ -227,7 +222,7 @@ class ModelWorker:
             return
         self._evicting = True
         try:
-            while self._inference_busy:
+            while self.inference_busy:
                 await asyncio.sleep(self._EVICT_POLL_SECONDS)
             await self._stop_runtime()
             if self._weight_allocation is not None:
@@ -242,7 +237,28 @@ class ModelWorker:
     async def unload(self) -> None:
         await self.evict()
 
-    async def run_inference(
+    def estimate_inference_mb(self, options: dict[str, Any]) -> int:
+        _ = options
+        return max(int(self.inference_vram_mb), 1)
+
+    def begin_task_inference(self) -> None:
+        self._inference_busy_holds += 1
+        self._touch_last_used()
+
+    def end_task_inference(self) -> None:
+        self._inference_busy_holds = max(self._inference_busy_holds - 1, 0)
+        self._touch_last_used()
+
+    async def apply_inference_allocation(self, allocation: InferenceAllocation) -> None:
+        if allocation.weight_allocation_id is None:
+            return
+        await self._do_migration(
+            new_device=allocation.device_id,
+            new_weight_alloc=allocation.weight_allocation_id,
+            new_inference_alloc=allocation.inference_allocation_id,
+        )
+
+    async def run_batch(
         self,
         *,
         batch: list[object],
@@ -254,65 +270,69 @@ class ModelWorker:
         if self._gpu_worker is None or self._device_id is None:
             raise RuntimeError(f"model {self.model_id} has no running GPU worker")
 
-        self._inference_busy = True
+        self._inference_busy_holds += 1
         self._touch_last_used()
-        inference_allocation: InferenceAllocation | None = None
         try:
-            inference_allocation = await self._allocator.request_inference(
-                model_id=self.model_id,
-                device_id=self._device_id,
-                inference_mb=self.inference_vram_mb,
-                weight_mb=self.weight_vram_mb,
-            )
-            if inference_allocation.weight_allocation_id is not None:
-                await self._do_migration(
-                    new_device=inference_allocation.device_id,
-                    new_weight_alloc=inference_allocation.weight_allocation_id,
-                    new_inference_alloc=inference_allocation.inference_allocation_id,
-                )
-
-            try:
-                results = await self._run_batch(batch=batch, options=options, progress_cb=progress_cb)
-            except Exception as exc:
-                if not _looks_like_oom(exc):
-                    raise
-                bump_target_mb = self._resolve_oom_bump_target_mb()
-                self.inference_vram_mb = bump_target_mb
-                await self._persist_estimate("inference_vram_mb", bump_target_mb)
-                _maybe_empty_cuda_cache()
-                if inference_allocation is not None:
-                    self._allocator.release_inference(inference_allocation.inference_allocation_id)
-                    inference_allocation = None
-                inference_allocation = await self._allocator.request_inference(
-                    model_id=self.model_id,
-                    device_id=self._device_id or "",
-                    inference_mb=bump_target_mb,
-                    weight_mb=self.weight_vram_mb,
-                )
-                if inference_allocation.weight_allocation_id is not None:
-                    await self._do_migration(
-                        new_device=inference_allocation.device_id,
-                        new_weight_alloc=inference_allocation.weight_allocation_id,
-                        new_inference_alloc=inference_allocation.inference_allocation_id,
-                    )
-                results = await self._run_batch(
-                    batch=batch,
-                    options=options,
-                    progress_cb=progress_cb,
-                )
-
-            await self._apply_successful_inference_measurement()
-            _maybe_empty_cuda_cache()
-            return results
+            return await self._run_batch(batch=batch, options=options, progress_cb=progress_cb)
         except Exception as exc:
             if _looks_like_worker_crash(exc):
                 await self._reset_after_crash()
             raise
         finally:
-            if inference_allocation is not None:
-                self._allocator.release_inference(inference_allocation.inference_allocation_id)
-            self._inference_busy = False
+            self._inference_busy_holds = max(self._inference_busy_holds - 1, 0)
             self._touch_last_used()
+
+    async def run_inference(
+        self,
+        *,
+        batch: list[object],
+        options: dict[str, Any],
+        progress_cb: Callable[[StageProgress], Awaitable[None] | None] | None,
+    ) -> list[GenerationResult]:
+        # Backward-compatible alias; allocation lifecycle now lives in pipeline lease.
+        results = await self.run_batch(
+            batch=batch,
+            options=options,
+            progress_cb=progress_cb,
+        )
+        await self.apply_successful_inference_measurement()
+        self.empty_cuda_cache()
+        return results
+
+    def resolve_oom_bump_target_mb(self) -> int:
+        measured_reserved = self._consume_latest_inference_peak_mb()
+        scaled_estimate = max(int(round(self.inference_vram_mb * 1.5)), 1)
+        if measured_reserved is None:
+            return scaled_estimate
+        return max(int(measured_reserved), scaled_estimate, 1)
+
+    async def apply_oom_bump_target_mb(self, target_mb: int) -> None:
+        normalized_target_mb = max(int(target_mb), 1)
+        if normalized_target_mb <= self.inference_vram_mb:
+            return
+        self.inference_vram_mb = normalized_target_mb
+        await self._persist_estimate("inference_vram_mb", normalized_target_mb)
+
+    async def apply_successful_inference_measurement(self) -> None:
+        peak_mb = self._consume_latest_inference_peak_mb()
+        if peak_mb is None:
+            return
+        new_estimate = max(
+            int(
+                round(
+                    (self._INFERENCE_EMA_OLD_WEIGHT * self.inference_vram_mb)
+                    + (self._INFERENCE_EMA_NEW_WEIGHT * peak_mb)
+                )
+            ),
+            int(peak_mb),
+        )
+        if new_estimate <= self.inference_vram_mb:
+            return
+        self.inference_vram_mb = new_estimate
+        await self._persist_estimate("inference_vram_mb", new_estimate)
+
+    def empty_cuda_cache(self) -> None:
+        _maybe_empty_cuda_cache()
 
     async def _do_migration(
         self,
@@ -484,31 +504,6 @@ class ModelWorker:
                 measured_mb=normalized_value,
                 error=str(exc),
             )
-
-    async def _apply_successful_inference_measurement(self) -> None:
-        peak_mb = self._consume_latest_inference_peak_mb()
-        if peak_mb is None:
-            return
-        new_estimate = max(
-            int(
-                round(
-                    (self._INFERENCE_EMA_OLD_WEIGHT * self.inference_vram_mb)
-                    + (self._INFERENCE_EMA_NEW_WEIGHT * peak_mb)
-                )
-            ),
-            int(peak_mb),
-        )
-        if new_estimate <= self.inference_vram_mb:
-            return
-        self.inference_vram_mb = new_estimate
-        await self._persist_estimate("inference_vram_mb", new_estimate)
-
-    def _resolve_oom_bump_target_mb(self) -> int:
-        measured_reserved = self._consume_latest_inference_peak_mb()
-        scaled_estimate = max(int(round(self.inference_vram_mb * 1.5)), 1)
-        if measured_reserved is None:
-            return scaled_estimate
-        return max(int(measured_reserved), scaled_estimate, 1)
 
     def _on_inference_measured(
         self,

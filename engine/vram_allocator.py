@@ -40,6 +40,73 @@ class InferenceAllocation:
     device_id: str
 
 
+class InferenceLease:
+    """Per-task inference allocation holder.
+
+    The lease acquires inference allocation on enter and always releases it on
+    exit. Callers can bump the estimate and re-request once after an OOM.
+    """
+
+    def __init__(
+        self,
+        *,
+        allocator: "VRAMAllocator",
+        model_id: str,
+        device_id: str,
+        estimate_mb: int,
+        weight_mb: int,
+    ) -> None:
+        self._allocator = allocator
+        self._model_id = _normalize_model_name(model_id)
+        self._device_id = _normalize_device_id(device_id)
+        self._estimate_mb = _normalize_vram_mb(estimate_mb)
+        self._weight_mb = _normalize_vram_mb(weight_mb)
+        self._allocation: InferenceAllocation | None = None
+        self._entered = False
+
+    @property
+    def allocation(self) -> InferenceAllocation:
+        if self._allocation is None:
+            raise RuntimeError("inference lease is not active")
+        return self._allocation
+
+    async def __aenter__(self) -> "InferenceLease":
+        if self._entered:
+            raise RuntimeError("inference lease cannot be entered twice")
+        self._allocation = await self._allocator.request_inference(
+            model_id=self._model_id,
+            device_id=self._device_id,
+            inference_mb=self._estimate_mb,
+            weight_mb=self._weight_mb,
+        )
+        self._device_id = self._allocation.device_id
+        self._entered = True
+        return self
+
+    async def bump_and_retry_once(self, new_estimate_mb: int) -> None:
+        if not self._entered or self._allocation is None:
+            raise RuntimeError("cannot bump a lease that is not active")
+        self._allocator.release_inference(self._allocation.inference_allocation_id)
+        self._estimate_mb = _normalize_vram_mb(new_estimate_mb)
+        self._allocation = await self._allocator.request_inference(
+            model_id=self._model_id,
+            device_id=self._device_id,
+            inference_mb=self._estimate_mb,
+            weight_mb=self._weight_mb,
+        )
+        self._device_id = self._allocation.device_id
+
+    async def __aexit__(self, exc_type, exc, tb) -> None:
+        _ = exc_type
+        _ = exc
+        _ = tb
+        allocation = self._allocation
+        self._allocation = None
+        self._entered = False
+        if allocation is not None:
+            self._allocator.release_inference(allocation.inference_allocation_id)
+
+
 @dataclass(slots=True)
 class DeviceBudget:
     device_id: str
@@ -488,6 +555,25 @@ class VRAMAllocator:
                 f"required_weight_mb={required_weight_mb}, "
                 f"free_by_device={free_by_device})"
             )
+
+    def reserve_for_task(
+        self,
+        *,
+        model_id: str,
+        estimate_mb: int,
+        weight_mb: int,
+    ) -> InferenceLease:
+        normalized_model = _normalize_model_name(model_id)
+        assigned_device = self.assignment_for(normalized_model)
+        if assigned_device is None:
+            raise VRAMAllocatorError(f"model {normalized_model} is not assigned to a GPU device")
+        return InferenceLease(
+            allocator=self,
+            model_id=normalized_model,
+            device_id=assigned_device,
+            estimate_mb=estimate_mb,
+            weight_mb=weight_mb,
+        )
 
     def release_inference(self, allocation_id: InferenceAllocationID | str) -> None:
         normalized_allocation_id = str(allocation_id).strip()
