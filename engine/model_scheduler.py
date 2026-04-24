@@ -11,6 +11,10 @@ from gen3d.storage.settings_store import (
 )
 
 
+class SchedulerCapReachedError(Exception):
+    """Raised by _load_or_queue when at cap and no evictable candidate."""
+
+
 class _RegistryProtocol(Protocol):
     def get_state(self, model_name: str) -> str:
         ...
@@ -19,6 +23,12 @@ class _RegistryProtocol(Protocol):
         ...
 
     def load(self, model_name: str, *, device_id: str | None = None) -> None:
+        ...
+
+    def get_worker(self, model_name: str):
+        ...
+
+    async def unload(self, model_name: str) -> None:
         ...
 
 
@@ -122,6 +132,8 @@ class ModelScheduler:
             return
         try:
             await self._load_or_queue(_normalize_model_name(model_id))
+        except SchedulerCapReachedError:
+            raise
         except Exception as exc:
             self._logger.warning(
                 "scheduler.request_load_failed",
@@ -201,9 +213,50 @@ class ModelScheduler:
             if runtime_state in {"ready", "loading"}
         )
         if len(loaded_models) >= self._max_loaded_models:
-            return
+            candidate = self._pick_lru_evict_candidate(target_model, runtime_states)
+            if candidate is None:
+                self._logger.warning(
+                    "scheduler.cap_reached_no_evict_candidate",
+                    target_model=target_model,
+                    loaded_models=list(loaded_models),
+                    max_loaded_models=self._max_loaded_models,
+                )
+                raise SchedulerCapReachedError(
+                    "cannot evict: all ready models are currently in inference"
+                )
+            evicted_tick = int(self._last_used.get(candidate, 0))
+            await self._model_registry.unload(candidate)
+            self._logger.info(
+                "scheduler.evicted_lru",
+                requester=target_model,
+                evicted=candidate,
+                tick=evicted_tick,
+            )
 
         self._model_registry.load(target_model)
+
+    def _pick_lru_evict_candidate(
+        self,
+        target_model: str,
+        runtime_states: dict[str, str],
+    ) -> str | None:
+        candidates: list[tuple[int, str]] = []
+        for model_name, runtime_state in runtime_states.items():
+            if runtime_state != "ready":
+                continue
+            if model_name == target_model:
+                continue
+            worker = self._model_registry.get_worker(model_name)
+            if worker is None:
+                continue
+            if bool(getattr(worker, "inference_busy", False)):
+                continue
+            tick = int(self._last_used.get(model_name, 0))
+            candidates.append((tick, model_name))
+        if not candidates:
+            return None
+        candidates.sort(key=lambda item: (item[0], item[1]))
+        return candidates[0][1]
 
     async def _startup_scan_queued_models(self) -> None:
         if not self._enabled:
@@ -216,7 +269,14 @@ class ModelScheduler:
             key=lambda item: (_parse_iso_datetime(item[1]), item[0]),
         )
         for model_id, _ in sorted_models:
-            await self._load_or_queue(model_id)
+            try:
+                await self._load_or_queue(model_id)
+            except SchedulerCapReachedError as exc:
+                self._logger.warning(
+                    "scheduler.startup_scan_cap_reached",
+                    model_id=model_id,
+                    error=str(exc),
+                )
 
     def _normalize_max_loaded_models(self, value: object) -> int:
         try:

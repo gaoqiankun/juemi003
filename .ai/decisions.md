@@ -5,6 +5,21 @@
 
 ---
 
+## 2026-04-24
+
+- **ModelScheduler 超 `max_loaded_models` cap 时自动 LRU evict，原 silent-return bug 修复**（plan: `2026-04-24-scheduler-cap-evict.md`）：
+  现象：部署机 `max_loaded_models=2`，加载前两个模型正常；admin 面板点加载第三个模型（如 Step1X-3D）无反应、docker 日志无痕迹。
+  根因：`engine/model_scheduler.py::_load_or_queue` 在 `len(loaded_models) >= cap` 时直接 `return`，任何入口（`request_load`、`on_task_queued`、`_startup_scan_queued_models`、`on_model_loaded` 重扫）在达到 cap 时均静默丢弃加载请求。原设计（plan `2026-03-23-scheduler-startup-scan.md`、`2026-03-24-model-scheduler-on-model-loaded-rescan.md`）语义是"超 cap 走驱逐链"，驱逐这一步从未实现。
+  决策：超 cap 改为 LRU evict — 候选集筛选 `state == "ready"` 且 `worker.inference_busy == False` 且非目标模型；按 `ModelScheduler._last_used` tick 升序取首个（tick 相同 model_name 字典序稳定），`await ModelRegistry.unload(candidate)` 后继续加载目标。无候选（全部 ready 模型都在推理）→ raise `SchedulerCapReachedError`。
+  异常传播：`request_load` 路径透传 `SchedulerCapReachedError`，由 `api/server.py::load_model` 捕获 → 返回 HTTP 409 + detail；`_startup_scan_queued_models` 路径就地 swallow + warning 日志（任务留 DB queued，下次事件重试），不影响服务启动。
+  Cap 驱逐 vs VRAM 驱逐职责分工：
+  - **Cap 驱逐（本 plan）**：`ModelScheduler` 负责，按全局 cap 计数判定，候选筛选用 `ModelRegistry.get_worker(name).inference_busy`，锁策略与 `_load_or_queue` 保持一致（不持 `self._lock`）
+  - **VRAM 驱逐（既有，`engine/vram_allocator.py`）**：`_evict_worker` / `_idle_candidates_on` 按 device 维度显存不足触发，独立执行路径
+  - 两者互不干扰，但都复用 `ModelScheduler.get_last_used_tick()` 作为 LRU 排序依据
+  `_RegistryProtocol` 扩展：新增 `get_worker(name)` 和 async `unload(name)` 协议方法（实际 `ModelRegistry` 原本就有这两个方法，仅补充协议声明让 scheduler 可调用）。
+  测试覆盖：6 项验收（evict 正向 / busy 跳过 / 无候选报错 / disabled 路径 / on_model_loaded 重扫不误 evict self / API 409 传播）。老测试 `test_scheduler_does_not_evict_when_slots_are_full` 原本 lock in 了要被修复的 bug 行为，已重命名 `test_scheduler_on_task_queued_evicts_lru_at_cap` 并翻转断言。
+  影响文件：`engine/model_scheduler.py` / `api/server.py` / `tests/test_model_scheduler.py` / `tests/test_api.py`。全量 `220 passed`，ruff 无新增。
+
 ## 2026-04-19
 
 - **TaskStore claim 路径 SELECT+UPDATE 原子化进单一 asyncio.Lock 临界区**（plan: `2026-04-18-taskstore-cursor-leak-fix.md`）：

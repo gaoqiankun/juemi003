@@ -92,7 +92,7 @@ from gen3d.api.schemas import (
 from gen3d.config import ServingConfig
 from gen3d.engine.async_engine import AsyncGen3DEngine
 from gen3d.engine.model_registry import ModelRegistry
-from gen3d.engine.model_scheduler import ModelScheduler
+from gen3d.engine.model_scheduler import ModelScheduler, SchedulerCapReachedError
 from gen3d.engine.pipeline import PipelineCoordinator, PipelineQueueFullError
 from gen3d.engine.sequence import TERMINAL_STATUSES, TaskStatus
 from gen3d.engine.vram_allocator import (
@@ -1625,7 +1625,10 @@ def create_app(
         model = await app_container.model_store.get_model(model_id)
         if model is None:
             raise HTTPException(status_code=404, detail="model not found")
-        await app_container.model_scheduler.request_load(model_id)
+        try:
+            await app_container.model_scheduler.request_load(model_id)
+        except SchedulerCapReachedError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         runtime_state = app_container.model_registry.get_state(model_id)
         return {
             "id": str(model["id"]),

@@ -8,16 +8,36 @@ WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
 if str(WORKSPACE_ROOT) not in sys.path:
     sys.path.insert(0, str(WORKSPACE_ROOT))
 
-from gen3d.engine.model_scheduler import ModelScheduler, _normalize_model_name
+from gen3d.engine.model_scheduler import (
+    ModelScheduler,
+    SchedulerCapReachedError,
+    _normalize_model_name,
+)
 from gen3d.storage.settings_store import (
     MAX_LOADED_MODELS_KEY,
     MAX_TASKS_PER_SLOT_KEY,
 )
 
 
+class FakeWorker:
+    def __init__(self, *, inference_busy: bool = False) -> None:
+        self.inference_busy = inference_busy
+
+
 class FakeRegistry:
-    def __init__(self, *, states: dict[str, str]) -> None:
+    def __init__(
+        self,
+        *,
+        states: dict[str, str],
+        busy: set[str] | None = None,
+    ) -> None:
         self._states = {str(key).strip().lower(): value for key, value in states.items()}
+        busy_set = {str(name).strip().lower() for name in (busy or set())}
+        self._workers: dict[str, FakeWorker] = {
+            name: FakeWorker(inference_busy=name in busy_set)
+            for name, state in self._states.items()
+            if state == "ready"
+        }
         self.load_calls: list[str] = []
         self.unload_calls: list[str] = []
 
@@ -31,6 +51,18 @@ class FakeRegistry:
         normalized = str(model_name).strip().lower()
         self.load_calls.append(normalized)
         self._states[normalized] = "loading"
+
+    def get_worker(self, model_name: str) -> FakeWorker | None:
+        normalized = str(model_name).strip().lower()
+        if self._states.get(normalized) != "ready":
+            return None
+        return self._workers.get(normalized)
+
+    async def unload(self, model_name: str) -> None:
+        normalized = str(model_name).strip().lower()
+        self.unload_calls.append(normalized)
+        self._states[normalized] = "not_loaded"
+        self._workers.pop(normalized, None)
 
 
 class FakeTaskStore:
@@ -106,7 +138,7 @@ def test_scheduler_auto_load_on_task_queued() -> None:
     asyncio.run(scenario())
 
 
-def test_scheduler_does_not_evict_when_slots_are_full() -> None:
+def test_scheduler_on_task_queued_evicts_lru_at_cap() -> None:
     async def scenario() -> None:
         registry = FakeRegistry(states={"model-a": "ready", "model-b": "not_loaded"})
         task_store = FakeTaskStore()
@@ -120,8 +152,8 @@ def test_scheduler_does_not_evict_when_slots_are_full() -> None:
         await scheduler.initialize()
         await scheduler.on_task_queued("model-b")
 
-        assert registry.load_calls == []
-        assert registry.unload_calls == []
+        assert registry.unload_calls == ["model-a"]
+        assert registry.load_calls == ["model-b"]
 
     asyncio.run(scenario())
 
@@ -215,3 +247,122 @@ def test_scheduler_on_task_queued_is_noop_when_disabled() -> None:
 
 def test_scheduler_normalize_model_name_keeps_empty_string() -> None:
     assert _normalize_model_name("") == ""
+
+
+def test_load_or_queue_evicts_lru_when_at_cap() -> None:
+    async def scenario() -> None:
+        registry = FakeRegistry(states={"model-a": "ready", "model-b": "ready"})
+        scheduler = _build_scheduler(
+            registry=registry,
+            task_store=FakeTaskStore(),
+            max_loaded_models=2,
+            max_tasks_per_slot=8,
+        )
+        await scheduler.initialize()
+        # Establish LRU order: A is older (touched first), B is newer.
+        await scheduler.on_model_loaded("model-a")
+        await scheduler.on_model_loaded("model-b")
+
+        await scheduler.request_load("model-c")
+
+        assert registry.unload_calls == ["model-a"]
+        assert registry.load_calls == ["model-c"]
+
+    asyncio.run(scenario())
+
+
+def test_load_or_queue_evict_skips_busy_models() -> None:
+    async def scenario() -> None:
+        registry = FakeRegistry(
+            states={"model-a": "ready", "model-b": "ready"},
+            busy={"model-a"},
+        )
+        scheduler = _build_scheduler(
+            registry=registry,
+            task_store=FakeTaskStore(),
+            max_loaded_models=2,
+            max_tasks_per_slot=8,
+        )
+        await scheduler.initialize()
+        # A is oldest by tick but busy; B should be picked.
+        await scheduler.on_model_loaded("model-a")
+        await scheduler.on_model_loaded("model-b")
+
+        await scheduler.request_load("model-c")
+
+        assert registry.unload_calls == ["model-b"]
+        assert registry.load_calls == ["model-c"]
+
+    asyncio.run(scenario())
+
+
+def test_load_or_queue_raises_when_all_ready_busy() -> None:
+    async def scenario() -> None:
+        registry = FakeRegistry(
+            states={"model-a": "ready", "model-b": "ready"},
+            busy={"model-a", "model-b"},
+        )
+        scheduler = _build_scheduler(
+            registry=registry,
+            task_store=FakeTaskStore(),
+            max_loaded_models=2,
+            max_tasks_per_slot=8,
+        )
+        await scheduler.initialize()
+
+        raised = False
+        try:
+            await scheduler.request_load("model-c")
+        except SchedulerCapReachedError:
+            raised = True
+
+        assert raised is True
+        assert registry.unload_calls == []
+        assert registry.load_calls == []
+
+    asyncio.run(scenario())
+
+
+def test_load_or_queue_noop_when_disabled_even_at_cap() -> None:
+    async def scenario() -> None:
+        registry = FakeRegistry(states={"model-a": "ready", "model-b": "ready"})
+        scheduler = _build_scheduler(
+            registry=registry,
+            task_store=FakeTaskStore(),
+            max_loaded_models=2,
+            max_tasks_per_slot=8,
+            enabled=False,
+        )
+        await scheduler.initialize()
+
+        await scheduler.request_load("model-c")
+
+        assert registry.unload_calls == []
+        assert registry.load_calls == []
+
+    asyncio.run(scenario())
+
+
+def test_on_model_loaded_rescan_does_not_evict_self() -> None:
+    async def scenario() -> None:
+        task_store = FakeTaskStore()
+        task_store.oldest_queued_task_time_by_model = {
+            "model-c": "2026-04-24T10:00:00+00:00",
+        }
+        registry = FakeRegistry(states={"model-c": "ready"})
+        scheduler = _build_scheduler(
+            registry=registry,
+            task_store=task_store,
+            max_loaded_models=1,
+            max_tasks_per_slot=8,
+        )
+        await scheduler.initialize()
+
+        # Simulate C finishing load → rescan should short-circuit (state=ready)
+        # and never try to evict C itself.
+        await scheduler.on_model_loaded("model-c")
+
+        assert registry.unload_calls == []
+        assert registry.load_calls == []
+
+    asyncio.run(scenario())

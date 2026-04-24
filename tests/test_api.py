@@ -1039,6 +1039,30 @@ def test_admin_model_load_endpoint_returns_runtime_state(tmp_path: Path) -> None
     assert payload["runtimeState"] == payload["runtime_state"]
 
 
+def test_admin_model_load_endpoint_returns_409_when_no_evict_candidate(
+    tmp_path: Path,
+) -> None:
+    from gen3d.engine.model_scheduler import SchedulerCapReachedError
+
+    with make_client(tmp_path, admin_token="admin-token") as client:
+        container = client.app.state.container
+
+        async def raising_request_load(model_id: str):
+            raise SchedulerCapReachedError(
+                "cannot evict: all ready models are currently in inference"
+            )
+
+        container.model_scheduler.request_load = raising_request_load
+
+        response = client.post(
+            "/api/admin/models/trellis2/load",
+            headers=admin_headers(),
+        )
+
+    assert response.status_code == 409
+    assert "cannot evict" in response.json()["detail"]
+
+
 def test_admin_create_model_requires_weight_source(tmp_path: Path) -> None:
     with make_client(tmp_path, admin_token="admin-token") as client:
         response = client.post(
