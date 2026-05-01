@@ -84,8 +84,8 @@ async def ensure_task_column(
     column_name: str,
     definition_sql: str,
 ) -> None:
-    cursor = await db.execute("PRAGMA table_info(tasks)")
-    rows = await cursor.fetchall()
+    async with db.execute("PRAGMA table_info(tasks)") as cursor:
+        rows = await cursor.fetchall()
     existing_columns = {str(row["name"]) for row in rows}
     if column_name in existing_columns:
         return

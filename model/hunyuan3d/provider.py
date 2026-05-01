@@ -70,7 +70,7 @@ class MockHunyuan3DProvider:
 
     async def run_batch(self, images, options, progress_cb=None, cancel_flags=None):
         _ = cancel_flags
-        failure_stage = self._normalize_failure_stage(options.get("mock_failure_stage"))
+        failure_stage = self.normalize_failure_stage(options.get("mock_failure_stage"))
         for stage_name in ("ss", "shape", "material"):
             if self._stage_delay_seconds:
                 await asyncio.sleep(self._stage_delay_seconds)
@@ -79,7 +79,7 @@ class MockHunyuan3DProvider:
                     stage_name=f"gpu_{stage_name}",
                     message=f"mock failure injected at gpu_{stage_name}",
                 )
-            await _emit_progress(progress_cb, stage_name)
+            await emit_progress(progress_cb, stage_name)
         return [
             GenerationResult(
                 mesh={"mock_mesh": True, "input": image},
@@ -96,10 +96,10 @@ class MockHunyuan3DProvider:
     ) -> None:
         _ = result
         _ = options
-        Path(output_path).write_bytes(_build_mock_glb_bytes())
+        Path(output_path).write_bytes(build_mock_glb_bytes())
 
     @staticmethod
-    def _normalize_failure_stage(value: Any) -> str | None:
+    def normalize_failure_stage(value: Any) -> str | None:
         if value is None:
             return None
         stage = str(value).strip().lower()
@@ -144,7 +144,7 @@ class Hunyuan3DProvider:
         dep_paths: dict[str, str] | None = None,
     ) -> "Hunyuan3DProvider":
         _ = dep_paths
-        report, shape_pipeline, texture_pipeline = cls._inspect_runtime(
+        report, shape_pipeline, texture_pipeline = cls.inspect_runtime_full(
             model_path, load_pipeline=True,
         )
         if shape_pipeline is None or texture_pipeline is None:
@@ -163,7 +163,7 @@ class Hunyuan3DProvider:
             raise ModelProviderConfigurationError(
                 "MODEL_PATH is required for real provider mode"
             )
-        _, model_reference = cls._resolve_model_reference(model_path)
+        _, model_reference = cls.resolve_model_reference(model_path)
         return cls(
             shape_pipeline=None,
             texture_pipeline=None,
@@ -177,7 +177,7 @@ class Hunyuan3DProvider:
         *,
         load_pipeline: bool = True,
     ) -> dict[str, Any]:
-        report, _, _ = cls._inspect_runtime(model_path, load_pipeline=load_pipeline)
+        report, _, _ = cls.inspect_runtime_full(model_path, load_pipeline=load_pipeline)
         return report
 
     def estimate_weight_vram_mb(self, options: dict[str, Any]) -> int:
@@ -216,17 +216,17 @@ class Hunyuan3DProvider:
         loop = asyncio.get_running_loop()
         results: list[GenerationResult] = []
         for prepared_input in images:
-            image = _extract_pil_image(prepared_input)
+            image = extract_pil_image(prepared_input)
 
             def emit_stage(stage_name: str) -> None:
                 if progress_cb is None:
                     return
                 asyncio.run_coroutine_threadsafe(
-                    _emit_progress(progress_cb, stage_name), loop
+                    emit_progress(progress_cb, stage_name), loop
                 )
 
             try:
-                mesh = await asyncio.to_thread(self._run_single, image, options, emit_stage)
+                mesh = await asyncio.to_thread(self.run_single, image, options, emit_stage)
             except ModelProviderExecutionError:
                 raise
             except Exception as exc:
@@ -280,10 +280,11 @@ class Hunyuan3DProvider:
                 message=f"HunYuan3D-2 GLB export failed: {exc}",
             ) from exc
 
-    def _run_single(self, image: Any, options: dict[str, Any], emit_stage=None) -> Any:
+    def run_single(self, image: Any, options: dict[str, Any], emit_stage=None) -> Any:
         num_steps = options.get("num_steps", 25)
         guidance_scale = options.get("guidance_scale", 5.5)
         octree_resolution = options.get("octree_resolution", 256)
+        max_facenum = options.get("max_facenum", 40000)
 
         if emit_stage:
             emit_stage("ss")
@@ -295,6 +296,9 @@ class Hunyuan3DProvider:
             octree_resolution=octree_resolution,
         )
         mesh = out[0]
+
+        from gen3d.model.hunyuan3d.pipeline.shapegen.postprocessors import FaceReducer
+        mesh = FaceReducer()(mesh, max_facenum=max_facenum)
 
         if emit_stage:
             emit_stage("shape")
@@ -308,7 +312,7 @@ class Hunyuan3DProvider:
         return mesh
 
     @classmethod
-    def _inspect_runtime(
+    def inspect_runtime_full(
         cls,
         model_path: str,
         *,
@@ -319,7 +323,7 @@ class Hunyuan3DProvider:
                 "MODEL_PATH is required for real provider mode"
             )
 
-        model_source, model_reference = cls._resolve_model_reference(model_path)
+        model_source, model_reference = cls.resolve_model_reference(model_path)
 
         report: dict[str, Any] = {
             "provider": "hunyuan3d",
@@ -359,7 +363,7 @@ class Hunyuan3DProvider:
         # Register sys.modules aliases so that class paths in config.yaml
         # (e.g. "hy3dgen.shapegen.models.autoencoders.model.ShapeVAE") resolve
         # to our internal package after shapegen is imported.
-        _install_hy3dgen_alias()
+        install_hy3dgen_alias()
 
         shape_pipeline = None
         texture_pipeline = None
@@ -392,7 +396,7 @@ class Hunyuan3DProvider:
         return report, shape_pipeline, texture_pipeline
 
     @staticmethod
-    def _resolve_model_reference(model_path: str) -> tuple[str, str]:
+    def resolve_model_reference(model_path: str) -> tuple[str, str]:
         raw_value = model_path.strip()
         resolved_path = Path(raw_value).expanduser().resolve()
         if not resolved_path.exists():
@@ -407,7 +411,7 @@ class Hunyuan3DProvider:
 # ---------------------------------------------------------------------------
 
 
-def _build_mock_glb_bytes() -> bytes:
+def build_mock_glb_bytes() -> bytes:
     """Emit a tiny but valid triangle mesh so the browser UI can preview mock outputs."""
     positions = (
         -0.6, -0.45, 0.0,
@@ -477,7 +481,7 @@ def _build_mock_glb_bytes() -> bytes:
     )
 
 
-async def _emit_progress(progress_cb, stage_name: str) -> None:
+async def emit_progress(progress_cb, stage_name: str) -> None:
     if progress_cb is None:
         return
     callback_result = progress_cb(
@@ -491,13 +495,13 @@ async def _emit_progress(progress_cb, stage_name: str) -> None:
         await callback_result
 
 
-def _extract_pil_image(prepared_input: Any) -> Any:
+def extract_pil_image(prepared_input: Any) -> Any:
     if isinstance(prepared_input, dict) and "image" in prepared_input:
         return prepared_input["image"]
     return prepared_input
 
 
-def _install_hy3dgen_alias() -> None:
+def install_hy3dgen_alias() -> None:
     """Register ``hy3dgen.shapegen.*``, ``hy3dshape.*``, and ``hy3dgen.texgen.*``
     as sys.modules aliases for our internal shapegen/texgen packages.
 

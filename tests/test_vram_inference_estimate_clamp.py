@@ -11,8 +11,8 @@ WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
 if str(WORKSPACE_ROOT) not in sys.path:
     sys.path.insert(0, str(WORKSPACE_ROOT))
 
-from gen3d.api import server as server_module
-from gen3d.api.server import _clamp_inference_estimate_mb
+from gen3d.api.helpers import vram as vram_helpers
+from gen3d.api.server import clamp_inference_estimate_mb
 
 
 @pytest.mark.parametrize(
@@ -24,7 +24,7 @@ from gen3d.api.server import _clamp_inference_estimate_mb
         (5_000, 5_000, False),
     ],
 )
-def test_clamp_inference_estimate_mb(
+def testclamp_inference_estimate_mb(
     monkeypatch: pytest.MonkeyPatch,
     raw_estimate: int,
     expected_estimate: int,
@@ -37,9 +37,9 @@ def test_clamp_inference_estimate_mb(
             if event == "estimate_inference_vram_mb_nonpositive":
                 warnings.append((event, kwargs))
 
-    monkeypatch.setattr(server_module, "_logger", FakeLogger())
+    monkeypatch.setattr(vram_helpers, "_logger", FakeLogger())
 
-    estimate = _clamp_inference_estimate_mb(
+    estimate = clamp_inference_estimate_mb(
         raw_value=raw_estimate,
         model="trellis2",
         batch_size=3,

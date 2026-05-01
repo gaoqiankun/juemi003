@@ -24,7 +24,7 @@ def validate_image_url(image_url: str, *, allow_local_inputs: bool) -> str:
         return normalized
     if allow_local_inputs:
         return normalized
-    _parse_http_url(normalized, field_name="image_url")
+    parse_http_url(normalized, field_name="image_url")
     return normalized
 
 
@@ -40,7 +40,7 @@ def validate_callback_url(
     if not normalized:
         return None
 
-    parsed = _parse_http_url(normalized, field_name="callback_url")
+    parsed = parse_http_url(normalized, field_name="callback_url")
     host = (parsed.hostname or "").lower()
     normalized_allowed_domains = tuple(
         domain.strip().lower().strip(".")
@@ -48,7 +48,7 @@ def validate_callback_url(
         if domain and domain.strip()
     )
     if normalized_allowed_domains and not any(
-        _host_matches_allowed_domain(host, allowed_domain)
+        host_matches_allowed_domain(host, allowed_domain)
         for allowed_domain in normalized_allowed_domains
     ):
         raise TaskSubmissionValidationError(
@@ -142,7 +142,7 @@ class TokenRateLimiter:
                 self._active_tasks_by_token.pop(token, None)
 
 
-def _parse_http_url(value: str, *, field_name: str):
+def parse_http_url(value: str, *, field_name: str):
     parsed = urlparse(value)
     if parsed.scheme not in {"http", "https"}:
         raise TaskSubmissionValidationError(f"{field_name} must use http:// or https://")
@@ -151,7 +151,7 @@ def _parse_http_url(value: str, *, field_name: str):
     return parsed
 
 
-def _host_matches_allowed_domain(host: str, allowed_domain: str) -> bool:
+def host_matches_allowed_domain(host: str, allowed_domain: str) -> bool:
     if host == allowed_domain:
         return True
     return host.endswith(f".{allowed_domain}")

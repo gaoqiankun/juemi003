@@ -218,6 +218,7 @@
       "defaultTag": "默认",
       "setDefault": "设为默认",
       "load": "加载",
+      "unload": "卸载",
       "details": "详情",
       "retry": "重试",
       "loading": "加载中",
@@ -437,12 +438,19 @@
         "label": "最大驻留模型数",
         "description": "允许同时驻留在显存中的模型上限。",
         "errorNotInteger": "最大驻留模型数必须为整数",
-        "errorOutOfRange": "最大驻留模型数必须在 1 到 {{max}} 之间",
         "errorTooSmall": "最大驻留模型数必须 >= 1"
       },
       "maxTasksPerSlot": {
         "label": "单槽处理任务上限",
         "description": "达到该次数后模型可被调度器驱逐。"
+      },
+      "externalVramWaitTimeoutSeconds": {
+        "label": "外部请求显存等待超时",
+        "description": "外部请求等待显存释放的最长时间（秒），超时后请求失败。"
+      },
+      "internalVramWaitTimeoutSeconds": {
+        "label": "内部请求显存等待超时",
+        "description": "内部请求等待显存释放的最长时间（秒），超时后请求失败。"
       },
       "rateLimitPerHour": {
         "label": "每小时限流",
@@ -546,6 +554,37 @@
     "save": {
       "saving": "保存中...",
       "success": "设置已保存。"
+    }
+  },
+  "system": {
+    "vramPanel": {
+      "title": "显存占用",
+      "loading": "加载中...",
+      "cluster": {
+        "total": "总量",
+        "usedWeight": "权重",
+        "usedInference": "推理",
+        "free": "空闲",
+        "effectiveFree": "有效空闲",
+        "externalOccupation": "外部占用"
+      },
+      "holders": {
+        "columnHolder": "持有者",
+        "columnType": "类型",
+        "columnDevice": "设备",
+        "columnVram": "显存 (MB)",
+        "typeWeight": "权重",
+        "typeInference": "推理",
+        "empty": "当前没有显存分配"
+      },
+      "device": {
+        "enabled": "已启用",
+        "disabled": "已禁用",
+        "inferenceCount": "活跃推理数"
+      },
+      "externalOccupation": {
+        "tooltip": "由 allocator 之外占用的显存：{{value}}"
+      }
     }
   },
   "storage": {

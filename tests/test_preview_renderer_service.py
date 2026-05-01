@@ -47,17 +47,17 @@ def test_preview_renderer_service_restarts_after_transport_crash(
 
         monkeypatch.setattr(
             service,
-            "_ensure_process_ready_locked",
+            "ensure_process_ready_locked",
             fake_ensure_process_ready_locked,
         )
         monkeypatch.setattr(
             service,
-            "_send_request_locked",
+            "send_request_locked",
             fake_send_request_locked,
         )
         monkeypatch.setattr(
             service,
-            "_stop_process_locked",
+            "stop_process_locked",
             fake_stop_process_locked,
         )
 
@@ -96,7 +96,7 @@ def test_preview_renderer_service_start_logs_warning_on_warmup_failure(
 
         monkeypatch.setattr(
             service,
-            "_ensure_process_ready_locked",
+            "ensure_process_ready_locked",
             fake_ensure_process_ready_locked,
         )
         monkeypatch.setattr(service, "_logger", FakeLogger())

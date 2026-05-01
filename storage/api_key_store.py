@@ -21,7 +21,7 @@ PRIVILEGED_KEY_SCOPES = (
 VALID_API_KEY_SCOPES = (USER_KEY_SCOPE, *PRIVILEGED_KEY_SCOPES)
 
 
-def _utcnow_iso() -> str:
+def utcnow_iso() -> str:
     return datetime.now(UTC).isoformat()
 
 
@@ -50,11 +50,11 @@ class ApiKeyStore:
             )
             """
         )
-        await self._ensure_column(
+        await self.ensure_column(
             "scope",
             f"TEXT NOT NULL DEFAULT '{USER_KEY_SCOPE}'",
         )
-        await self._ensure_column("allowed_ips", "TEXT")
+        await self.ensure_column("allowed_ips", "TEXT")
         for col_sql in [
             "ALTER TABLE api_keys ADD COLUMN last_used_at TEXT",
             "ALTER TABLE api_keys ADD COLUMN request_count INTEGER NOT NULL DEFAULT 0",
@@ -74,14 +74,11 @@ class ApiKeyStore:
             await self._db.close()
             self._db = None
 
-    async def create_key(self, label: str) -> dict[str, str | bool | list[str] | None]:
-        return await self.create_user_key(label)
-
     async def create_user_key(
         self,
         label: str,
     ) -> dict[str, str | bool | list[str] | None]:
-        return await self._create_key(
+        return await self.create_key(
             label=label,
             scope=USER_KEY_SCOPE,
             allowed_ips=None,
@@ -94,16 +91,16 @@ class ApiKeyStore:
         scope: str,
         allowed_ips: list[str] | None = None,
     ) -> dict[str, str | bool | list[str] | None]:
-        normalized_scope = _normalize_scope(scope)
+        normalized_scope = normalize_scope(scope)
         if normalized_scope not in PRIVILEGED_KEY_SCOPES:
             raise ValueError("scope must be one of: key_manager, task_viewer, metrics")
-        return await self._create_key(
+        return await self.create_key(
             label=label,
             scope=normalized_scope,
             allowed_ips=allowed_ips,
         )
 
-    async def _create_key(
+    async def create_key(
         self,
         *,
         label: str,
@@ -113,13 +110,13 @@ class ApiKeyStore:
         normalized_label = label.strip()
         if not normalized_label:
             raise ValueError("label is required")
-        normalized_scope = _normalize_scope(scope)
-        normalized_allowed_ips = _normalize_allowed_ips(allowed_ips)
+        normalized_scope = normalize_scope(scope)
+        normalized_allowed_ips = normalize_allowed_ips(allowed_ips)
 
-        db = self._require_db()
+        db = self.require_db()
         async with self._lock:
             for _ in range(5):
-                created_at = _utcnow_iso()
+                created_at = utcnow_iso()
                 payload = {
                     "key_id": uuid.uuid4().hex,
                     "token": secrets.token_urlsafe(32),
@@ -165,8 +162,8 @@ class ApiKeyStore:
         return await self.list_user_keys()
 
     async def list_user_keys(self) -> list[dict[str, str | bool | list[str] | None]]:
-        db = self._require_db()
-        cursor = await db.execute(
+        db = self.require_db()
+        async with db.execute(
             """
             SELECT key_id, label, scope, allowed_ips, created_at, is_active, last_used_at, request_count
             FROM api_keys
@@ -174,15 +171,15 @@ class ApiKeyStore:
             ORDER BY created_at DESC, key_id DESC
             """,
             (USER_KEY_SCOPE,),
-        )
-        rows = await cursor.fetchall()
-        return [self._serialize_row(row) for row in rows]
+        ) as cursor:
+            rows = await cursor.fetchall()
+        return [self.serialize_row(row) for row in rows]
 
     async def list_privileged_keys(
         self,
     ) -> list[dict[str, str | bool | list[str] | None]]:
-        db = self._require_db()
-        cursor = await db.execute(
+        db = self.require_db()
+        async with db.execute(
             """
             SELECT key_id, label, scope, allowed_ips, created_at, is_active, last_used_at, request_count
             FROM api_keys
@@ -190,43 +187,46 @@ class ApiKeyStore:
             ORDER BY created_at DESC, key_id DESC
             """,
             (USER_KEY_SCOPE,),
-        )
-        rows = await cursor.fetchall()
-        return [self._serialize_row(row) for row in rows]
+        ) as cursor:
+            rows = await cursor.fetchall()
+        return [self.serialize_row(row) for row in rows]
 
     async def set_active(self, key_id: str, is_active: bool) -> bool:
-        db = self._require_db()
+        db = self.require_db()
         async with self._lock:
-            cursor = await db.execute(
+            async with db.execute(
                 """
                 UPDATE api_keys
                 SET is_active = ?
                 WHERE key_id = ? AND scope = ?
                 """,
                 (1 if is_active else 0, key_id, USER_KEY_SCOPE),
-            )
+            ) as cursor:
+                was_updated = cursor.rowcount > 0
             await db.commit()
-            return cursor.rowcount > 0
+            return was_updated
 
     async def revoke_privileged_key(self, key_id: str) -> bool:
-        db = self._require_db()
+        db = self.require_db()
         async with self._lock:
-            cursor = await db.execute(
+            async with db.execute(
                 "DELETE FROM api_keys WHERE key_id = ? AND scope != ?",
                 (key_id, USER_KEY_SCOPE),
-            )
+            ) as cursor:
+                was_deleted = cursor.rowcount > 0
             await db.commit()
-            return cursor.rowcount > 0
+            return was_deleted
 
     async def revoke_user_key(self, key_id: str) -> bool:
-        db = self._require_db()
+        db = self.require_db()
         async with self._lock:
-            cursor = await db.execute(
+            async with db.execute(
                 "DELETE FROM api_keys WHERE key_id = ? AND scope = ?",
                 (key_id, USER_KEY_SCOPE),
-            )
+            ) as cursor:
+                was_deleted = cursor.rowcount > 0
             await db.commit()
-            return cursor.rowcount > 0
+            return was_deleted
 
     async def get_key(
         self,
@@ -238,19 +238,19 @@ class ApiKeyStore:
         self,
         key_id: str,
     ) -> dict[str, str | bool | list[str] | None] | None:
-        db = self._require_db()
-        cursor = await db.execute(
+        db = self.require_db()
+        async with db.execute(
             """
             SELECT key_id, label, scope, allowed_ips, created_at, is_active, last_used_at, request_count
             FROM api_keys
             WHERE key_id = ? AND scope = ?
             """,
             (key_id, USER_KEY_SCOPE),
-        )
-        row = await cursor.fetchone()
+        ) as cursor:
+            row = await cursor.fetchone()
         if row is None:
             return None
-        return self._serialize_row(row)
+        return self.serialize_row(row)
 
     async def validate_token(
         self,
@@ -264,7 +264,7 @@ class ApiKeyStore:
         if not normalized_token:
             return None
 
-        db = self._require_db()
+        db = self.require_db()
         query = (
             "SELECT key_id, token, label, scope, allowed_ips, created_at, is_active, last_used_at, request_count "
             "FROM api_keys WHERE is_active = 1"
@@ -272,26 +272,26 @@ class ApiKeyStore:
         parameters: tuple[str, ...] = ()
         if required_scope is not None:
             query += " AND scope = ?"
-            parameters = (_normalize_scope(required_scope),)
-        cursor = await db.execute(query, parameters)
-        rows = await cursor.fetchall()
+            parameters = (normalize_scope(required_scope),)
+        async with db.execute(query, parameters) as cursor:
+            rows = await cursor.fetchall()
         for row in rows:
             if secrets.compare_digest(normalized_token, str(row["token"])):
-                return self._serialize_row(row)
+                return self.serialize_row(row)
         return None
 
     async def record_usage(self, key_id: str) -> None:
-        db = self._require_db()
+        db = self.require_db()
         async with self._lock:
             await db.execute(
                 "UPDATE api_keys SET request_count = request_count + 1, last_used_at = ? WHERE key_id = ?",
-                (_utcnow_iso(), key_id),
+                (utcnow_iso(), key_id),
             )
             await db.commit()
 
     async def get_usage_stats(self) -> dict:
-        db = self._require_db()
-        cursor = await db.execute(
+        db = self.require_db()
+        async with db.execute(
             """
             SELECT
                 COUNT(*) AS total_keys,
@@ -299,32 +299,32 @@ class ApiKeyStore:
                 COALESCE(SUM(request_count), 0) AS total_requests
             FROM api_keys
             """
-        )
-        row = await cursor.fetchone()
+        ) as cursor:
+            row = await cursor.fetchone()
         return {
             "total_keys": row["total_keys"],
             "active_keys": row["active_keys"],
             "total_requests": row["total_requests"],
         }
 
-    async def _ensure_column(self, column_name: str, ddl: str) -> None:
-        db = self._require_db()
-        cursor = await db.execute("PRAGMA table_info(api_keys)")
-        columns = {str(row["name"]) for row in await cursor.fetchall()}
+    async def ensure_column(self, column_name: str, ddl: str) -> None:
+        db = self.require_db()
+        async with db.execute("PRAGMA table_info(api_keys)") as cursor:
+            columns = {str(row["name"]) for row in await cursor.fetchall()}
         if column_name in columns:
             return
         await db.execute(f"ALTER TABLE api_keys ADD COLUMN {column_name} {ddl}")
 
-    def _require_db(self) -> aiosqlite.Connection:
+    def require_db(self) -> aiosqlite.Connection:
         if self._db is None:
             raise RuntimeError("ApiKeyStore.initialize() must be called first")
         return self._db
 
     @staticmethod
-    def _serialize_row(
+    def serialize_row(
         row: aiosqlite.Row,
     ) -> dict[str, str | bool | int | list[str] | None]:
-        allowed_ips = _deserialize_allowed_ips(row["allowed_ips"])
+        allowed_ips = deserialize_allowed_ips(row["allowed_ips"])
         result: dict[str, str | bool | int | list[str] | None] = {
             "key_id": str(row["key_id"]),
             "label": str(row["label"]),
@@ -342,7 +342,7 @@ class ApiKeyStore:
         return result
 
 
-def _normalize_scope(raw: str) -> str:
+def normalize_scope(raw: str) -> str:
     normalized = raw.strip().lower()
     if normalized not in VALID_API_KEY_SCOPES:
         raise ValueError(
@@ -351,7 +351,7 @@ def _normalize_scope(raw: str) -> str:
     return normalized
 
 
-def _normalize_allowed_ips(raw: list[str] | None) -> list[str] | None:
+def normalize_allowed_ips(raw: list[str] | None) -> list[str] | None:
     if raw is None:
         return None
     normalized: list[str] = []
@@ -364,7 +364,7 @@ def _normalize_allowed_ips(raw: list[str] | None) -> list[str] | None:
     return normalized
 
 
-def _deserialize_allowed_ips(raw: object) -> list[str] | None:
+def deserialize_allowed_ips(raw: object) -> list[str] | None:
     if raw is None:
         return None
     if isinstance(raw, str):

@@ -87,7 +87,7 @@ class ArtifactStore:
         if self._mode == "local":
             artifact = await self._local_backend.publish_artifact(task_id=task_id, artifact_type=artifact_type, file_name=file_name, staging_path=staging_path, created_at=created_at, size_bytes=size_bytes, content_type=resolved_content_type)
         else:
-            artifact = await self._require_minio_backend().publish_artifact(task_id=task_id, artifact_type=artifact_type, file_name=file_name, staging_path=staging_path, created_at=created_at, size_bytes=size_bytes, content_type=resolved_content_type)
+            artifact = await self.require_minio_backend().publish_artifact(task_id=task_id, artifact_type=artifact_type, file_name=file_name, staging_path=staging_path, created_at=created_at, size_bytes=size_bytes, content_type=resolved_content_type)
         await artifact_manifest.write_manifest(self._manifest_dir, task_id, [artifact])
         return artifact
 
@@ -123,38 +123,38 @@ class ArtifactStore:
             artifact_path = await self._local_backend.get_local_artifact_path(task_id, safe_file_name)
             if artifact_path is None:
                 return None
-            artifact = await self._find_artifact_record(task_id, safe_file_name)
+            artifact = await self.find_artifact_record(task_id, safe_file_name)
             artifact_type = str(artifact.get("type") or "file") if artifact is not None else artifact_utils.infer_artifact_type(safe_file_name)
             content_type = str(artifact.get("content_type")) if artifact is not None and artifact.get("content_type") else artifact_utils.guess_content_type(safe_file_name, artifact_type)
             return artifact_path, content_type, False
-        artifact = await self._find_artifact_record(task_id, safe_file_name)
+        artifact = await self.find_artifact_record(task_id, safe_file_name)
         if artifact is None:
             return None
-        return await self._require_minio_backend().prepare_download(task_id=task_id, file_name=safe_file_name, artifact=artifact)
+        return await self.require_minio_backend().prepare_download(task_id=task_id, file_name=safe_file_name, artifact=artifact)
 
     async def open_streaming_download(self, task_id: str, file_name: str) -> ArtifactStream | None:
         safe_file_name = artifact_utils.sanitize_file_name(file_name)
         if safe_file_name is None or self._mode != "minio":
             return None
-        artifact = await self._find_artifact_record(task_id, safe_file_name)
+        artifact = await self.find_artifact_record(task_id, safe_file_name)
         if artifact is None:
             return None
-        return await self._require_minio_backend().open_streaming_download(task_id=task_id, file_name=safe_file_name, artifact=artifact)
+        return await self.require_minio_backend().open_streaming_download(task_id=task_id, file_name=safe_file_name, artifact=artifact)
 
     async def delete_artifacts(self, task_id: str) -> None:
         if self._mode == "local":
             await self._local_backend.delete_artifacts(task_id)
         else:
-            await self._require_minio_backend().delete_artifacts(task_id)
+            await self.require_minio_backend().delete_artifacts(task_id)
         await artifact_manifest.remove_manifest(self._manifest_dir, task_id)
         staging_dir = self._staging_dir / task_id
         if staging_dir.exists():
             await asyncio.to_thread(shutil.rmtree, staging_dir, True)
 
-    async def _find_artifact_record(self, task_id: str, file_name: str) -> dict[str, Any] | None:
+    async def find_artifact_record(self, task_id: str, file_name: str) -> dict[str, Any] | None:
         return artifact_manifest.find_artifact_record(await self.list_artifacts(task_id), file_name)
 
-    def _require_minio_backend(self) -> ArtifactMinioBackend:
+    def require_minio_backend(self) -> ArtifactMinioBackend:
         if self._minio_backend is None:
             raise ArtifactStoreConfigurationError("minio artifact store requires an object storage client")
         return self._minio_backend

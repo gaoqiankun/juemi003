@@ -7,7 +7,7 @@ from typing import Any, Callable
 
 import aiosqlite
 from gen3d.engine.sequence import RequestSequence, TaskStatus, utcnow
-from gen3d.storage.task_store_codec import _serialize_datetime
+from gen3d.storage.task_store_codec import serialize_datetime
 
 
 class TaskIdempotencyConflictError(RuntimeError):
@@ -18,6 +18,63 @@ class TaskIdempotencyConflictError(RuntimeError):
         self.existing_sequence = existing_sequence
 
 
+_TASK_COLUMNS = (
+    "status",
+    "type",
+    "model",
+    "input_url",
+    "options_json",
+    "idempotency_key",
+    "key_id",
+    "callback_url",
+    "output_artifacts_json",
+    "error_message",
+    "failed_stage",
+    "retry_count",
+    "assigned_worker_id",
+    "current_stage",
+    "progress",
+    "queue_position",
+    "estimated_wait_seconds",
+    "estimated_finish_at",
+    "created_at",
+    "queued_at",
+    "started_at",
+    "completed_at",
+    "updated_at",
+    "deleted_at",
+)
+
+
+def serialize_task_columns(sequence: RequestSequence) -> tuple:
+    return (
+        sequence.status.value,
+        sequence.task_type.value,
+        sequence.model,
+        sequence.input_url,
+        json.dumps(sequence.options),
+        sequence.idempotency_key,
+        sequence.key_id,
+        sequence.callback_url,
+        json.dumps(sequence.artifacts),
+        sequence.error_message,
+        sequence.failed_stage,
+        sequence.retry_count,
+        sequence.assigned_worker_id,
+        sequence.current_stage,
+        sequence.progress,
+        sequence.queue_position,
+        sequence.estimated_wait_seconds,
+        serialize_datetime(sequence.estimated_finish_at),
+        serialize_datetime(sequence.created_at),
+        serialize_datetime(sequence.queued_at),
+        serialize_datetime(sequence.started_at),
+        serialize_datetime(sequence.completed_at),
+        serialize_datetime(sequence.updated_at),
+        serialize_datetime(sequence.deleted_at),
+    )
+
+
 async def create_task(
     db: aiosqlite.Connection,
     lock: asyncio.Lock,
@@ -25,58 +82,18 @@ async def create_task(
     *,
     row_to_sequence: Callable[[aiosqlite.Row], RequestSequence],
 ) -> None:
+    columns_sql = ", ".join(("id", *_TASK_COLUMNS))
+    placeholders = ", ".join(["?"] * (len(_TASK_COLUMNS) + 1))
     async with lock:
         try:
             await db.execute(
-                """
-                INSERT INTO tasks (
-                    id, status, type, model, input_url, options_json, idempotency_key, key_id,
-                    callback_url, output_artifacts_json, error_message, failed_stage,
-                    retry_count, assigned_worker_id, current_stage, progress,
-                    queue_position, estimated_wait_seconds, estimated_finish_at,
-                    created_at, queued_at, started_at, completed_at, updated_at, deleted_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    sequence.task_id,
-                    sequence.status.value,
-                    sequence.task_type.value,
-                    sequence.model,
-                    sequence.input_url,
-                    json.dumps(sequence.options),
-                    sequence.idempotency_key,
-                    sequence.key_id,
-                    sequence.callback_url,
-                    json.dumps(sequence.artifacts),
-                    sequence.error_message,
-                    sequence.failed_stage,
-                    sequence.retry_count,
-                    sequence.assigned_worker_id,
-                    sequence.current_stage,
-                    sequence.progress,
-                    sequence.queue_position,
-                    sequence.estimated_wait_seconds,
-                    _serialize_datetime(sequence.estimated_finish_at),
-                    _serialize_datetime(sequence.created_at),
-                    _serialize_datetime(sequence.queued_at),
-                    _serialize_datetime(sequence.started_at),
-                    _serialize_datetime(sequence.completed_at),
-                    _serialize_datetime(sequence.updated_at),
-                    _serialize_datetime(sequence.deleted_at),
-                ),
+                f"INSERT INTO tasks ({columns_sql}) VALUES ({placeholders})",
+                (sequence.task_id, *serialize_task_columns(sequence)),
             )
         except aiosqlite.IntegrityError as exc:
-            conflict_text = str(exc).lower()
-            if not sequence.idempotency_key or "idempotency_key" not in conflict_text:
-                raise
-            cursor = await db.execute(
-                "SELECT * FROM tasks WHERE idempotency_key = ?",
-                (sequence.idempotency_key,),
+            await raise_idempotency_conflict_or_passthrough(
+                db, exc, sequence, row_to_sequence,
             )
-            row = await cursor.fetchone()
-            if row is None:
-                raise
-            raise TaskIdempotencyConflictError(row_to_sequence(row)) from exc
         await insert_task_event(
             db,
             task_id=sequence.task_id,
@@ -91,6 +108,25 @@ async def create_task(
         await db.commit()
 
 
+async def raise_idempotency_conflict_or_passthrough(
+    db: aiosqlite.Connection,
+    exc: aiosqlite.IntegrityError,
+    sequence: RequestSequence,
+    row_to_sequence: Callable[[aiosqlite.Row], RequestSequence],
+) -> None:
+    conflict_text = str(exc).lower()
+    if not sequence.idempotency_key or "idempotency_key" not in conflict_text:
+        raise exc
+    async with db.execute(
+        "SELECT * FROM tasks WHERE idempotency_key = ?",
+        (sequence.idempotency_key,),
+    ) as cursor:
+        row = await cursor.fetchone()
+    if row is None:
+        raise exc
+    raise TaskIdempotencyConflictError(row_to_sequence(row)) from exc
+
+
 async def update_task(
     db: aiosqlite.Connection,
     lock: asyncio.Lock,
@@ -99,63 +135,11 @@ async def update_task(
     event: str | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> None:
+    set_clause = ", ".join(f"{column} = ?" for column in _TASK_COLUMNS)
     async with lock:
         await db.execute(
-            """
-            UPDATE tasks SET
-                status = ?,
-                type = ?,
-                model = ?,
-                input_url = ?,
-                options_json = ?,
-                idempotency_key = ?,
-                key_id = ?,
-                callback_url = ?,
-                output_artifacts_json = ?,
-                error_message = ?,
-                failed_stage = ?,
-                retry_count = ?,
-                assigned_worker_id = ?,
-                current_stage = ?,
-                progress = ?,
-                queue_position = ?,
-                estimated_wait_seconds = ?,
-                estimated_finish_at = ?,
-                created_at = ?,
-                queued_at = ?,
-                started_at = ?,
-                completed_at = ?,
-                updated_at = ?,
-                deleted_at = ?
-            WHERE id = ?
-            """,
-            (
-                sequence.status.value,
-                sequence.task_type.value,
-                sequence.model,
-                sequence.input_url,
-                json.dumps(sequence.options),
-                sequence.idempotency_key,
-                sequence.key_id,
-                sequence.callback_url,
-                json.dumps(sequence.artifacts),
-                sequence.error_message,
-                sequence.failed_stage,
-                sequence.retry_count,
-                sequence.assigned_worker_id,
-                sequence.current_stage,
-                sequence.progress,
-                sequence.queue_position,
-                sequence.estimated_wait_seconds,
-                _serialize_datetime(sequence.estimated_finish_at),
-                _serialize_datetime(sequence.created_at),
-                _serialize_datetime(sequence.queued_at),
-                _serialize_datetime(sequence.started_at),
-                _serialize_datetime(sequence.completed_at),
-                _serialize_datetime(sequence.updated_at),
-                _serialize_datetime(sequence.deleted_at),
-                sequence.task_id,
-            ),
+            f"UPDATE tasks SET {set_clause} WHERE id = ?",
+            (*serialize_task_columns(sequence), sequence.task_id),
         )
         if event is not None:
             await insert_task_event(
@@ -194,8 +178,8 @@ async def requeue_task(
     task_id: str,
 ) -> bool:
     async with lock:
-        now = _serialize_datetime(utcnow())
-        cursor = await db.execute(
+        now = serialize_datetime(utcnow())
+        async with db.execute(
             """
             UPDATE tasks
             SET status = ?,
@@ -219,9 +203,10 @@ async def requeue_task(
                 now,
                 task_id,
             ),
-        )
+        ) as cursor:
+            was_updated = cursor.rowcount > 0
         await db.commit()
-        return cursor.rowcount > 0
+        return was_updated
 
 
 async def delete_task(
@@ -243,20 +228,21 @@ async def soft_delete_task(
     deleted_at: datetime | None = None,
 ) -> bool:
     async with lock:
-        cursor = await db.execute(
+        async with db.execute(
             """
             UPDATE tasks
             SET deleted_at = ?, cleanup_done = 0, updated_at = ?
             WHERE id = ? AND deleted_at IS NULL
             """,
             (
-                _serialize_datetime(deleted_at or utcnow()),
-                _serialize_datetime(utcnow()),
+                serialize_datetime(deleted_at or utcnow()),
+                serialize_datetime(utcnow()),
                 task_id,
             ),
-        )
+        ) as cursor:
+            was_deleted = cursor.rowcount > 0
         await db.commit()
-        return cursor.rowcount > 0
+        return was_deleted
 
 
 async def mark_cleanup_done(
@@ -265,7 +251,7 @@ async def mark_cleanup_done(
     task_id: str,
 ) -> bool:
     async with lock:
-        cursor = await db.execute(
+        async with db.execute(
             """
             UPDATE tasks
             SET cleanup_done = 1, updated_at = ?
@@ -273,10 +259,11 @@ async def mark_cleanup_done(
               AND deleted_at IS NOT NULL
               AND COALESCE(cleanup_done, 0) = 0
             """,
-            (_serialize_datetime(utcnow()), task_id),
-        )
+            (serialize_datetime(utcnow()), task_id),
+        ) as cursor:
+            was_marked = cursor.rowcount > 0
         await db.commit()
-        return cursor.rowcount > 0
+        return was_marked
 
 
 async def insert_task_event(
@@ -296,6 +283,6 @@ async def insert_task_event(
             task_id,
             event,
             json.dumps(metadata),
-            _serialize_datetime(created_at or utcnow()),
+            serialize_datetime(created_at or utcnow()),
         ),
     )

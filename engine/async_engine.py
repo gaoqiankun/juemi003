@@ -61,7 +61,7 @@ class AsyncGen3DEngine:
     _CLEANUP_BATCH_SIZE = 20
 
     @staticmethod
-    def _normalize_startup_models(startup_models: tuple[str, ...]) -> tuple[str, ...]:
+    def normalize_startup_models(startup_models: tuple[str, ...]) -> tuple[str, ...]:
         return tuple(
             dict.fromkeys(
                 str(model_name).strip().lower()
@@ -91,28 +91,28 @@ class AsyncGen3DEngine:
         self._allowed_callback_domains = allowed_callback_domains
         self._rate_limiter = rate_limiter
         self._uploads_dir = Path(uploads_dir)
-        self._startup_models = self._normalize_startup_models(startup_models)
+        self._startup_models = self.normalize_startup_models(startup_models)
         self._logger = structlog.get_logger(__name__)
-        self._pipeline.add_listener(self._publish_update)
+        self._pipeline.add_listener(self.publish_update)
 
     async def start(self) -> None:
         if self._started:
             return
         await self._pipeline.start()
-        if await self._has_pending_cleanups():
+        if await self.has_pending_cleanups():
             self._cleanup_event.set()
-        self._cleanup_worker_task = asyncio.create_task(self._run_cleanup_worker())
+        self._cleanup_worker_task = asyncio.create_task(self.run_cleanup_worker())
         self._worker_tasks = [
-            asyncio.create_task(self._run_worker_loop(worker_index), name=f"cubie3d-worker-{worker_index}")
+            asyncio.create_task(self.run_worker_loop(worker_index), name=f"cubie3d-worker-{worker_index}")
             for worker_index in range(self._worker_count)
         ]
         set_queue_depth(await self._task_store.count_queued_tasks())
         self._started = True
         for model_name in self._startup_models:
-            self._start_startup_prewarm(model_name)
+            self.start_startup_prewarm(model_name)
 
     def set_startup_models(self, startup_models: tuple[str, ...]) -> None:
-        self._startup_models = self._normalize_startup_models(startup_models)
+        self._startup_models = self.normalize_startup_models(startup_models)
 
     async def stop(self) -> None:
         if not self._started:
@@ -144,7 +144,7 @@ class AsyncGen3DEngine:
             if existing is not None:
                 with bound_contextvars(task_id=existing.task_id):
                     self._logger.info("task.reused", idempotency_key=idempotency_key, status=existing.status.value)
-                await self._decorate_sequence(existing)
+                await self.decorate_sequence(existing)
                 return existing, False
         if self._rate_limiter is not None:
             await self._rate_limiter.check_concurrent_tasks(rate_limit_key)
@@ -160,7 +160,7 @@ class AsyncGen3DEngine:
                 self._logger.info(
                     "task.reused_after_conflict", idempotency_key=idempotency_key, status=existing.status.value
                 )
-            await self._decorate_sequence(existing)
+            await self.decorate_sequence(existing)
             return existing, False
         if self._rate_limiter is not None:
             await self._rate_limiter.register_task(rate_limit_key, sequence.task_id)
@@ -180,7 +180,7 @@ class AsyncGen3DEngine:
     async def list_tasks(self, *, key_id: str | None, limit: int = 20, before=None) -> CursorPageResult[RequestSequence]:
         page = await self._task_store.list_tasks(key_id=key_id, limit=limit, before=before)
         for sequence in page.items:
-            await self._decorate_sequence(sequence)
+            await self.decorate_sequence(sequence)
         return page
 
     async def delete_task(self, task_id: str) -> RequestSequence | None:
@@ -193,11 +193,11 @@ class AsyncGen3DEngine:
         self._cleanup_event.set()
         return sequence
 
-    async def _has_pending_cleanups(self) -> bool:
+    async def has_pending_cleanups(self) -> bool:
         pending = await self._task_store.list_pending_cleanups(limit=1)
         return bool(pending)
 
-    async def _run_cleanup_worker(self) -> None:
+    async def run_cleanup_worker(self) -> None:
         while True:
             await self._cleanup_event.wait()
             self._cleanup_event.clear()
@@ -208,10 +208,10 @@ class AsyncGen3DEngine:
                 if not pending_task_ids:
                     break
                 await asyncio.gather(
-                    *(self._cleanup_single_task(task_id) for task_id in pending_task_ids)
+                    *(self.cleanup_single_task(task_id) for task_id in pending_task_ids)
                 )
 
-    async def _cleanup_single_task(self, task_id: str) -> None:
+    async def cleanup_single_task(self, task_id: str) -> None:
         async with self._cleanup_semaphore:
             sequence = await self._task_store.get_task(task_id, include_deleted=True)
             if self._artifact_store is not None:
@@ -232,7 +232,7 @@ class AsyncGen3DEngine:
                             error=str(exc),
                         )
             if sequence is not None:
-                await self._cleanup_uploaded_input(sequence.input_url, task_id=task_id)
+                await self.cleanup_uploaded_input(sequence.input_url, task_id=task_id)
             try:
                 await self._task_store.mark_cleanup_done(task_id)
             except Exception as exc:  # pragma: no cover - defensive guard
@@ -242,7 +242,7 @@ class AsyncGen3DEngine:
                         error=str(exc),
                     )
 
-    async def _cleanup_uploaded_input(self, input_url: str, *, task_id: str) -> None:
+    async def cleanup_uploaded_input(self, input_url: str, *, task_id: str) -> None:
         parsed = urlparse(input_url)
         if parsed.scheme != "upload":
             return
@@ -268,7 +268,7 @@ class AsyncGen3DEngine:
         sequence = await self._task_store.get_task(task_id)
         if sequence is None:
             return None
-        await self._decorate_sequence(sequence)
+        await self.decorate_sequence(sequence)
         return sequence
 
     async def get_artifacts(self, task_id: str) -> list[dict[str, Any]] | None:
@@ -289,7 +289,20 @@ class AsyncGen3DEngine:
     def ready(self) -> bool:
         return self._started and self._model_registry.has_ready_model()
 
-    async def stream_events(self, task_id: str) -> AsyncIterator[dict[str, Any]]:
+    async def stream_events(
+        self,
+        task_id: str,
+        *,
+        heartbeat_interval: float = 15.0,
+    ) -> AsyncIterator[dict[str, Any] | None]:
+        """Yield event payloads for the given task.
+
+        Yields ``None`` as a heartbeat sentinel every *heartbeat_interval*
+        seconds when no real event arrives.  Callers must filter out ``None``
+        values and treat them as keep-alive signals (e.g. send an SSE comment).
+        This prevents reverse-proxy idle-timeout disconnections during long
+        inference gaps (e.g. between GPU_SS and GPU_SHAPE).
+        """
         queue = subscribe_event_queue(self._event_queues, task_id)
         try:
             history = await self._task_store.list_task_events(task_id)
@@ -299,67 +312,27 @@ class AsyncGen3DEngine:
             if current is not None and is_terminal_task_status(current.status):
                 return
             while True:
-                payload = await queue.get()
+                try:
+                    payload = await asyncio.wait_for(queue.get(), timeout=heartbeat_interval)
+                except asyncio.TimeoutError:
+                    yield None  # heartbeat — no event within interval
+                    continue
                 yield payload
                 if is_terminal_event_status(payload.get("status")):
                     break
         finally:
             unsubscribe_event_queue(self._event_queues, task_id=task_id, queue=queue)
 
-    async def _run_worker_loop(self, worker_index: int) -> None:
+    async def run_worker_loop(self, worker_index: int) -> None:
         worker_id = f"pipeline-worker-{worker_index}"
         while True:
             try:
-                sequence = await self._task_store.claim_next_queued_task(worker_id)
-                set_queue_depth(await self._task_store.count_queued_tasks())
+                sequence = await self.claim_next_task(worker_id)
                 if sequence is None:
-                    await asyncio.sleep(self._worker_poll_interval_seconds)
                     continue
-                with bound_contextvars(task_id=sequence.task_id):
-                    self._logger.info(
-                        "task.claimed",
-                        worker_id=worker_id,
-                        model=sequence.model,
-                    )
-                try:
-                    if self._model_scheduler is not None:
-                        await self._model_scheduler.request_load(sequence.model)
-                        if (
-                            not self._model_scheduler.enabled
-                            and self._model_registry.get_state(sequence.model) == "not_loaded"
-                        ):
-                            # In mock mode, scheduler is disabled. Keep a direct load fallback
-                            # so legacy alias tasks (e.g. "trellis") do not fail.
-                            self._model_registry.load(sequence.model)
-                    else:
-                        # Fallback for unit-test wiring where scheduler is not injected.
-                        self._model_registry.load(sequence.model)
-                    await self._model_registry.wait_ready(sequence.model)
-                except ModelRegistryLoadError as exc:
-                    latest = await self._task_store.get_task(sequence.task_id) or sequence
-                    latest.transition_to(
-                        TaskStatus.FAILED,
-                        current_stage=TaskStatus.QUEUED.value,
-                        error_message=str(exc),
-                        failed_stage=TaskStatus.QUEUED.value,
-                    )
-                    await self._pipeline.publish_update(
-                        latest,
-                        "failed",
-                        {
-                            "status": latest.status.value,
-                            "stage": TaskStatus.QUEUED.value,
-                            "message": str(exc),
-                        },
-                    )
+                if not await self.load_model_for_task(sequence):
                     continue
-
-                latest = await self._task_store.get_task(sequence.task_id)
-                if latest is None or latest.status in TERMINAL_STATUSES:
-                    continue
-                completed = await self._pipeline.run_sequence(latest)
-                if self._model_scheduler is not None:
-                    await self._model_scheduler.on_task_completed(completed.model)
+                await self.run_task_pipeline(sequence)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # pragma: no cover - defensive guard
@@ -372,13 +345,77 @@ class AsyncGen3DEngine:
             finally:
                 set_queue_depth(await self._task_store.count_queued_tasks())
 
-    def _start_startup_prewarm(self, model_name: str) -> None:
+    async def claim_next_task(self, worker_id: str) -> RequestSequence | None:
+        sequence = await self._task_store.claim_next_queued_task(worker_id)
+        set_queue_depth(await self._task_store.count_queued_tasks())
+        if sequence is None:
+            await asyncio.sleep(self._worker_poll_interval_seconds)
+            return None
+        with bound_contextvars(task_id=sequence.task_id):
+            self._logger.info(
+                "task.claimed",
+                worker_id=worker_id,
+                model=sequence.model,
+            )
+        return sequence
+
+    async def load_model_for_task(self, sequence: RequestSequence) -> bool:
+        try:
+            if self._model_scheduler is not None:
+                await self._model_scheduler.request_load(sequence.model)
+                if (
+                    not self._model_scheduler.enabled
+                    and self._model_registry.get_state(sequence.model) == "not_loaded"
+                ):
+                    # In mock mode, scheduler is disabled. Keep a direct load fallback
+                    # so legacy alias tasks (e.g. "trellis") do not fail.
+                    self._model_registry.load(sequence.model)
+            else:
+                # Fallback for unit-test wiring where scheduler is not injected.
+                self._model_registry.load(sequence.model)
+            await self._model_registry.wait_ready(sequence.model)
+            return True
+        except ModelRegistryLoadError as exc:
+            await self.fail_task_with_load_error(sequence, exc)
+            return False
+
+    async def fail_task_with_load_error(
+        self,
+        sequence: RequestSequence,
+        exc: ModelRegistryLoadError,
+    ) -> None:
+        latest = await self._task_store.get_task(sequence.task_id) or sequence
+        latest.transition_to(
+            TaskStatus.FAILED,
+            current_stage=TaskStatus.QUEUED.value,
+            error_message=str(exc),
+            failed_stage=TaskStatus.QUEUED.value,
+        )
+        await self._pipeline.publish_update(
+            latest,
+            "failed",
+            {
+                "status": latest.status.value,
+                "stage": TaskStatus.QUEUED.value,
+                "message": str(exc),
+            },
+        )
+
+    async def run_task_pipeline(self, sequence: RequestSequence) -> None:
+        latest = await self._task_store.get_task(sequence.task_id)
+        if latest is None or latest.status in TERMINAL_STATUSES:
+            return
+        completed = await self._pipeline.run_sequence(latest)
+        if self._model_scheduler is not None:
+            await self._model_scheduler.on_task_completed(completed.model)
+
+    def start_startup_prewarm(self, model_name: str) -> None:
         if not self._started:
             return
         self._model_registry.load(model_name)
         self._logger.info("model.prewarm_scheduled", model_name=model_name)
 
-    async def _decorate_sequence(self, sequence: RequestSequence) -> None:
+    async def decorate_sequence(self, sequence: RequestSequence) -> None:
         if self._artifact_store is not None and not sequence.artifacts:
             sequence.artifacts = await self._artifact_store.list_artifacts(sequence.task_id)
         queue_position: int | None = None
@@ -390,7 +427,7 @@ class AsyncGen3DEngine:
             stage_stats = await self._task_store.get_stage_stats(sequence.model)
         decorate_sequence_eta(sequence, worker_count=self._worker_count, queue_position=queue_position, stage_stats=stage_stats, now=utcnow())
 
-    async def _publish_update(self, sequence: RequestSequence, event: str, metadata: dict[str, Any]) -> None:
+    async def publish_update(self, sequence: RequestSequence, event: str, metadata: dict[str, Any]) -> None:
         with bound_contextvars(task_id=sequence.task_id):
             payload = build_event_payload(sequence, event=event, metadata=metadata)
             publish_event(self._event_queues, task_id=sequence.task_id, payload=payload)

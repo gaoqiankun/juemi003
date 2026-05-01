@@ -19,7 +19,7 @@ async def load_manifest(
     manifest_path = manifest_dir / f"{task_id}.json"
     if not manifest_path.exists():
         return None
-    return await asyncio.to_thread(_read_manifest, manifest_path)
+    return await asyncio.to_thread(read_manifest, manifest_path)
 
 
 async def write_manifest(
@@ -30,7 +30,7 @@ async def write_manifest(
     manifest_path = manifest_dir / f"{task_id}.json"
     payload = json.dumps(artifacts, ensure_ascii=False, indent=2)
     temp_manifest_path = await asyncio.to_thread(
-        _write_manifest_temp_file,
+        write_manifest_temp_file,
         manifest_path,
         payload,
     )
@@ -39,7 +39,7 @@ async def write_manifest(
 
 async def remove_manifest(manifest_dir: Path, task_id: str) -> None:
     manifest_path = manifest_dir / f"{task_id}.json"
-    await asyncio.to_thread(_delete_if_exists, manifest_path)
+    await asyncio.to_thread(delete_if_exists, manifest_path)
 
 
 def normalize_local_artifacts(
@@ -71,11 +71,11 @@ def find_artifact_record(
     return None
 
 
-def _read_manifest(manifest_path: Path) -> list[dict[str, Any]]:
+def read_manifest(manifest_path: Path) -> list[dict[str, Any]]:
     return json.loads(manifest_path.read_text("utf-8"))
 
 
-def _write_manifest_temp_file(manifest_path: Path, payload: str) -> Path:
+def write_manifest_temp_file(manifest_path: Path, payload: str) -> Path:
     with tempfile.NamedTemporaryFile(
         mode="w",
         encoding="utf-8",
@@ -88,7 +88,7 @@ def _write_manifest_temp_file(manifest_path: Path, payload: str) -> Path:
         return Path(handle.name)
 
 
-def _delete_if_exists(path: Path) -> None:
+def delete_if_exists(path: Path) -> None:
     try:
         path.unlink()
     except FileNotFoundError:

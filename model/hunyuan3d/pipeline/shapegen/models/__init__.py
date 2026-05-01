@@ -22,7 +22,12 @@
 # fine-tuning enabling code and other elements of the foregoing made publicly available
 # by Tencent in accordance with TENCENT HUNYUAN COMMUNITY LICENSE AGREEMENT.
 
-
-from .autoencoders import ShapeVAE
-from .conditioner import DualImageEncoder, SingleImageEncoder, DinoImageEncoder, CLIPImageEncoder
-from .denoisers import Hunyuan3DDiT
+# Re-exports for vendor public API + config.yaml string targets (e.g. hy3dshape.models.X)
+from .autoencoders import ShapeVAE  # noqa: F401
+from .conditioner import (  # noqa: F401
+    CLIPImageEncoder,
+    DinoImageEncoder,
+    DualImageEncoder,
+    SingleImageEncoder,
+)
+from .denoisers import Hunyuan3DDiT  # noqa: F401

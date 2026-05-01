@@ -5,6 +5,72 @@
 
 ---
 
+## 2026-04-24
+
+- **ModelScheduler 超 `max_loaded_models` cap 时自动 LRU evict，原 silent-return bug 修复**（plan: `2026-04-24-scheduler-cap-evict.md`）：
+  现象：部署机 `max_loaded_models=2`，加载前两个模型正常；admin 面板点加载第三个模型（如 Step1X-3D）无反应、docker 日志无痕迹。
+  根因：`engine/model_scheduler.py::_load_or_queue` 在 `len(loaded_models) >= cap` 时直接 `return`，任何入口（`request_load`、`on_task_queued`、`_startup_scan_queued_models`、`on_model_loaded` 重扫）在达到 cap 时均静默丢弃加载请求。原设计（plan `2026-03-23-scheduler-startup-scan.md`、`2026-03-24-model-scheduler-on-model-loaded-rescan.md`）语义是"超 cap 走驱逐链"，驱逐这一步从未实现。
+  决策：超 cap 改为 LRU evict — 候选集筛选 `state == "ready"` 且 `worker.inference_busy == False` 且非目标模型；按 `ModelScheduler._last_used` tick 升序取首个（tick 相同 model_name 字典序稳定），`await ModelRegistry.unload(candidate)` 后继续加载目标。无候选（全部 ready 模型都在推理）→ raise `SchedulerCapReachedError`。
+  异常传播：`request_load` 路径透传 `SchedulerCapReachedError`，由 `api/server.py::load_model` 捕获 → 返回 HTTP 409 + detail；`_startup_scan_queued_models` 路径就地 swallow + warning 日志（任务留 DB queued，下次事件重试），不影响服务启动。
+  Cap 驱逐 vs VRAM 驱逐职责分工：
+  - **Cap 驱逐（本 plan）**：`ModelScheduler` 负责，按全局 cap 计数判定，候选筛选用 `ModelRegistry.get_worker(name).inference_busy`，锁策略与 `_load_or_queue` 保持一致（不持 `self._lock`）
+  - **VRAM 驱逐（既有，`engine/vram_allocator.py`）**：`_evict_worker` / `_idle_candidates_on` 按 device 维度显存不足触发，独立执行路径
+  - 两者互不干扰，但都复用 `ModelScheduler.get_last_used_tick()` 作为 LRU 排序依据
+  `_RegistryProtocol` 扩展：新增 `get_worker(name)` 和 async `unload(name)` 协议方法（实际 `ModelRegistry` 原本就有这两个方法，仅补充协议声明让 scheduler 可调用）。
+  测试覆盖：6 项验收（evict 正向 / busy 跳过 / 无候选报错 / disabled 路径 / on_model_loaded 重扫不误 evict self / API 409 传播）。老测试 `test_scheduler_does_not_evict_when_slots_are_full` 原本 lock in 了要被修复的 bug 行为，已重命名 `test_scheduler_on_task_queued_evicts_lru_at_cap` 并翻转断言。
+  影响文件：`engine/model_scheduler.py` / `api/server.py` / `tests/test_model_scheduler.py` / `tests/test_api.py`。全量 `220 passed`，ruff 无新增。
+
+## 2026-04-19
+
+- **TaskStore claim 路径 SELECT+UPDATE 原子化进单一 asyncio.Lock 临界区**（plan: `2026-04-18-taskstore-cursor-leak-fix.md`）：
+  现象：生产观测到 `claim_next_queued_task` 抛 `sqlite3.OperationalError: database is locked`，5ms 间隔连续失败，busy_timeout=5000 不生效；task 卡 QUEUED，UI 进度 0%。
+  根因：`storage/task_store_queries.py` 原实现 SELECT cursor 在 lock 外执行后未关闭，接着在同 connection 同张 `tasks` 表上 UPDATE，触发 **SQLITE_LOCKED**（非 SQLITE_BUSY）—— `busy_timeout` PRAGMA 不作用于 SQLITE_LOCKED，立即失败。
+  决策：所有 storage 层 cursor 统一改 `async with db.execute(...) as cursor` 上下文管理（`task_store_queries.py` / `task_store_mutations.py` / `task_store_analytics.py`）；`claim_next_queued_task` 把 SELECT + UPDATE + commit 整体放进 `asyncio.Lock` 临界区，消除同 connection 上的 statement 交叠。
+  取舍：牺牲同一 `TaskStore` 连接内 claim 的"SELECT 并行度"。这是无损取舍 —— aiosqlite 单 connection 本来就是 sqlite3 线程池串行执行，并行 SELECT 是伪并行；换来 SQLITE_LOCKED 绝迹。
+  触发加剧因素：最近 VRAM 重构（commit `c204aac` / `01029b3`）新增 `_persist_estimate` 在每次 inference 后写 `model_store`（EMA 更新），6 个 store 共享同一 DB 文件下写入频率↑，暴露了本来潜伏的 cursor leak。
+  验证：新增 `tests/test_task_store.py:287` 并发回归（120 task × 2 worker claim + 240 次 `model_store.update_model` 并发），无异常、claim 唯一、末态 queued=0；全量 `214 passed`。
+  影响文件：`storage/task_store_queries.py` / `task_store_mutations.py` / `task_store_analytics.py` / `tests/test_task_store.py`。其他 store（`model_store.py` / `dep_store.py` / `settings_store.py` / `api_key_store.py`）cursor 用法未纳入本次范围，留待后续观察。
+
+## 2026-04-18
+
+- **Inference allocation 生命周期从 ModelWorker 搬到 pipeline（设计中，代码待改）**：
+  现象：生产观测到 gpu stage 结束 → export stage 启动的 ~1s 窗口内，admin 面板
+  从 "推理 5.5 GB / 外部 0" 突变为 "推理 0 / 外部 4 GB"，直到 export 完才恢复。
+  根因：`engine/model_worker.py` 的 `run_inference` 在 `finally` 里提前 release
+  inference allocation，但 `run_batch` 返回的 mesh 仍是 CUDA tensor，export stage
+  才 `.cpu()` 转换释放显存 —— 中间 ~1s 显存被占着但账本写 0，差值被 dashboard
+  归为 "外部占用"。
+  决策：inference allocation 是 **per-task 资源**（不是 per-run_batch 执行资源），
+  生命周期覆盖 gpu + export 两个 GPU-bound stage。引入 `InferenceLease` context
+  manager + `VRAMAllocator.reserve_for_task`，由 pipeline 协调层持有；
+  ModelWorker 退出 allocation 管理职责，只保留 run_batch / 估算 / OOM bump
+  target / 迁移物理执行。
+  替代方案：mesh 同步 `.cpu()` 后再 release（已被 commit `c61a17a` 回滚，
+  会触发 SIGBUS） · 忽略面板显示（与用户语义要求不符） · 延长 release 时机
+  但留在 ModelWorker 内（反向耦合）—— 均否决。
+  影响：`engine/vram_allocator.py`（加 Lease）、`engine/model_worker.py`（剥离
+  allocation）、pipeline 协调层（接 lease + OOM 重试搬家）、`stages/gpu/scheduler.py`
+  （删 `configure_inference_admission` 死代码）。weight allocation、`_do_migration`
+  核心逻辑、Model Scheduler、前端面板均不动。
+  （plan: `.ai/plan/2026-04-18-inference-lease-lifecycle.md` · 设计更新:
+  `.ai/vram-management-design.md` §1、§2、§3.4–3.6、§11）
+
+- **SSE 进度上报修复：pipeline stage_cb + heartbeat 可解析事件**（commit `d903d56`）：
+  `model/trellis2/pipeline/pipelines/trellis2_image_to_3d.py` `run()` 加 `stage_cb`
+  参数，四个 pipeline_type 分支（512/1024/1024_cascade/1536_cascade）均在
+  sparse_structure / shape_slat / tex_slat 完成后触发回调。
+  `model/trellis2/provider.py:_run_single` 移除前后包裹的 emit_stage，改用
+  `stage_cb=emit_stage` 传入。
+  `api/server.py` SSE heartbeat 从 `": heartbeat\n\n"` 改为 `"event: heartbeat\ndata: {}\n\n"`，
+  并加 `X-Accel-Buffering: no` 响应头防 nginx 缓冲。
+  `web/src/app/gen3d-provider/use-task-realtime.ts` 在 `applyEventPayload` 之前
+  guard 掉 heartbeat 事件 —— 否则 `applyTaskSnapshot` 在 payload 缺 progress 时
+  会 fallback 到 `defaultProgressForStatus(status)`，每次心跳都把进度回退到该
+  状态默认值（gpu_material 90% → 82%）。clear watchdog 放在 guard 之前。
+  生产验证：进度从"5% → 直接 100%"变成"5% → 25% → 60% → 90% → 95% → 100%"，
+  SSE 不再因 watchdog 超时回退到 polling。
+  （plan: `.ai/plan/2026-04-18-fix-progress-reporting.md`）
+
 ## 2026-04-13
 
 - **GPUSlotScheduler 支持 shutdown，reload/unload 不再挂死 in-flight 请求**：`stages/gpu/scheduler.py` 新增 `SchedulerShutdownError` + `GPUSlotScheduler.shutdown()`；`acquire()` 改为 `asyncio.wait({queue.get, shutdown_event}, FIRST_COMPLETED)` 模式，shutdown 触发时立刻抛错，异常路径释放 `inference_allocation_id` 防止账本漏账。竞态保护：`_restore_slot_from_task` 在 shutdown 赢但 get 也拿到 device_id 时把 device 回填队列，避免 slot 永久消失。`release()` 在 shutdown 后 early return 不回填 queue。（plan: 2026-04-12-gpu-inflight-hang-fix.md）

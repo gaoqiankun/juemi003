@@ -10,7 +10,7 @@ _initialized = False
 _init_failed = False
 
 
-def _ensure_initialized() -> bool:
+def ensure_initialized() -> bool:
     global _initialized, _init_failed
 
     if _initialized:
@@ -38,7 +38,7 @@ def _ensure_initialized() -> bool:
 
 def probe_device_free_mb(device_id: str) -> int | None:
     """Return per-device free VRAM in MB, or None if probe is unavailable."""
-    if not _ensure_initialized():
+    if not ensure_initialized():
         return None
     try:
         import pynvml  # type: ignore[import-not-found]

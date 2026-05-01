@@ -54,7 +54,7 @@ RUN python -m pip install \
       easydict \
       opencv-python-headless \
       trimesh \
-      "transformers<5" \
+      "transformers==4.56.2" \
       tensorboard \
       pandas \
       lpips \
@@ -66,9 +66,9 @@ RUN python -m pip install \
 
 RUN python -m pip install \
       pybind11 \
-      diffusers \
+      "diffusers==0.31.0" \
       einops \
-      accelerate \
+      "accelerate==1.1.1" \
       omegaconf \
       pymeshlab \
       pygltflib \

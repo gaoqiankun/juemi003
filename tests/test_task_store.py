@@ -1,17 +1,13 @@
 from __future__ import annotations
 
 import asyncio
-import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
-if str(WORKSPACE_ROOT) not in sys.path:
-    sys.path.insert(0, str(WORKSPACE_ROOT))
-
 from gen3d.engine.sequence import TaskStatus
-from gen3d.storage.task_store import TaskStore, _serialize_datetime
+from gen3d.storage.model_store import ModelStore
+from gen3d.storage.task_store import TaskStore, serialize_datetime
 
 
 def _now() -> datetime:
@@ -20,6 +16,12 @@ def _now() -> datetime:
 
 async def _make_store(db_path: Path) -> TaskStore:
     s = TaskStore(db_path)
+    await s.initialize()
+    return s
+
+
+async def _make_model_store(db_path: Path) -> ModelStore:
+    s = ModelStore(db_path)
     await s.initialize()
     return s
 
@@ -38,7 +40,7 @@ async def _insert_task(
     error_message: str | None = None,
 ) -> None:
     now = created_at or _now()
-    db = store._require_db()
+    db = store.require_db()
     await db.execute(
         """
         INSERT INTO tasks (
@@ -53,11 +55,11 @@ async def _insert_task(
             task_id,
             status,
             model,
-            _serialize_datetime(now),
-            _serialize_datetime(started_at),
-            _serialize_datetime(completed_at),
-            _serialize_datetime(now),
-            _serialize_datetime(deleted_at),
+            serialize_datetime(now),
+            serialize_datetime(started_at),
+            serialize_datetime(completed_at),
+            serialize_datetime(now),
+            serialize_datetime(deleted_at),
             key_id,
             error_message,
         ),
@@ -268,10 +270,67 @@ def test_get_oldest_queued_task_time_by_model() -> None:
                 )
 
                 oldest = await store.get_oldest_queued_task_time_by_model()
-                assert oldest["trellis2"] == _serialize_datetime(base + timedelta(seconds=10))
-                assert oldest["hunyuan3d"] == _serialize_datetime(base + timedelta(seconds=30))
+                assert oldest["trellis2"] == serialize_datetime(base + timedelta(seconds=10))
+                assert oldest["hunyuan3d"] == serialize_datetime(base + timedelta(seconds=30))
                 assert "step1x3d" not in oldest
             finally:
                 await store.close()
+
+    asyncio.run(_run())
+
+
+def test_claim_next_queued_task_with_model_store_concurrency_no_locked_error() -> None:
+    async def _run() -> None:
+        with TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "shared.db"
+            task_store = await _make_store(db_path)
+            model_store = await _make_model_store(db_path)
+            try:
+                task_count = 120
+                for i in range(task_count):
+                    await _insert_task(
+                        task_store,
+                        task_id=f"queued-{i:03d}",
+                        status=TaskStatus.QUEUED.value,
+                        created_at=_now() + timedelta(milliseconds=i),
+                    )
+
+                async def _claim_worker(worker_id: str) -> list[str]:
+                    claimed: list[str] = []
+                    while True:
+                        sequence = await task_store.claim_next_queued_task(worker_id)
+                        if sequence is None:
+                            return claimed
+                        claimed.append(sequence.task_id)
+                        await asyncio.sleep(0)
+
+                async def _update_model_loop() -> int:
+                    updates = 0
+                    for i in range(240):
+                        updated = await model_store.update_model(
+                            "trellis2",
+                            is_enabled=bool(i % 2),
+                        )
+                        assert updated is not None
+                        updates += 1
+                        await asyncio.sleep(0)
+                    return updates
+
+                results = await asyncio.gather(
+                    _claim_worker("worker-a"),
+                    _claim_worker("worker-b"),
+                    _update_model_loop(),
+                    return_exceptions=True,
+                )
+                errors = [result for result in results if isinstance(result, Exception)]
+                assert not errors
+
+                claimed_ids = [task_id for result in results[:2] for task_id in result]
+                assert len(claimed_ids) == task_count
+                assert len(set(claimed_ids)) == task_count
+                assert await task_store.count_queued_tasks() == 0
+            finally:
+                await model_store.close()
+                await task_store.close()
 
     asyncio.run(_run())

@@ -19,7 +19,6 @@ import argparse
 import os
 import sqlite3
 import sys
-import uuid
 from dataclasses import dataclass
 from pathlib import Path
 

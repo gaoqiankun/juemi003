@@ -5,6 +5,7 @@ import {
   deleteModel,
   fetchModels,
   loadModel,
+  unloadModel,
   normalizeDepStatus,
   updateModel,
   type DepDownloadStatus,
@@ -211,6 +212,16 @@ export function useModelsData() {
     }
   }, [loadModels]);
 
+  const requestModelUnload = useCallback(async (modelId: string) => {
+    setBusyModelId(modelId);
+    try {
+      await unloadModel(modelId);
+      await loadModels(true);
+    } finally {
+      setBusyModelId("");
+    }
+  }, [loadModels]);
+
   const addModel = useCallback(async (data: Record<string, unknown>) => {
     await createModel(data);
     await loadModels(true);
@@ -245,6 +256,7 @@ export function useModelsData() {
     setModelEnabled,
     setModelDefault,
     requestModelLoad,
+    requestModelUnload,
     addModel,
     cancelDownload,
     removeModel,

@@ -7,15 +7,15 @@ import aiosqlite
 from gen3d.engine.sequence import RequestSequence, TaskStatus, TaskType, utcnow
 
 
-def _serialize_datetime(value: datetime | None) -> str | None:
+def serialize_datetime(value: datetime | None) -> str | None:
     return value.isoformat() if value is not None else None
 
 
-def _deserialize_datetime(value: str | None) -> datetime | None:
+def deserialize_datetime(value: str | None) -> datetime | None:
     return datetime.fromisoformat(value) if value else None
 
 
-def _deserialize_status(value: str) -> TaskStatus:
+def deserialize_status(value: str) -> TaskStatus:
     normalized = str(value).strip().lower()
     if normalized == "submitted":
         normalized = TaskStatus.QUEUED.value
@@ -32,21 +32,21 @@ def row_to_sequence(row: aiosqlite.Row) -> RequestSequence:
         callback_url=row["callback_url"],
         idempotency_key=row["idempotency_key"],
         key_id=row["key_id"],
-        status=_deserialize_status(row["status"]),
+        status=deserialize_status(row["status"]),
         progress=int(row["progress"]),
-        current_stage=row["current_stage"] or _deserialize_status(row["status"]).value,
+        current_stage=row["current_stage"] or deserialize_status(row["status"]).value,
         queue_position=row["queue_position"],
         estimated_wait_seconds=row["estimated_wait_seconds"],
-        estimated_finish_at=_deserialize_datetime(row["estimated_finish_at"]),
+        estimated_finish_at=deserialize_datetime(row["estimated_finish_at"]),
         artifacts=json.loads(row["output_artifacts_json"]),
         error_message=row["error_message"],
         failed_stage=row["failed_stage"],
         retry_count=int(row["retry_count"]),
         assigned_worker_id=row["assigned_worker_id"],
-        created_at=_deserialize_datetime(row["created_at"]) or utcnow(),
-        queued_at=_deserialize_datetime(row["queued_at"]) or utcnow(),
-        started_at=_deserialize_datetime(row["started_at"]),
-        completed_at=_deserialize_datetime(row["completed_at"]),
-        updated_at=_deserialize_datetime(row["updated_at"]) or utcnow(),
-        deleted_at=_deserialize_datetime(row["deleted_at"]),
+        created_at=deserialize_datetime(row["created_at"]) or utcnow(),
+        queued_at=deserialize_datetime(row["queued_at"]) or utcnow(),
+        started_at=deserialize_datetime(row["started_at"]),
+        completed_at=deserialize_datetime(row["completed_at"]),
+        updated_at=deserialize_datetime(row["updated_at"]) or utcnow(),
+        deleted_at=deserialize_datetime(row["deleted_at"]),
     )

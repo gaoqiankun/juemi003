@@ -12,4 +12,6 @@
 # fine-tuning enabling code and other elements of the foregoing made publicly available
 # by Tencent in accordance with TENCENT HUNYUAN COMMUNITY LICENSE AGREEMENT.
 
-from .hunyuan3ddit import Hunyuan3DDiT
+from .hunyuan3ddit import (
+    Hunyuan3DDiT,  # noqa: F401  # vendor public API + config.yaml target
+)

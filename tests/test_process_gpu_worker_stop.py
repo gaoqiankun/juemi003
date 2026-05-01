@@ -11,7 +11,11 @@ if str(WORKSPACE_ROOT) not in sys.path:
     sys.path.insert(0, str(WORKSPACE_ROOT))
 
 from gen3d.model.base import ModelProviderExecutionError
-from gen3d.stages.gpu.worker import _PendingRequest, ProcessGPUWorker, WorkerProcessConfig
+from gen3d.stages.gpu.worker import (
+    PendingRequest,
+    ProcessGPUWorker,
+    WorkerProcessConfig,
+)
 
 
 class FakeProcess:
@@ -68,7 +72,7 @@ def test_process_gpu_worker_stop_fails_pending_futures() -> None:
 
         loop = asyncio.get_running_loop()
         pending_future = loop.create_future()
-        worker._pending["req-1"] = _PendingRequest(
+        worker._pending["req-1"] = PendingRequest(
             future=pending_future,
             progress_cb=None,
         )

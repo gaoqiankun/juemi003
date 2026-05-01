@@ -90,8 +90,8 @@ class ProviderDependency:
 
 
 def get_provider_deps(provider_type: str) -> list[ProviderDependency]:
-    provider_cls = _get_provider_class(provider_type)
-    return _resolve_provider_dependencies(provider_cls)
+    provider_cls = get_provider_class(provider_type)
+    return resolve_provider_dependencies(provider_cls)
 
 
 class WeightManager:
@@ -120,7 +120,7 @@ class WeightManager:
         model_path: str,
         dep_assignments: dict[str, dict] | None = None,
     ) -> str:
-        normalized_source = _normalize_weight_source(weight_source)
+        normalized_source = normalize_weight_source(weight_source)
         normalized_model_path = str(model_path).strip()
         normalized_provider_type = str(provider_type or "").strip().lower()
         if not normalized_model_path:
@@ -128,18 +128,18 @@ class WeightManager:
 
         try:
             if normalized_source == "local":
-                resolved_path = await self._resolve_local_path(normalized_model_path)
+                resolved_path = await self.resolve_local_path(normalized_model_path)
             else:
-                target_dir = self._cache_dir / _cache_key(model_id)
-                if target_dir.is_dir() and _snapshot_has_model_weights(target_dir):
+                target_dir = self._cache_dir / cache_key(model_id)
+                if target_dir.is_dir() and snapshot_has_model_weights(target_dir):
                     resolved_path = str(target_dir.resolve())
                 else:
-                    resolved_path = await self._download_main(
+                    resolved_path = await self.download_main(
                         model_id=model_id,
                         weight_source=normalized_source,
                         model_path=normalized_model_path,
                     )
-            await self._download_model_dependencies(
+            await self.download_model_dependencies(
                 model_id,
                 normalized_provider_type,
                 dep_assignments=dep_assignments,
@@ -153,13 +153,13 @@ class WeightManager:
             await self._model_store.update_download_error(model_id, str(exc))
             raise
 
-    async def _resolve_local_path(self, model_path: str) -> str:
+    async def resolve_local_path(self, model_path: str) -> str:
         candidate = Path(model_path).expanduser()
         if not candidate.exists():
             raise ValueError(f"local model path does not exist: {model_path}")
         return str(candidate.resolve())
 
-    async def _download_main(
+    async def download_main(
         self,
         *,
         model_id: str,
@@ -170,17 +170,17 @@ class WeightManager:
         await self._model_store.update_download_progress(model_id, 0, 0)
         stop_event = asyncio.Event()
         progress_task = asyncio.create_task(
-            self._report_progress(model_id, tracker, stop_event),
+            self.report_progress(model_id, tracker, stop_event),
             name=f"weight-progress-{model_id}",
         )
         try:
             if weight_source == "huggingface":
-                return await self._download_from_huggingface(
+                return await self.download_from_huggingface(
                     model_id=model_id,
                     repo_id=model_path,
                 )
             if weight_source == "url":
-                return await self._download_from_url_archive(
+                return await self.download_from_url_archive(
                     model_id=model_id,
                     source_url=model_path,
                     tracker=tracker,
@@ -190,7 +190,7 @@ class WeightManager:
             stop_event.set()
             await asyncio.gather(progress_task, return_exceptions=True)
 
-    async def _download_model_dependencies(
+    async def download_model_dependencies(
         self,
         model_id: str,
         provider_type: str,
@@ -218,7 +218,7 @@ class WeightManager:
                 if not instance_id:
                     raise ValueError(f"dep {dep_type}: new instance must have instance_id")
                 display_name = str(new_cfg.get("display_name") or dep_type).strip() or dep_type
-                normalized_source = _normalize_weight_source_loose(new_cfg.get("weight_source"))
+                normalized_source = normalize_weight_source_loose(new_cfg.get("weight_source"))
                 dep_model_path = str(new_cfg.get("dep_model_path") or "").strip() or None
                 await self._dep_store.create(
                     instance_id,
@@ -233,7 +233,7 @@ class WeightManager:
 
         for dep, instance_id, weight_source, dep_model_path in pending_downloads:
             try:
-                await self._download_dep_once(
+                await self.download_dep_once(
                     dep,
                     instance_id,
                     weight_source,
@@ -242,7 +242,7 @@ class WeightManager:
             except Exception as exc:
                 raise RuntimeError(f"dep_{dep.dep_id}: {exc}") from exc
 
-    async def _download_dep_once(
+    async def download_dep_once(
         self,
         dep: ProviderDependency,
         instance_id: str,
@@ -258,7 +258,7 @@ class WeightManager:
                 return
             await self._dep_store.update_status(instance_id, "downloading")
             try:
-                resolved_path = await self._download_dep(
+                resolved_path = await self.download_dep(
                     dep,
                     weight_source,
                     dep_model_path,
@@ -269,29 +269,29 @@ class WeightManager:
                 raise
             await self._dep_store.update_done(instance_id, resolved_path)
 
-    async def _download_dep(
+    async def download_dep(
         self,
         dep: ProviderDependency,
         weight_source: str,
         dep_model_path: str | None,
         instance_id: str,
     ) -> str:
-        normalized_source = _normalize_weight_source_loose(weight_source)
+        normalized_source = normalize_weight_source_loose(weight_source)
         normalized_path = str(dep_model_path or "").strip()
 
         if normalized_source == "local":
-            return await self._download_dep_from_local(dep, normalized_path)
+            return await self.download_dep_from_local(dep, normalized_path)
         if normalized_source == "url":
-            return await self._download_dep_from_url(dep, instance_id, normalized_path)
+            return await self.download_dep_from_url(dep, instance_id, normalized_path)
         repo_id = normalized_path or dep.hf_repo_id
-        return await self._download_dep_from_huggingface(dep, repo_id)
+        return await self.download_dep_from_huggingface(dep, repo_id)
 
-    async def _download_dep_from_local(self, dep: ProviderDependency, dep_model_path: str) -> str:
+    async def download_dep_from_local(self, dep: ProviderDependency, dep_model_path: str) -> str:
         if not dep_model_path:
             raise ValueError(f"dep {dep.dep_id} local source requires dep_model_path")
-        return await self._resolve_local_path(dep_model_path)
+        return await self.resolve_local_path(dep_model_path)
 
-    async def _download_dep_from_url(
+    async def download_dep_from_url(
         self,
         dep: ProviderDependency,
         instance_id: str,
@@ -299,40 +299,40 @@ class WeightManager:
     ) -> str:
         if not source_url:
             raise ValueError(f"dep {dep.dep_id} url source requires dep_model_path")
-        archive_format = _detect_archive_format(source_url)
+        archive_format = detect_archive_format(source_url)
         if archive_format is None:
             raise ValueError("url source only supports .zip and .tar.gz archives")
 
-        target_dir = self._prepare_dep_target_dir(instance_id)
+        target_dir = self.prepare_dep_target_dir(instance_id)
         cache_root = self._cache_dir / "deps"
         cache_root.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(
-            prefix=f"{_cache_key(instance_id)}-",
+            prefix=f"{cache_key(instance_id)}-",
             dir=str(cache_root),
         ) as tmp_dir:
             archive_path = Path(tmp_dir) / f"dep{archive_format}"
-            await self._stream_download(source_url, archive_path, _ProgressTracker())
-            await asyncio.to_thread(_extract_archive, archive_path, target_dir)
-        if not _directory_has_entries(target_dir):
+            await self.stream_download(source_url, archive_path, _ProgressTracker())
+            await asyncio.to_thread(extract_archive, archive_path, target_dir)
+        if not directory_has_entries(target_dir):
             raise ValueError("archive extracted successfully but target directory is empty")
         return str(target_dir.resolve())
 
-    async def _download_dep_from_huggingface(self, dep: ProviderDependency, repo_id: str) -> str:
+    async def download_dep_from_huggingface(self, dep: ProviderDependency, repo_id: str) -> str:
         if snapshot_download is None:
             raise RuntimeError("huggingface_hub is not available")
 
-        def _run_download() -> str:
+        def run_download() -> str:
             return snapshot_download(repo_id=repo_id, local_dir=None)
 
-        resolved_path = await asyncio.to_thread(_run_download)
+        resolved_path = await asyncio.to_thread(run_download)
         resolved_candidate = Path(str(resolved_path)).expanduser()
-        if not _directory_has_entries(resolved_candidate):
+        if not directory_has_entries(resolved_candidate):
             raise ValueError(f"downloaded dependency repository is empty: {repo_id}")
-        if not _snapshot_has_model_weights(resolved_candidate):
+        if not snapshot_has_model_weights(resolved_candidate):
             raise ValueError(f"downloaded dependency has no model weights: {repo_id}")
         return str(resolved_candidate.resolve())
 
-    async def _download_from_huggingface(
+    async def download_from_huggingface(
         self,
         *,
         model_id: str,
@@ -340,48 +340,48 @@ class WeightManager:
     ) -> str:
         if snapshot_download is None:
             raise RuntimeError("huggingface_hub is not available")
-        target_dir = self._prepare_target_dir(model_id)
+        target_dir = self.prepare_target_dir(model_id)
 
         await asyncio.to_thread(
             lambda: snapshot_download(repo_id=repo_id, local_dir=str(target_dir))
         )
-        if not _directory_has_entries(target_dir):
+        if not directory_has_entries(target_dir):
             raise ValueError(f"downloaded HuggingFace repository is empty: {repo_id}")
         return str(target_dir)
 
-    async def _download_from_url_archive(
+    async def download_from_url_archive(
         self,
         *,
         model_id: str,
         source_url: str,
         tracker: "_ProgressTracker",
     ) -> str:
-        archive_format = _detect_archive_format(source_url)
+        archive_format = detect_archive_format(source_url)
         if archive_format is None:
             raise ValueError(
                 "url source only supports .zip and .tar.gz archives"
             )
-        target_dir = self._prepare_target_dir(model_id)
+        target_dir = self.prepare_target_dir(model_id)
         self._cache_dir.mkdir(parents=True, exist_ok=True)
 
         with tempfile.TemporaryDirectory(
-            prefix=f"{_cache_key(model_id)}-",
+            prefix=f"{cache_key(model_id)}-",
             dir=str(self._cache_dir),
         ) as tmp_dir:
             archive_name = f"weights{archive_format}"
             archive_path = Path(tmp_dir) / archive_name
-            await self._stream_download(source_url, archive_path, tracker)
+            await self.stream_download(source_url, archive_path, tracker)
             await asyncio.to_thread(
-                _extract_archive,
+                extract_archive,
                 archive_path,
                 target_dir,
             )
 
-        if not _directory_has_entries(target_dir):
+        if not directory_has_entries(target_dir):
             raise ValueError("archive extracted successfully but target directory is empty")
         return str(target_dir)
 
-    async def _stream_download(
+    async def stream_download(
         self,
         source_url: str,
         destination_path: Path,
@@ -391,7 +391,7 @@ class WeightManager:
         async with httpx.AsyncClient(follow_redirects=True, timeout=timeout) as client:
             async with client.stream("GET", source_url) as response:
                 response.raise_for_status()
-                tracker.set_total(_parse_content_length(response.headers.get("content-length")))
+                tracker.set_total(parse_content_length(response.headers.get("content-length")))
                 destination_path.parent.mkdir(parents=True, exist_ok=True)
                 with destination_path.open("wb") as destination_file:
                     async for chunk in response.aiter_bytes(chunk_size=1024 * 1024):
@@ -402,7 +402,7 @@ class WeightManager:
         if destination_path.stat().st_size <= 0:
             raise ValueError("downloaded archive is empty")
 
-    async def _report_progress(
+    async def report_progress(
         self,
         model_id: str,
         tracker: "_ProgressTracker",
@@ -418,7 +418,7 @@ class WeightManager:
             elapsed = max(current_time - last_time, 1e-6)
             delta = max(0, completed_bytes - last_completed)
             speed_bps = int(delta / elapsed)
-            progress = _calculate_progress(total_bytes, completed_bytes)
+            progress = calculate_progress(total_bytes, completed_bytes)
             await self._model_store.update_download_progress(
                 model_id,
                 progress,
@@ -450,7 +450,7 @@ class WeightManager:
         orphan_bytes = 0
         orphan_count = 0
         for d in scan_dirs:
-            size = await asyncio.to_thread(_compute_dir_size, d)
+            size = await asyncio.to_thread(compute_dir_size, d)
             cache_bytes += size
             if str(d.resolve()) not in resolved:
                 orphan_bytes += size
@@ -484,7 +484,7 @@ class WeightManager:
 
         result = []
         for d in sorted(orphan_dirs):
-            size = await asyncio.to_thread(_compute_dir_size, d)
+            size = await asyncio.to_thread(compute_dir_size, d)
             result.append({"path": str(d), "size_bytes": size})
         return result
 
@@ -502,7 +502,7 @@ class WeightManager:
             if key in seen or not p.exists():
                 continue
             seen.add(key)
-            size = await asyncio.to_thread(_compute_dir_size, p)
+            size = await asyncio.to_thread(compute_dir_size, p)
             entries.append({"path": resolved, "size_bytes": size, "label": m.get("display_name", ""), "kind": "model"})
 
         # Known dep paths
@@ -516,7 +516,7 @@ class WeightManager:
                 if key in seen or not p.exists():
                     continue
                 seen.add(key)
-                size = await asyncio.to_thread(_compute_dir_size, p)
+                size = await asyncio.to_thread(compute_dir_size, p)
                 entries.append({"path": resolved, "size_bytes": size, "label": d.get("display_name", ""), "kind": "dep"})
 
         # Residual dirs in cache_dir not matched above
@@ -533,7 +533,7 @@ class WeightManager:
         for d in scan_dirs:
             if str(d.resolve()) in seen:
                 continue
-            size = await asyncio.to_thread(_compute_dir_size, d)
+            size = await asyncio.to_thread(compute_dir_size, d)
             entries.append({"path": str(d), "size_bytes": size, "label": None, "kind": "residual"})
 
         entries.sort(key=lambda x: x["size_bytes"], reverse=True)
@@ -560,7 +560,7 @@ class WeightManager:
         freed_bytes = 0
         count = 0
         for d in orphan_dirs:
-            size = await asyncio.to_thread(_compute_dir_size, d)
+            size = await asyncio.to_thread(compute_dir_size, d)
             freed_bytes += size
             await asyncio.to_thread(shutil.rmtree, str(d), True)
             count += 1
@@ -568,18 +568,18 @@ class WeightManager:
 
         return {"freed_bytes": freed_bytes, "count": count}
 
-    def _prepare_target_dir(self, model_id: str) -> Path:
+    def prepare_target_dir(self, model_id: str) -> Path:
         self._cache_dir.mkdir(parents=True, exist_ok=True)
-        target_dir = self._cache_dir / _cache_key(model_id)
+        target_dir = self._cache_dir / cache_key(model_id)
         if target_dir.exists():
             shutil.rmtree(target_dir)
         target_dir.mkdir(parents=True, exist_ok=True)
         return target_dir
 
-    def _prepare_dep_target_dir(self, instance_id: str) -> Path:
+    def prepare_dep_target_dir(self, instance_id: str) -> Path:
         dep_root = self._cache_dir / "deps"
         dep_root.mkdir(parents=True, exist_ok=True)
-        target_dir = dep_root / _cache_key(instance_id)
+        target_dir = dep_root / cache_key(instance_id)
         if target_dir.exists():
             shutil.rmtree(target_dir)
         target_dir.mkdir(parents=True, exist_ok=True)
@@ -608,13 +608,13 @@ class _ProgressTracker:
         with self._lock:
             bar_id = self._next_bar_id
             self._next_bar_id += 1
-            normalized_total = _normalize_positive_int(total)
+            normalized_total = normalize_positive_int(total)
             self._bars[bar_id] = (normalized_total, 0)
-            self._recompute_hf_totals_locked()
+            self.recompute_hf_totals_locked()
             return bar_id
 
     def update_hf_bar(self, bar_id: int, delta: object) -> None:
-        normalized_delta = _normalize_positive_int(delta)
+        normalized_delta = normalize_positive_int(delta)
         if normalized_delta <= 0:
             return
         with self._lock:
@@ -623,20 +623,20 @@ class _ProgressTracker:
             if total is not None:
                 next_completed = min(next_completed, total)
             self._bars[bar_id] = (total, next_completed)
-            self._recompute_hf_totals_locked()
+            self.recompute_hf_totals_locked()
 
     def close_hf_bar(self, bar_id: int) -> None:
         with self._lock:
             total, completed = self._bars.get(bar_id, (None, 0))
             if total is not None and completed < total:
                 self._bars[bar_id] = (total, total)
-            self._recompute_hf_totals_locked()
+            self.recompute_hf_totals_locked()
 
     def snapshot(self) -> tuple[int | None, int]:
         with self._lock:
             return self._total_bytes, self._completed_bytes
 
-    def _recompute_hf_totals_locked(self) -> None:
+    def recompute_hf_totals_locked(self) -> None:
         totals: list[int] = []
         completed_sum = 0
         for total, completed in self._bars.values():
@@ -651,19 +651,19 @@ class _ProgressTracker:
 
 
 
-def _extract_archive(archive_path: Path, destination: Path) -> None:
+def extract_archive(archive_path: Path, destination: Path) -> None:
     suffix = archive_path.name.lower()
     destination.mkdir(parents=True, exist_ok=True)
     if suffix.endswith(".zip"):
-        _extract_zip(archive_path, destination)
+        extract_zip(archive_path, destination)
         return
     if suffix.endswith(".tar.gz"):
-        _extract_tar_gz(archive_path, destination)
+        extract_tar_gz(archive_path, destination)
         return
     raise ValueError("url source only supports .zip and .tar.gz archives")
 
 
-def _extract_zip(archive_path: Path, destination: Path) -> None:
+def extract_zip(archive_path: Path, destination: Path) -> None:
     with zipfile.ZipFile(archive_path) as archive:
         members = archive.infolist()
         if not members:
@@ -671,12 +671,12 @@ def _extract_zip(archive_path: Path, destination: Path) -> None:
         destination_root = destination.resolve()
         for member in members:
             member_path = (destination / member.filename).resolve()
-            if not _is_relative_to(member_path, destination_root):
+            if not is_relative_to(member_path, destination_root):
                 raise ValueError("zip archive contains paths outside target directory")
         archive.extractall(destination)
 
 
-def _extract_tar_gz(archive_path: Path, destination: Path) -> None:
+def extract_tar_gz(archive_path: Path, destination: Path) -> None:
     with tarfile.open(archive_path, mode="r:gz") as archive:
         members = archive.getmembers()
         if not members:
@@ -684,12 +684,12 @@ def _extract_tar_gz(archive_path: Path, destination: Path) -> None:
         destination_root = destination.resolve()
         for member in members:
             member_path = (destination / member.name).resolve()
-            if not _is_relative_to(member_path, destination_root):
+            if not is_relative_to(member_path, destination_root):
                 raise ValueError("tar.gz archive contains paths outside target directory")
         archive.extractall(destination)
 
 
-def _is_relative_to(path: Path, parent: Path) -> bool:
+def is_relative_to(path: Path, parent: Path) -> bool:
     try:
         path.relative_to(parent)
         return True
@@ -697,7 +697,7 @@ def _is_relative_to(path: Path, parent: Path) -> bool:
         return False
 
 
-def _compute_dir_size(path: Path) -> int:
+def compute_dir_size(path: Path) -> int:
     total = 0
     for f in path.rglob("*"):
         if f.is_file():
@@ -708,7 +708,7 @@ def _compute_dir_size(path: Path) -> int:
     return total
 
 
-def _directory_has_entries(path: Path) -> bool:
+def directory_has_entries(path: Path) -> bool:
     try:
         next(path.iterdir())
     except (StopIteration, FileNotFoundError):
@@ -716,7 +716,7 @@ def _directory_has_entries(path: Path) -> bool:
     return True
 
 
-def _snapshot_has_model_weights(path: Path) -> bool:
+def snapshot_has_model_weights(path: Path) -> bool:
     if not path.exists() or not path.is_dir():
         return False
     for pattern in (
@@ -734,19 +734,19 @@ def _snapshot_has_model_weights(path: Path) -> bool:
     return False
 
 
-def _parse_content_length(value: str | None) -> int | None:
-    normalized = _normalize_positive_int(value)
+def parse_content_length(value: str | None) -> int | None:
+    normalized = normalize_positive_int(value)
     return normalized if normalized > 0 else None
 
 
-def _calculate_progress(total_bytes: int | None, completed_bytes: int) -> int:
+def calculate_progress(total_bytes: int | None, completed_bytes: int) -> int:
     if total_bytes is None or total_bytes <= 0:
         return 0
     progress = int((completed_bytes / total_bytes) * 100)
     return max(0, min(99, progress))
 
 
-def _detect_archive_format(source_url: str) -> str | None:
+def detect_archive_format(source_url: str) -> str | None:
     path = urlsplit(str(source_url)).path.strip().lower()
     if path.endswith(".tar.gz"):
         return ".tar.gz"
@@ -755,7 +755,7 @@ def _detect_archive_format(source_url: str) -> str | None:
     return None
 
 
-def _normalize_positive_int(value: object) -> int:
+def normalize_positive_int(value: object) -> int:
     try:
         normalized = int(value)  # type: ignore[arg-type]
     except (TypeError, ValueError):
@@ -763,14 +763,14 @@ def _normalize_positive_int(value: object) -> int:
     return max(0, normalized)
 
 
-def _cache_key(model_id: str) -> str:
+def cache_key(model_id: str) -> str:
     normalized = str(model_id).strip()
     if not normalized:
         raise ValueError("model_id is required")
     return re.sub(r"[^a-zA-Z0-9_\\-]", "_", normalized)
 
 
-def _normalize_weight_source(value: object) -> str:
+def normalize_weight_source(value: object) -> str:
     normalized = str(value or "").strip().lower()
     if normalized not in {"huggingface", "url", "local"}:
         raise ValueError(
@@ -779,14 +779,14 @@ def _normalize_weight_source(value: object) -> str:
     return normalized
 
 
-def _normalize_weight_source_loose(value: object) -> str:
+def normalize_weight_source_loose(value: object) -> str:
     normalized = str(value or "").strip().lower()
     if not normalized:
         return "huggingface"
-    return _normalize_weight_source(normalized)
+    return normalize_weight_source(normalized)
 
 
-def _get_provider_class(provider_type: str):
+def get_provider_class(provider_type: str):
     normalized_provider_type = str(provider_type or "").strip().lower()
     if normalized_provider_type == "trellis2":
         from gen3d.model.trellis2.provider import Trellis2Provider
@@ -803,20 +803,20 @@ def _get_provider_class(provider_type: str):
     return None
 
 
-def _resolve_provider_dependencies(provider_cls) -> list[ProviderDependency]:
+def resolve_provider_dependencies(provider_cls) -> list[ProviderDependency]:
     if provider_cls is None:
         return []
     dependencies_getter = getattr(provider_cls, "dependencies", lambda: [])
     raw_dependencies = dependencies_getter() or []
     normalized_dependencies: list[ProviderDependency] = []
     for item in raw_dependencies:
-        dep = _normalize_provider_dependency(item)
+        dep = normalize_provider_dependency(item)
         if dep is not None:
             normalized_dependencies.append(dep)
     return normalized_dependencies
 
 
-def _normalize_provider_dependency(item: object) -> ProviderDependency | None:
+def normalize_provider_dependency(item: object) -> ProviderDependency | None:
     if isinstance(item, dict):
         raw_dep_id = item.get("dep_id")
         raw_hf_repo_id = item.get("hf_repo_id")

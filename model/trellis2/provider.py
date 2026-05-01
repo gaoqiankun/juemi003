@@ -61,7 +61,7 @@ class MockTrellis2Provider:
 
     async def run_batch(self, images, options, progress_cb=None, cancel_flags=None):
         _ = cancel_flags
-        failure_stage = self._normalize_failure_stage(options.get("mock_failure_stage"))
+        failure_stage = self.normalize_failure_stage(options.get("mock_failure_stage"))
         for stage_name in ("ss", "shape", "material"):
             if self._stage_delay_seconds:
                 await asyncio.sleep(self._stage_delay_seconds)
@@ -70,7 +70,7 @@ class MockTrellis2Provider:
                     stage_name=f"gpu_{stage_name}",
                     message=f"mock failure injected at gpu_{stage_name}",
                 )
-            await _emit_progress(progress_cb, stage_name)
+            await emit_progress(progress_cb, stage_name)
         return [
             GenerationResult(
                 mesh={"mock_mesh": True, "input": image},
@@ -87,10 +87,10 @@ class MockTrellis2Provider:
     ) -> None:
         _ = result
         _ = options
-        Path(output_path).write_bytes(_build_mock_glb_bytes())
+        Path(output_path).write_bytes(build_mock_glb_bytes())
 
     @staticmethod
-    def _normalize_failure_stage(value: Any) -> str | None:
+    def normalize_failure_stage(value: Any) -> str | None:
         if value is None:
             return None
         stage = str(value).strip().lower()
@@ -138,8 +138,8 @@ class Trellis2Provider:
         model_path: str,
         dep_paths: dict[str, str],
     ) -> "Trellis2Provider":
-        resolved_dep_paths = cls._resolve_required_dep_paths(dep_paths)
-        report, pipeline = cls._inspect_runtime(
+        resolved_dep_paths = cls.resolve_required_dep_paths(dep_paths)
+        report, pipeline = cls.inspect_runtime_full(
             model_path,
             dep_paths=resolved_dep_paths,
             load_pipeline=True,
@@ -156,7 +156,7 @@ class Trellis2Provider:
             raise ModelProviderConfigurationError(
                 "MODEL_PATH is required for real provider mode"
             )
-        _, model_reference = cls._resolve_model_reference(model_path)
+        _, model_reference = cls.resolve_model_reference(model_path)
         return cls(
             pipeline=None,
             model_path=model_reference,
@@ -170,7 +170,7 @@ class Trellis2Provider:
         dep_paths: dict[str, str] | None = None,
         load_pipeline: bool = True,
     ) -> dict[str, Any]:
-        report, _ = cls._inspect_runtime(
+        report, _ = cls.inspect_runtime_full(
             model_path,
             dep_paths=dep_paths,
             load_pipeline=load_pipeline,
@@ -178,23 +178,17 @@ class Trellis2Provider:
         return report
 
     def estimate_weight_vram_mb(self, options: dict[str, Any]) -> int:
-        resolution = int(options.get("resolution", 1024))
-        batch_total = {
-            512: 16_000,
-            1024: 24_000,
-            1536: 32_000,
-        }.get(resolution, 24_000)
-        return int(batch_total * 1.2 * 0.75)
+        _ = options
+        return 16_000
 
     def estimate_inference_vram_mb(self, batch_size: int, options: dict[str, Any]) -> int:
         resolution = int(options.get("resolution", 1024))
-        base = {
-            512: 16_000,
-            1024: 24_000,
-            1536: 32_000,
-        }.get(resolution, 24_000)
-        total = int(base * 1.2 * max(batch_size, 1))
-        return max(total - self.estimate_weight_vram_mb(options), 1)
+        activation_base = {
+            512: 4_000,
+            1024: 6_000,
+            1536: 10_000,
+        }.get(resolution, 6_000)
+        return max(activation_base * max(batch_size, 1), 1)
 
     def estimate_vram_mb(self, batch_size: int, options: dict[str, Any]) -> int:
         return self.estimate_weight_vram_mb(options) + self.estimate_inference_vram_mb(
@@ -223,24 +217,22 @@ class Trellis2Provider:
         loop = asyncio.get_running_loop()
         results: list[GenerationResult] = []
         for prepared_input in images:
-            image = _extract_pil_image(prepared_input)
+            image = extract_pil_image(prepared_input)
 
             def emit_stage(stage_name: str) -> None:
                 if progress_cb is None:
                     return
                 asyncio.run_coroutine_threadsafe(
-                    _emit_progress(progress_cb, stage_name), loop
+                    emit_progress(progress_cb, stage_name), loop
                 )
 
             try:
-                mesh = await asyncio.to_thread(self._run_single, image, options, emit_stage)
+                mesh = await asyncio.to_thread(self.run_single, image, options, emit_stage)
             except Exception as exc:  # pragma: no cover - depends on external runtime
                 raise ModelProviderExecutionError(
                     stage_name="gpu_run",
                     message=f"TRELLIS2 inference failed: {exc}",
                 ) from exc
-            await asyncio.to_thread(_move_mesh_to_cpu, mesh)
-
             results.append(
                 GenerationResult(
                     mesh=mesh,
@@ -306,54 +298,53 @@ class Trellis2Provider:
                 remesh_project=options.get("remesh_project", 0),
                 verbose=options.get("export_verbose", False),
             )
-            glb.export(str(output_path), extension_webp=True)
+            try:
+                glb.export(str(output_path), extension_webp=True)
+            except KeyError:
+                glb.export(str(output_path), extension_webp=False)
         except Exception as exc:  # pragma: no cover - depends on external runtime
             raise ModelProviderExecutionError(
                 stage_name="exporting",
                 message=f"TRELLIS2 GLB export failed: {exc}",
             ) from exc
 
-    def _run_single(self, image: Any, options: dict[str, Any], emit_stage=None) -> Any:
-        pipeline_type = self._resolve_pipeline_type(options)
+    def run_single(self, image: Any, options: dict[str, Any], emit_stage=None) -> Any:
+        pipeline_type = self.resolve_pipeline_type(options)
 
-        if emit_stage:
-            emit_stage("ss")
-
-        result = self._pipeline.run(
-            image,
-            pipeline_type=pipeline_type,
-            sparse_structure_sampler_params={
+        run_kwargs: dict[str, Any] = {
+            "pipeline_type": pipeline_type,
+            "sparse_structure_sampler_params": {
                 "steps": options.get("ss_steps", 12),
                 "guidance_strength": options.get(
                     "ss_guidance_strength",
                     options.get("ss_guidance_scale", 7.5),
                 ),
             },
-            shape_slat_sampler_params={
+            "shape_slat_sampler_params": {
                 "steps": options.get("shape_steps", 20),
                 "guidance_strength": options.get(
                     "shape_guidance_strength",
                     options.get("shape_guidance_scale", 7.5),
                 ),
             },
-            tex_slat_sampler_params={
+            "tex_slat_sampler_params": {
                 "steps": options.get("material_steps", 12),
                 "guidance_strength": options.get(
                     "material_guidance_strength",
                     options.get("material_guidance_scale", 3.0),
                 ),
             },
-            max_num_tokens=options.get("max_num_tokens", 49_152),
-        )
+            "max_num_tokens": options.get("max_num_tokens", 49_152),
+        }
+        if emit_stage is not None:
+            run_kwargs["stage_cb"] = emit_stage
 
-        if emit_stage:
-            emit_stage("shape")
-            emit_stage("material")
+        result = self._pipeline.run(image, **run_kwargs)
 
         return result[0]
 
     @classmethod
-    def _resolve_pipeline_type(cls, options: dict[str, Any]) -> str:
+    def resolve_pipeline_type(cls, options: dict[str, Any]) -> str:
         explicit = options.get("pipeline_type")
         if explicit is not None:
             pipeline_type = str(explicit).strip()
@@ -375,7 +366,7 @@ class Trellis2Provider:
         }.get(resolution, "1024_cascade")
 
     @classmethod
-    def _inspect_runtime(  # noqa: C901
+    def inspect_runtime_full(  # noqa: C901
         cls,
         model_path: str,
         *,
@@ -385,7 +376,7 @@ class Trellis2Provider:
         if not model_path:
             raise ModelProviderConfigurationError("MODEL_PATH is required for real provider mode")
 
-        model_source, model_reference = cls._resolve_model_reference(model_path)
+        model_source, model_reference = cls.resolve_model_reference(model_path)
 
         report: dict[str, Any] = {
             "provider": "trellis2",
@@ -437,7 +428,7 @@ class Trellis2Provider:
             try:
                 pipeline_config_name = "pipeline.json"
                 if dep_paths:
-                    pipeline_config_name, temp_config_path = cls._build_pipeline_config_with_dep_paths(
+                    pipeline_config_name, temp_config_path = cls.build_pipeline_config_with_dep_paths(
                         model_reference=model_reference,
                         dep_paths=dep_paths,
                     )
@@ -461,19 +452,19 @@ class Trellis2Provider:
         return report, pipeline
 
     @classmethod
-    def _resolve_required_dep_paths(
+    def resolve_required_dep_paths(
         cls,
         dep_paths: dict[str, str] | None,
     ) -> dict[str, str]:
         normalized_dep_paths = dep_paths or {}
         resolved: dict[str, str] = {}
         for dependency in cls.dependencies():
-            raw_path = cls._require_dep_path(normalized_dep_paths, dependency.dep_id)
+            raw_path = cls.require_dep_path(normalized_dep_paths, dependency.dep_id)
             resolved[dependency.dep_id] = str(Path(raw_path).expanduser())
         return resolved
 
     @staticmethod
-    def _require_dep_path(dep_paths: dict[str, str], dep_id: str) -> str:
+    def require_dep_path(dep_paths: dict[str, str], dep_id: str) -> str:
         value = str(dep_paths.get(dep_id) or "").strip()
         if not value:
             raise ModelProviderConfigurationError(
@@ -482,7 +473,7 @@ class Trellis2Provider:
         return value
 
     @classmethod
-    def _build_pipeline_config_with_dep_paths(
+    def build_pipeline_config_with_dep_paths(
         cls,
         *,
         model_reference: str,
@@ -527,7 +518,7 @@ class Trellis2Provider:
         return temp_config_path.name, temp_config_path
 
     @staticmethod
-    def _resolve_model_reference(model_path: str) -> tuple[str, str]:
+    def resolve_model_reference(model_path: str) -> tuple[str, str]:
         raw_value = model_path.strip()
         resolved_path = Path(raw_value).expanduser().resolve()
         if not resolved_path.exists():
@@ -537,7 +528,7 @@ class Trellis2Provider:
         return "local", str(resolved_path)
 
 
-def _build_mock_glb_bytes() -> bytes:
+def build_mock_glb_bytes() -> bytes:
     # Emit a tiny but valid triangle mesh so the browser UI can preview mock outputs.
     positions = (
         -0.6,
@@ -627,7 +618,7 @@ def _build_mock_glb_bytes() -> bytes:
     )
 
 
-async def _emit_progress(progress_cb, stage_name: str) -> None:
+async def emit_progress(progress_cb, stage_name: str) -> None:
     if progress_cb is None:
         return
     callback_result = progress_cb(
@@ -641,46 +632,7 @@ async def _emit_progress(progress_cb, stage_name: str) -> None:
         await callback_result
 
 
-def _extract_pil_image(prepared_input: Any) -> Any:
+def extract_pil_image(prepared_input: Any) -> Any:
     if isinstance(prepared_input, dict) and "image" in prepared_input:
         return prepared_input["image"]
     return prepared_input
-
-
-def _move_mesh_to_cpu(mesh: Any) -> None:
-    for field_name in ("vertices", "faces", "coords", "attrs"):
-        if not hasattr(mesh, field_name):
-            continue
-        moved_tensor = _detach_cpu_tensor(getattr(mesh, field_name))
-        if moved_tensor is None:
-            continue
-        try:
-            setattr(mesh, field_name, moved_tensor)
-        except (AttributeError, TypeError):
-            continue
-
-    layout = getattr(mesh, "layout", None)
-    if not isinstance(layout, dict):
-        return
-    for key, value in tuple(layout.items()):
-        moved_tensor = _detach_cpu_tensor(value)
-        if moved_tensor is None:
-            continue
-        try:
-            layout[key] = moved_tensor
-        except (AttributeError, TypeError):
-            continue
-
-
-def _detach_cpu_tensor(value: Any) -> Any | None:
-    if not getattr(value, "is_cuda", False):
-        return None
-    detach = getattr(value, "detach", None)
-    detached = detach() if callable(detach) else value
-    detached_cpu = getattr(detached, "cpu", None)
-    if not callable(detached_cpu):
-        return None
-    try:
-        return detached_cpu()
-    except Exception:
-        return None

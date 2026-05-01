@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import math
-import subprocess
 from datetime import UTC, datetime
 from typing import Protocol
 
@@ -13,6 +11,10 @@ from gen3d.storage.settings_store import (
 )
 
 
+class SchedulerCapReachedError(Exception):
+    """Raised by load_or_queue when at cap and no evictable candidate."""
+
+
 class _RegistryProtocol(Protocol):
     def get_state(self, model_name: str) -> str:
         ...
@@ -21,6 +23,9 @@ class _RegistryProtocol(Protocol):
         ...
 
     def load(self, model_name: str, *, device_id: str | None = None) -> None:
+        ...
+
+    def get_worker(self, model_name: str):
         ...
 
     async def unload(self, model_name: str) -> None:
@@ -63,7 +68,6 @@ class ModelScheduler:
         model_store: _ModelStoreProtocol,
         settings_store: _SettingsStoreProtocol,
         enabled: bool,
-        vram_detection_enabled: bool = True,
         gpu_device_count: int = 1,
     ) -> None:
         self._model_registry = model_registry
@@ -71,9 +75,7 @@ class ModelScheduler:
         self._model_store = model_store
         self._settings_store = settings_store
         self._enabled = bool(enabled)
-        self._vram_detection_enabled = bool(vram_detection_enabled)
         self._gpu_device_count = max(1, int(gpu_device_count))
-        self._max_possible_loaded = self._gpu_device_count
         self._max_loaded_models = self.DEFAULT_MAX_LOADED_MODELS
         self._max_tasks_per_slot = self.DEFAULT_MAX_TASKS_PER_SLOT
         self._tasks_processed: dict[str, int] = {}
@@ -82,10 +84,6 @@ class ModelScheduler:
         self._last_used: dict[str, int] = {}
         self._lock = asyncio.Lock()
         self._logger = structlog.get_logger(__name__)
-
-    @property
-    def max_possible_loaded(self) -> int:
-        return self._max_possible_loaded
 
     @property
     def enabled(self) -> bool:
@@ -100,31 +98,22 @@ class ModelScheduler:
         return self._max_tasks_per_slot
 
     def get_tasks_processed(self, model_id: str) -> int:
-        normalized = _normalize_model_name(model_id)
+        normalized = normalize_model_name(model_id)
         return int(self._tasks_processed.get(normalized, 0))
 
     def get_last_used_tick(self, model_name: str) -> int:
-        normalized = _normalize_model_name(model_name)
+        normalized = normalize_model_name(model_name)
         return int(self._last_used.get(normalized, 0))
 
     async def initialize(self) -> None:
-        model_definitions = await self._model_store.list_models()
-        known_model_vram = _extract_known_model_vram(model_definitions)
-        total_vram_gb = (
-            self._detect_total_vram_gb()
-            if self._enabled and self._vram_detection_enabled
-            else None
-        )
-        self._max_possible_loaded = _compute_max_possible_loaded(
-            total_vram_gb=total_vram_gb,
-            known_model_vram_gb=known_model_vram,
-            gpu_device_count=self._gpu_device_count,
-        )
-
         configured_max_loaded_models = await self._settings_store.get(MAX_LOADED_MODELS_KEY)
         configured_max_tasks_per_slot = await self._settings_store.get(MAX_TASKS_PER_SLOT_KEY)
-        self._max_loaded_models = self._normalize_max_loaded_models(configured_max_loaded_models)
-        self._max_tasks_per_slot = self._normalize_max_tasks_per_slot(configured_max_tasks_per_slot)
+        self._max_loaded_models = self.normalize_positive_int(
+            configured_max_loaded_models, self.DEFAULT_MAX_LOADED_MODELS,
+        )
+        self._max_tasks_per_slot = self.normalize_positive_int(
+            configured_max_tasks_per_slot, self.DEFAULT_MAX_TASKS_PER_SLOT,
+        )
 
         updates: dict[str, int] = {}
         if configured_max_loaded_models != self._max_loaded_models:
@@ -137,18 +126,18 @@ class ModelScheduler:
         self._logger.info(
             "scheduler.initialized",
             enabled=self._enabled,
-            vram_detection_enabled=self._vram_detection_enabled,
-            max_possible_loaded=self._max_possible_loaded,
             max_loaded_models=self._max_loaded_models,
             max_tasks_per_slot=self._max_tasks_per_slot,
         )
-        await self._startup_scan_queued_models()
+        await self.startup_scan_queued_models()
 
     async def request_load(self, model_id: str) -> None:
         if not self._enabled:
             return
         try:
-            await self._load_or_queue(_normalize_model_name(model_id))
+            await self.load_or_queue(normalize_model_name(model_id))
+        except SchedulerCapReachedError:
+            raise
         except Exception as exc:
             self._logger.warning(
                 "scheduler.request_load_failed",
@@ -160,7 +149,7 @@ class ModelScheduler:
         if not self._enabled:
             return
         try:
-            await self._load_or_queue(_normalize_model_name(model_id))
+            await self.load_or_queue(normalize_model_name(model_id))
         except Exception as exc:
             self._logger.warning(
                 "scheduler.on_task_queued_failed",
@@ -171,7 +160,7 @@ class ModelScheduler:
     async def on_task_completed(self, model_id: str) -> None:
         if not self._enabled:
             return
-        normalized_model = _normalize_model_name(model_id)
+        normalized_model = normalize_model_name(model_id)
         pending_counts = await self._task_store.count_pending_tasks_by_model()
         has_other_pending = any(
             model_name != normalized_model and count > 0
@@ -179,7 +168,7 @@ class ModelScheduler:
         )
         async with self._lock:
             self._tasks_processed[normalized_model] = self._tasks_processed.get(normalized_model, 0) + 1
-            self._touch_locked(normalized_model)
+            self.touch_locked(normalized_model)
             processed = self._tasks_processed[normalized_model]
             if processed >= self._max_tasks_per_slot and has_other_pending:
                 self._quota_exceeded.add(normalized_model)
@@ -187,12 +176,12 @@ class ModelScheduler:
     async def on_model_loaded(self, model_id: str) -> None:
         if not self._enabled:
             return
-        normalized_model = _normalize_model_name(model_id)
+        normalized_model = normalize_model_name(model_id)
         async with self._lock:
             self._tasks_processed[normalized_model] = 0
             self._quota_exceeded.discard(normalized_model)
-            self._touch_locked(normalized_model)
-        await self._startup_scan_queued_models()
+            self.touch_locked(normalized_model)
+        await self.startup_scan_queued_models()
 
     async def update_limits(
         self,
@@ -204,22 +193,25 @@ class ModelScheduler:
             return
         async with self._lock:
             if max_loaded_models is not None:
-                self._max_loaded_models = self._normalize_max_loaded_models(max_loaded_models)
+                self._max_loaded_models = self.normalize_positive_int(
+                    max_loaded_models, self.DEFAULT_MAX_LOADED_MODELS,
+                )
             if max_tasks_per_slot is not None:
-                self._max_tasks_per_slot = self._normalize_max_tasks_per_slot(max_tasks_per_slot)
+                self._max_tasks_per_slot = self.normalize_positive_int(
+                    max_tasks_per_slot, self.DEFAULT_MAX_TASKS_PER_SLOT,
+                )
                 for model_name in tuple(self._quota_exceeded):
                     if self._tasks_processed.get(model_name, 0) < self._max_tasks_per_slot:
                         self._quota_exceeded.discard(model_name)
-        await self._enforce_loaded_slot_limit()
 
-    async def _load_or_queue(self, target_model: str) -> None:
+    async def load_or_queue(self, target_model: str) -> None:
         if not target_model:
             return
         state = self._model_registry.get_state(target_model)
         if state in {"ready", "loading"}:
             if state == "ready":
                 async with self._lock:
-                    self._touch_locked(target_model)
+                    self.touch_locked(target_model)
             return
 
         runtime_states = self._model_registry.runtime_states()
@@ -228,82 +220,61 @@ class ModelScheduler:
             for model_name, runtime_state in runtime_states.items()
             if runtime_state in {"ready", "loading"}
         )
-        if len(loaded_models) < self._max_loaded_models:
-            self._model_registry.load(target_model)
-            return
+        if len(loaded_models) >= self._max_loaded_models:
+            await self.evict_lru_to_make_room(target_model, runtime_states, loaded_models)
 
-        candidate = await self._select_eviction_candidate(
-            loaded_models=loaded_models,
-            pending_counts=await self._task_store.count_pending_tasks_by_model(),
-            running_counts=await self._task_store.count_running_tasks_by_model(),
-            exclude_model=target_model,
-        )
-        if candidate is None:
-            return
-        await self._evict_and_load(candidate_model=candidate, target_model=target_model)
-
-    async def _select_eviction_candidate(
-        self,
-        *,
-        loaded_models: tuple[str, ...],
-        pending_counts: dict[str, int],
-        running_counts: dict[str, int],
-        exclude_model: str,
-    ) -> str | None:
-        eligible: list[str] = []
-        async with self._lock:
-            for model_name in loaded_models:
-                if model_name == exclude_model:
-                    continue
-                if self._model_registry.get_state(model_name) != "ready":
-                    continue
-                if running_counts.get(model_name, 0) > 0:
-                    continue
-                pending_count = pending_counts.get(model_name, 0)
-                if model_name in self._quota_exceeded or pending_count == 0:
-                    eligible.append(model_name)
-            if not eligible:
-                return None
-            return min(
-                eligible,
-                key=lambda model_name: self._last_used.get(model_name, 0),
-            )
-
-    async def _evict_and_load(self, *, candidate_model: str, target_model: str) -> None:
-        await self._model_registry.unload(candidate_model)
-        async with self._lock:
-            self._quota_exceeded.discard(candidate_model)
-            self._tasks_processed.pop(candidate_model, None)
-            self._last_used.pop(candidate_model, None)
         self._model_registry.load(target_model)
 
-    async def _enforce_loaded_slot_limit(self) -> None:
-        if not self._enabled:
-            return
-        while True:
-            runtime_states = self._model_registry.runtime_states()
-            loaded_models = tuple(
-                model_name
-                for model_name, state in runtime_states.items()
-                if state in {"ready", "loading"}
+    async def evict_lru_to_make_room(
+        self,
+        target_model: str,
+        runtime_states: dict[str, str],
+        loaded_models: tuple[str, ...],
+    ) -> None:
+        candidate = self.pick_lru_evict_candidate(target_model, runtime_states)
+        if candidate is None:
+            self._logger.warning(
+                "scheduler.cap_reached_no_evict_candidate",
+                target_model=target_model,
+                loaded_models=list(loaded_models),
+                max_loaded_models=self._max_loaded_models,
             )
-            if len(loaded_models) <= self._max_loaded_models:
-                return
-            candidate = await self._select_eviction_candidate(
-                loaded_models=loaded_models,
-                pending_counts=await self._task_store.count_pending_tasks_by_model(),
-                running_counts=await self._task_store.count_running_tasks_by_model(),
-                exclude_model="",
+            raise SchedulerCapReachedError(
+                "cannot evict: all ready models are currently in inference"
             )
-            if candidate is None:
-                return
-            await self._model_registry.unload(candidate)
-            async with self._lock:
-                self._quota_exceeded.discard(candidate)
-                self._tasks_processed.pop(candidate, None)
-                self._last_used.pop(candidate, None)
+        evicted_tick = int(self._last_used.get(candidate, 0))
+        await self._model_registry.unload(candidate)
+        self._logger.info(
+            "scheduler.evicted_lru",
+            requester=target_model,
+            evicted=candidate,
+            tick=evicted_tick,
+        )
 
-    async def _startup_scan_queued_models(self) -> None:
+    def pick_lru_evict_candidate(
+        self,
+        target_model: str,
+        runtime_states: dict[str, str],
+    ) -> str | None:
+        candidates: list[tuple[int, str]] = []
+        for model_name, runtime_state in runtime_states.items():
+            if runtime_state != "ready":
+                continue
+            if model_name == target_model:
+                continue
+            worker = self._model_registry.get_worker(model_name)
+            if worker is None:
+                continue
+            if bool(getattr(worker, "inference_busy", False)):
+                continue
+            tick = int(self._last_used.get(model_name, 0))
+            candidates.append((tick, model_name))
+        if not candidates:
+            return None
+        candidates.sort(key=lambda item: (item[0], item[1]))
+        return candidates[0][1]
+
+    async def startup_scan_queued_models(self) -> None:
         if not self._enabled:
             return
         oldest_task_time_by_model = await self._task_store.get_oldest_queued_task_time_by_model()
@@ -311,85 +282,36 @@ class ModelScheduler:
             return
         sorted_models = sorted(
             oldest_task_time_by_model.items(),
-            key=lambda item: (_parse_iso_datetime(item[1]), item[0]),
+            key=lambda item: (parse_iso_datetime(item[1]), item[0]),
         )
         for model_id, _ in sorted_models:
-            await self._load_or_queue(model_id)
+            try:
+                await self.load_or_queue(model_id)
+            except SchedulerCapReachedError as exc:
+                self._logger.warning(
+                    "scheduler.startup_scan_cap_reached",
+                    model_id=model_id,
+                    error=str(exc),
+                )
 
-    def _normalize_max_loaded_models(self, value: object) -> int:
+    @staticmethod
+    def normalize_positive_int(value: object, default: int) -> int:
         try:
             parsed = int(value)
         except (TypeError, ValueError):
-            parsed = self.DEFAULT_MAX_LOADED_MODELS
-        parsed = max(parsed, 1)
-        return min(parsed, self._max_possible_loaded)
-
-    def _normalize_max_tasks_per_slot(self, value: object) -> int:
-        try:
-            parsed = int(value)
-        except (TypeError, ValueError):
-            parsed = self.DEFAULT_MAX_TASKS_PER_SLOT
+            parsed = default
         return max(parsed, 1)
 
-    def _touch_locked(self, model_name: str) -> None:
+    def touch_locked(self, model_name: str) -> None:
         self._last_used_tick += 1
         self._last_used[model_name] = self._last_used_tick
 
-    def _detect_total_vram_gb(self) -> float | None:
-        total_from_torch = _detect_total_vram_with_torch()
-        if total_from_torch is not None:
-            return total_from_torch
-        total_from_nvidia_smi = _detect_total_vram_with_nvidia_smi()
-        if total_from_nvidia_smi is not None:
-            return total_from_nvidia_smi
-        self._logger.warning("scheduler.vram_detection_failed")
-        return None
 
-
-def _normalize_model_name(model_name: str) -> str:
+def normalize_model_name(model_name: str) -> str:
     return str(model_name).strip().lower()
 
 
-def _extract_known_model_vram(model_definitions: list[dict]) -> tuple[float, ...]:
-    values: list[float] = []
-    for model in model_definitions:
-        raw_weight_vram_mb = model.get("weight_vram_mb")
-        if raw_weight_vram_mb is not None:
-            try:
-                parsed_weight = float(raw_weight_vram_mb) / 1024.0
-            except (TypeError, ValueError):
-                parsed_weight = 0.0
-            if parsed_weight > 0:
-                values.append(parsed_weight)
-                continue
-        raw_value = model.get("vram_gb")
-        if raw_value is None:
-            continue
-        try:
-            parsed = float(raw_value)
-        except (TypeError, ValueError):
-            continue
-        if parsed > 0:
-            values.append(parsed)
-    return tuple(values)
-
-
-def _compute_max_possible_loaded(
-    *,
-    total_vram_gb: float | None,
-    known_model_vram_gb: tuple[float, ...],
-    gpu_device_count: int = 1,
-) -> int:
-    gpu_count = max(1, gpu_device_count)
-    if total_vram_gb is None or total_vram_gb <= 0 or not known_model_vram_gb:
-        return gpu_count
-    largest_model = max(known_model_vram_gb)
-    if largest_model <= 0:
-        return gpu_count
-    return max(gpu_count, math.floor(total_vram_gb / largest_model))
-
-
-def _parse_iso_datetime(value: str) -> datetime:
+def parse_iso_datetime(value: str) -> datetime:
     try:
         parsed = datetime.fromisoformat(str(value))
     except Exception:
@@ -397,48 +319,3 @@ def _parse_iso_datetime(value: str) -> datetime:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=UTC)
     return parsed.astimezone(UTC)
-
-
-def _detect_total_vram_with_torch() -> float | None:
-    try:
-        import torch  # type: ignore[import-not-found]
-    except Exception:
-        return None
-    try:
-        if not torch.cuda.is_available():
-            return None
-        _, total_bytes = torch.cuda.mem_get_info()
-        if total_bytes <= 0:
-            return None
-        return float(total_bytes) / (1024.0 ** 3)
-    except Exception:
-        return None
-
-
-def _detect_total_vram_with_nvidia_smi() -> float | None:
-    try:
-        output = subprocess.check_output(
-            [
-                "nvidia-smi",
-                "--query-gpu=memory.total",
-                "--format=csv,noheader,nounits",
-            ],
-            stderr=subprocess.DEVNULL,
-            text=True,
-            timeout=2.0,
-        )
-    except Exception:
-        return None
-
-    values: list[float] = []
-    for raw_line in output.splitlines():
-        line = raw_line.strip()
-        if not line:
-            continue
-        try:
-            values.append(float(line))
-        except ValueError:
-            continue
-    if not values:
-        return None
-    return max(values) / 1024.0

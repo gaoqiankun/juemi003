@@ -15,7 +15,7 @@ EXTERNAL_VRAM_WAIT_TIMEOUT_SECONDS_KEY = "external_vram_wait_timeout_seconds"
 INTERNAL_VRAM_WAIT_TIMEOUT_SECONDS_KEY = "internal_vram_wait_timeout_seconds"
 
 
-def _utcnow_iso() -> str:
+def utcnow_iso() -> str:
     return datetime.now(UTC).isoformat()
 
 
@@ -48,23 +48,23 @@ class SettingsStore:
             self._db = None
 
     async def get_all(self) -> dict[str, Any]:
-        db = self._require_db()
-        cursor = await db.execute("SELECT key, value FROM system_settings")
-        rows = await cursor.fetchall()
+        db = self.require_db()
+        async with db.execute("SELECT key, value FROM system_settings") as cursor:
+            rows = await cursor.fetchall()
         return {str(row["key"]): json.loads(row["value"]) for row in rows}
 
     async def get(self, key: str) -> Any | None:
-        db = self._require_db()
-        cursor = await db.execute(
+        db = self.require_db()
+        async with db.execute(
             "SELECT value FROM system_settings WHERE key = ?", (key,)
-        )
-        row = await cursor.fetchone()
+        ) as cursor:
+            row = await cursor.fetchone()
         if row is None:
             return None
         return json.loads(row["value"])
 
     async def set(self, key: str, value: Any) -> None:
-        db = self._require_db()
+        db = self.require_db()
         async with self._lock:
             await db.execute(
                 """
@@ -72,13 +72,13 @@ class SettingsStore:
                 VALUES (?, ?, ?)
                 ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
                 """,
-                (key, json.dumps(value), _utcnow_iso()),
+                (key, json.dumps(value), utcnow_iso()),
             )
             await db.commit()
 
     async def set_many(self, settings: dict[str, Any]) -> None:
-        db = self._require_db()
-        now = _utcnow_iso()
+        db = self.require_db()
+        now = utcnow_iso()
         async with self._lock:
             for key, value in settings.items():
                 await db.execute(
@@ -92,15 +92,16 @@ class SettingsStore:
             await db.commit()
 
     async def delete(self, key: str) -> bool:
-        db = self._require_db()
+        db = self.require_db()
         async with self._lock:
-            cursor = await db.execute(
+            async with db.execute(
                 "DELETE FROM system_settings WHERE key = ?", (key,)
-            )
+            ) as cursor:
+                was_deleted = cursor.rowcount > 0
             await db.commit()
-            return cursor.rowcount > 0
+            return was_deleted
 
-    def _require_db(self) -> aiosqlite.Connection:
+    def require_db(self) -> aiosqlite.Connection:
         if self._db is None:
             raise RuntimeError("SettingsStore.initialize() must be called first")
         return self._db

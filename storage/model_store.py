@@ -8,7 +8,7 @@ from pathlib import Path
 import aiosqlite
 
 
-def _utcnow_iso() -> str:
+def utcnow_iso() -> str:
     return datetime.now(UTC).isoformat()
 
 
@@ -106,18 +106,19 @@ class ModelStore:
             )
             """
         )
-        await self._ensure_vram_gb_column()
-        await self._ensure_vram_split_columns()
-        await self._ensure_download_columns()
+        await self.ensure_vram_gb_column()
+        await self.ensure_vram_split_columns()
+        await self.ensure_download_columns()
+        await self.migrate_trellis2_weight_vram()
         await self._db.commit()
 
         # Seed defaults if table is empty.
-        cursor = await self._db.execute(
+        async with self._db.execute(
             "SELECT COUNT(*) AS cnt FROM model_definitions"
-        )
-        row = await cursor.fetchone()
+        ) as cursor:
+            row = await cursor.fetchone()
         if row["cnt"] == 0:
-            now = _utcnow_iso()
+            now = utcnow_iso()
             for seed in _SEED_MODELS:
                 await self._db.execute(
                     """
@@ -167,43 +168,39 @@ class ModelStore:
         include_pending: bool = False,
         extra_statuses: frozenset[str] = frozenset(),
     ) -> list[dict]:
-        db = self._require_db()
+        db = self.require_db()
+        params: tuple[object, ...] = ()
         if include_pending:
-            cursor = await db.execute(
-                "SELECT * FROM model_definitions ORDER BY created_at"
-            )
+            query = "SELECT * FROM model_definitions ORDER BY created_at"
         elif extra_statuses:
             placeholders = ", ".join("?" * (1 + len(extra_statuses)))
-            cursor = await db.execute(
-                f"SELECT * FROM model_definitions WHERE download_status IN ({placeholders}) ORDER BY created_at",
-                tuple(["done", *sorted(extra_statuses)]),
-            )
+            query = f"SELECT * FROM model_definitions WHERE download_status IN ({placeholders}) ORDER BY created_at"
+            params = tuple(["done", *sorted(extra_statuses)])
         else:
-            cursor = await db.execute(
-                """
-                SELECT * FROM model_definitions
-                WHERE download_status = 'done'
-                ORDER BY created_at
-                """
-            )
-        rows = await cursor.fetchall()
-        return [_row_to_dict(r) for r in rows]
+            query = """
+            SELECT * FROM model_definitions
+            WHERE download_status = 'done'
+            ORDER BY created_at
+            """
+        async with db.execute(query, params) as cursor:
+            rows = await cursor.fetchall()
+        return [row_to_dict(r) for r in rows]
 
     async def get_model(self, model_id: str) -> dict | None:
-        db = self._require_db()
-        cursor = await db.execute(
+        db = self.require_db()
+        async with db.execute(
             "SELECT * FROM model_definitions WHERE id = ?", (model_id,)
-        )
-        row = await cursor.fetchone()
-        return _row_to_dict(row) if row else None
+        ) as cursor:
+            row = await cursor.fetchone()
+        return row_to_dict(row) if row else None
 
     async def get_default_model(self) -> dict | None:
-        db = self._require_db()
-        cursor = await db.execute(
+        db = self.require_db()
+        async with db.execute(
             "SELECT * FROM model_definitions WHERE is_default = 1 LIMIT 1"
-        )
-        row = await cursor.fetchone()
-        return _row_to_dict(row) if row else None
+        ) as cursor:
+            row = await cursor.fetchone()
+        return row_to_dict(row) if row else None
 
     async def get_enabled_models(
         self,
@@ -211,45 +208,44 @@ class ModelStore:
         include_pending: bool = False,
         extra_statuses: frozenset[str] = frozenset(),
     ) -> list[dict]:
-        db = self._require_db()
+        db = self.require_db()
+        params: tuple[object, ...] = ()
         if include_pending:
-            cursor = await db.execute(
-                "SELECT * FROM model_definitions WHERE is_enabled = 1 ORDER BY created_at"
+            query = (
+                "SELECT * FROM model_definitions "
+                "WHERE is_enabled = 1 ORDER BY created_at"
             )
         elif extra_statuses:
             placeholders = ", ".join("?" * (1 + len(extra_statuses)))
-            cursor = await db.execute(
-                f"SELECT * FROM model_definitions WHERE is_enabled = 1 AND download_status IN ({placeholders}) ORDER BY created_at",
-                tuple(["done", *sorted(extra_statuses)]),
-            )
+            query = f"SELECT * FROM model_definitions WHERE is_enabled = 1 AND download_status IN ({placeholders}) ORDER BY created_at"
+            params = tuple(["done", *sorted(extra_statuses)])
         else:
-            cursor = await db.execute(
-                """
-                SELECT * FROM model_definitions
-                WHERE is_enabled = 1 AND download_status = 'done'
-                ORDER BY created_at
-                """
-            )
-        rows = await cursor.fetchall()
-        return [_row_to_dict(r) for r in rows]
+            query = """
+            SELECT * FROM model_definitions
+            WHERE is_enabled = 1 AND download_status = 'done'
+            ORDER BY created_at
+            """
+        async with db.execute(query, params) as cursor:
+            rows = await cursor.fetchall()
+        return [row_to_dict(r) for r in rows]
 
     async def count_ready_models(self) -> int:
-        db = self._require_db()
-        cursor = await db.execute(
+        db = self.require_db()
+        async with db.execute(
             "SELECT COUNT(*) AS cnt FROM model_definitions WHERE download_status = 'done'"
-        )
-        row = await cursor.fetchone()
+        ) as cursor:
+            row = await cursor.fetchone()
         return int(row["cnt"])
 
     async def get_all_resolved_paths(self) -> list[str]:
-        db = self._require_db()
-        cursor = await db.execute(
+        db = self.require_db()
+        async with db.execute(
             """
             SELECT resolved_path FROM model_definitions
             WHERE weight_source != 'local' AND resolved_path IS NOT NULL
             """
-        )
-        rows = await cursor.fetchall()
+        ) as cursor:
+            rows = await cursor.fetchall()
         return [str(row["resolved_path"]) for row in rows if row["resolved_path"]]
 
     # ------------------------------------------------------------------
@@ -275,18 +271,18 @@ class ModelStore:
         inference_vram_mb: int | None = None,
         config: dict | None = None,
     ) -> dict:
-        db = self._require_db()
-        now = _utcnow_iso()
+        db = self.require_db()
+        now = utcnow_iso()
         config_json = json.dumps(config or {})
-        normalized_vram_gb = _normalize_vram_gb(vram_gb)
-        normalized_weight_vram_mb = _normalize_optional_vram_mb(weight_vram_mb)
-        normalized_inference_vram_mb = _normalize_optional_vram_mb(inference_vram_mb)
-        normalized_weight_source = _normalize_weight_source(weight_source)
-        normalized_download_status = _normalize_download_status(download_status)
-        normalized_download_progress = _normalize_download_progress(download_progress)
-        normalized_download_speed_bps = _normalize_download_speed_bps(download_speed_bps)
-        normalized_download_error = _normalize_optional_text(download_error)
-        normalized_resolved_path = _normalize_optional_text(resolved_path)
+        normalized_vram_gb = normalize_vram_gb(vram_gb)
+        normalized_weight_vram_mb = normalize_optional_vram_mb(weight_vram_mb)
+        normalized_inference_vram_mb = normalize_optional_vram_mb(inference_vram_mb)
+        normalized_weight_source = normalize_weight_source(weight_source)
+        normalized_download_status = normalize_download_status(download_status)
+        normalized_download_progress = normalize_download_progress(download_progress)
+        normalized_download_speed_bps = normalize_download_speed_bps(download_speed_bps)
+        normalized_download_error = normalize_optional_text(download_error)
+        normalized_resolved_path = normalize_optional_text(resolved_path)
         async with self._lock:
             try:
                 await db.execute(
@@ -332,7 +328,7 @@ class ModelStore:
         if not updates:
             return await self.get_model(model_id)
 
-        db = self._require_db()
+        db = self.require_db()
         async with self._lock:
             # If setting is_default=True, clear other defaults first.
             if updates.get("is_default") is True:
@@ -348,10 +344,10 @@ class ModelStore:
                     params.append(json.dumps(value or {}))
                 elif key == "vram_gb":
                     set_clauses.append("vram_gb = ?")
-                    params.append(_normalize_vram_gb(value))
+                    params.append(normalize_vram_gb(value))
                 elif key in {"weight_vram_mb", "inference_vram_mb"}:
                     set_clauses.append(f"{key} = ?")
-                    params.append(_normalize_optional_vram_mb(value))
+                    params.append(normalize_optional_vram_mb(value))
                 elif key in ("is_enabled", "is_default"):
                     set_clauses.append(f"{key} = ?")
                     params.append(1 if value else 0)
@@ -360,26 +356,29 @@ class ModelStore:
                     params.append(value)
 
             set_clauses.append("updated_at = ?")
-            params.append(_utcnow_iso())
+            params.append(utcnow_iso())
             params.append(model_id)
 
-            cursor = await db.execute(
+            async with db.execute(
                 f"UPDATE model_definitions SET {', '.join(set_clauses)} WHERE id = ?",
                 params,
-            )
-            if cursor.rowcount == 0:
+            ) as cursor:
+                was_updated = cursor.rowcount > 0
+            if not was_updated:
+                await db.rollback()
                 return None
             await db.commit()
         return await self.get_model(model_id)
 
     async def delete_model(self, model_id: str) -> bool:
-        db = self._require_db()
+        db = self.require_db()
         async with self._lock:
-            cursor = await db.execute(
+            async with db.execute(
                 "DELETE FROM model_definitions WHERE id = ?", (model_id,)
-            )
+            ) as cursor:
+                was_deleted = cursor.rowcount > 0
             await db.commit()
-            return cursor.rowcount > 0
+            return was_deleted
 
     async def update_download_progress(
         self,
@@ -387,11 +386,11 @@ class ModelStore:
         progress: int,
         speed_bps: int,
     ) -> dict | None:
-        db = self._require_db()
-        normalized_progress = _normalize_download_progress(progress)
-        normalized_speed_bps = _normalize_download_speed_bps(speed_bps)
+        db = self.require_db()
+        normalized_progress = normalize_download_progress(progress)
+        normalized_speed_bps = normalize_download_speed_bps(speed_bps)
         async with self._lock:
-            cursor = await db.execute(
+            async with db.execute(
                 """
                 UPDATE model_definitions
                 SET
@@ -405,11 +404,13 @@ class ModelStore:
                 (
                     normalized_progress,
                     normalized_speed_bps,
-                    _utcnow_iso(),
+                    utcnow_iso(),
                     model_id,
                 ),
-            )
-            if cursor.rowcount == 0:
+            ) as cursor:
+                was_updated = cursor.rowcount > 0
+            if not was_updated:
+                await db.rollback()
                 return None
             await db.commit()
         return await self.get_model(model_id)
@@ -419,12 +420,12 @@ class ModelStore:
         model_id: str,
         resolved_path: str,
     ) -> dict | None:
-        db = self._require_db()
-        normalized_resolved_path = _normalize_optional_text(resolved_path)
+        db = self.require_db()
+        normalized_resolved_path = normalize_optional_text(resolved_path)
         if normalized_resolved_path is None:
             raise ValueError("resolved_path is required when marking download as done")
         async with self._lock:
-            cursor = await db.execute(
+            async with db.execute(
                 """
                 UPDATE model_definitions
                 SET
@@ -438,11 +439,13 @@ class ModelStore:
                 """,
                 (
                     normalized_resolved_path,
-                    _utcnow_iso(),
+                    utcnow_iso(),
                     model_id,
                 ),
-            )
-            if cursor.rowcount == 0:
+            ) as cursor:
+                was_updated = cursor.rowcount > 0
+            if not was_updated:
+                await db.rollback()
                 return None
             await db.commit()
         return await self.get_model(model_id)
@@ -452,10 +455,10 @@ class ModelStore:
         model_id: str,
         error_message: str,
     ) -> dict | None:
-        db = self._require_db()
-        normalized_error = _normalize_optional_text(error_message) or "download failed"
+        db = self.require_db()
+        normalized_error = normalize_optional_text(error_message) or "download failed"
         async with self._lock:
-            cursor = await db.execute(
+            async with db.execute(
                 """
                 UPDATE model_definitions
                 SET
@@ -467,11 +470,13 @@ class ModelStore:
                 """,
                 (
                     normalized_error,
-                    _utcnow_iso(),
+                    utcnow_iso(),
                     model_id,
                 ),
-            )
-            if cursor.rowcount == 0:
+            ) as cursor:
+                was_updated = cursor.rowcount > 0
+            if not was_updated:
+                await db.rollback()
                 return None
             await db.commit()
         return await self.get_model(model_id)
@@ -480,10 +485,10 @@ class ModelStore:
     # Internal
     # ------------------------------------------------------------------
 
-    async def _ensure_vram_gb_column(self) -> None:
-        db = self._require_db()
-        cursor = await db.execute("PRAGMA table_info(model_definitions)")
-        columns = {str(row["name"]) for row in await cursor.fetchall()}
+    async def ensure_vram_gb_column(self) -> None:
+        db = self.require_db()
+        async with db.execute("PRAGMA table_info(model_definitions)") as cursor:
+            columns = {str(row["name"]) for row in await cursor.fetchall()}
         if "vram_gb" not in columns:
             await db.execute("ALTER TABLE model_definitions ADD COLUMN vram_gb REAL")
             await db.execute(
@@ -494,10 +499,10 @@ class ModelStore:
                 """
             )
 
-    async def _ensure_vram_split_columns(self) -> None:
-        db = self._require_db()
-        cursor = await db.execute("PRAGMA table_info(model_definitions)")
-        columns = {str(row["name"]) for row in await cursor.fetchall()}
+    async def ensure_vram_split_columns(self) -> None:
+        db = self.require_db()
+        async with db.execute("PRAGMA table_info(model_definitions)") as cursor:
+            columns = {str(row["name"]) for row in await cursor.fetchall()}
         if "weight_vram_mb" not in columns:
             await db.execute(
                 "ALTER TABLE model_definitions ADD COLUMN weight_vram_mb INTEGER"
@@ -544,10 +549,10 @@ class ModelStore:
             """
         )
 
-    async def _ensure_download_columns(self) -> None:
-        db = self._require_db()
-        cursor = await db.execute("PRAGMA table_info(model_definitions)")
-        columns = {str(row["name"]) for row in await cursor.fetchall()}
+    async def ensure_download_columns(self) -> None:
+        db = self.require_db()
+        async with db.execute("PRAGMA table_info(model_definitions)") as cursor:
+            columns = {str(row["name"]) for row in await cursor.fetchall()}
         if "weight_source" not in columns:
             await db.execute(
                 "ALTER TABLE model_definitions ADD COLUMN weight_source TEXT NOT NULL DEFAULT 'huggingface'"
@@ -602,23 +607,34 @@ class ModelStore:
             """
         )
 
-    def _require_db(self) -> aiosqlite.Connection:
+    async def migrate_trellis2_weight_vram(self) -> None:
+        """Fix Trellis2 weight_vram_mb=0 written by the short-lived low_vram seed."""
+        db = self.require_db()
+        await db.execute(
+            """
+            UPDATE model_definitions
+            SET weight_vram_mb = 16000
+            WHERE id = 'trellis2' AND weight_vram_mb = 0
+            """
+        )
+
+    def require_db(self) -> aiosqlite.Connection:
         if self._db is None:
             raise RuntimeError("ModelStore.initialize() must be called first")
         return self._db
 
 
-def _row_to_dict(row: aiosqlite.Row) -> dict:
+def row_to_dict(row: aiosqlite.Row) -> dict:
     config = json.loads(row["config_json"]) if row["config_json"] else {}
-    vram_gb = _normalize_vram_gb(row["vram_gb"])
-    weight_vram_mb = _normalize_optional_vram_mb(row["weight_vram_mb"])
-    inference_vram_mb = _normalize_optional_vram_mb(row["inference_vram_mb"])
-    weight_source = _normalize_weight_source(row["weight_source"])
-    download_status = _normalize_download_status(row["download_status"])
-    download_progress = _normalize_download_progress(row["download_progress"])
-    download_speed_bps = _normalize_download_speed_bps(row["download_speed_bps"])
-    download_error = _normalize_optional_text(row["download_error"])
-    resolved_path = _normalize_optional_text(row["resolved_path"])
+    vram_gb = normalize_vram_gb(row["vram_gb"])
+    weight_vram_mb = normalize_optional_vram_mb(row["weight_vram_mb"])
+    inference_vram_mb = normalize_optional_vram_mb(row["inference_vram_mb"])
+    weight_source = normalize_weight_source(row["weight_source"])
+    download_status = normalize_download_status(row["download_status"])
+    download_progress = normalize_download_progress(row["download_progress"])
+    download_speed_bps = normalize_download_speed_bps(row["download_speed_bps"])
+    download_error = normalize_optional_text(row["download_error"])
+    resolved_path = normalize_optional_text(row["resolved_path"])
     return {
         "id": str(row["id"]),
         "provider_type": str(row["provider_type"]),
@@ -642,7 +658,7 @@ def _row_to_dict(row: aiosqlite.Row) -> dict:
     }
 
 
-def _normalize_vram_gb(value: object) -> float | None:
+def normalize_vram_gb(value: object) -> float | None:
     if value is None:
         return None
     try:
@@ -654,33 +670,33 @@ def _normalize_vram_gb(value: object) -> float | None:
     return round(normalized, 3)
 
 
-def _normalize_optional_vram_mb(value: object) -> int | None:
+def normalize_optional_vram_mb(value: object) -> int | None:
     if value is None:
         return None
     try:
         normalized = int(float(value))  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return None
-    if normalized <= 0:
+    if normalized < 0:
         return None
     return normalized
 
 
-def _normalize_weight_source(value: object) -> str:
+def normalize_weight_source(value: object) -> str:
     normalized = str(value or "huggingface").strip().lower()
     if normalized not in {"huggingface", "url", "local"}:
         return "huggingface"
     return normalized
 
 
-def _normalize_download_status(value: object) -> str:
+def normalize_download_status(value: object) -> str:
     normalized = str(value or "done").strip().lower()
     if normalized not in {"pending", "downloading", "done", "error"}:
         return "done"
     return normalized
 
 
-def _normalize_download_progress(value: object) -> int:
+def normalize_download_progress(value: object) -> int:
     try:
         normalized = int(value)  # type: ignore[arg-type]
     except (TypeError, ValueError):
@@ -688,7 +704,7 @@ def _normalize_download_progress(value: object) -> int:
     return max(0, min(100, normalized))
 
 
-def _normalize_download_speed_bps(value: object) -> int:
+def normalize_download_speed_bps(value: object) -> int:
     try:
         normalized = int(value)  # type: ignore[arg-type]
     except (TypeError, ValueError):
@@ -696,7 +712,7 @@ def _normalize_download_speed_bps(value: object) -> int:
     return max(0, normalized)
 
 
-def _normalize_optional_text(value: object) -> str | None:
+def normalize_optional_text(value: object) -> str | None:
     if value is None:
         return None
     normalized = str(value).strip()

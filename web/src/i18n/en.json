@@ -218,6 +218,7 @@
       "defaultTag": "Default",
       "setDefault": "Set as default",
       "load": "Load",
+      "unload": "Unload",
       "details": "Details",
       "retry": "Retry",
       "loading": "Loading",
@@ -437,12 +438,19 @@
         "label": "Max loaded models",
         "description": "Maximum models allowed to stay loaded in VRAM.",
         "errorNotInteger": "Max loaded models must be an integer",
-        "errorOutOfRange": "Max loaded models must be between 1 and {{max}}",
         "errorTooSmall": "Max loaded models must be >= 1"
       },
       "maxTasksPerSlot": {
         "label": "Max tasks per slot",
         "description": "Tasks processed before the loaded model becomes evictable."
+      },
+      "externalVramWaitTimeoutSeconds": {
+        "label": "External VRAM wait timeout",
+        "description": "Seconds an external request waits for VRAM to become available before timing out."
+      },
+      "internalVramWaitTimeoutSeconds": {
+        "label": "Internal VRAM wait timeout",
+        "description": "Seconds an internal request waits for VRAM to become available before timing out."
       },
       "rateLimitPerHour": {
         "label": "Rate limit per hour",
@@ -546,6 +554,37 @@
     "save": {
       "saving": "Saving...",
       "success": "Settings saved."
+    }
+  },
+  "system": {
+    "vramPanel": {
+      "title": "VRAM Usage",
+      "loading": "Loading...",
+      "cluster": {
+        "total": "Total",
+        "usedWeight": "Weight",
+        "usedInference": "Inference",
+        "free": "Free",
+        "effectiveFree": "Effective Free",
+        "externalOccupation": "External"
+      },
+      "holders": {
+        "columnHolder": "Holder",
+        "columnType": "Type",
+        "columnDevice": "Device",
+        "columnVram": "VRAM (MB)",
+        "typeWeight": "weight",
+        "typeInference": "inference",
+        "empty": "No VRAM allocations"
+      },
+      "device": {
+        "enabled": "Enabled",
+        "disabled": "Disabled",
+        "inferenceCount": "Active inferences"
+      },
+      "externalOccupation": {
+        "tooltip": "GPU memory used outside allocator: {{value}}"
+      }
     }
   },
   "storage": {

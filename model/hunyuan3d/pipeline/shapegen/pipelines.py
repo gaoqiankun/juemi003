@@ -542,7 +542,7 @@ class Hunyuan3DDiTPipeline:
             return
         logger.info('The parameters `mc_algo` is deprecated, and will be removed in future versions.\n'
                     'Please use: \n'
-                    'from gen3d.model.hunyuan3d.pipeline.shapegen.models.autoencoders import SurfaceExtractors\n'
+                    'from gen3d.model.hunyuan3d.pipeline.shapegen.models.autoencoders.surface_extractors import SurfaceExtractors\n'
                     'pipeline.vae.surface_extractor = SurfaceExtractors[mc_algo]() instead\n')
         if mc_algo not in SurfaceExtractors.keys():
             raise ValueError(f"Unknown mc_algo {mc_algo}")

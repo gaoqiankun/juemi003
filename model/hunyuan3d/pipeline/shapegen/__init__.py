@@ -12,6 +12,20 @@
 # fine-tuning enabling code and other elements of the foregoing made publicly available
 # by Tencent in accordance with TENCENT HUNYUAN COMMUNITY LICENSE AGREEMENT.
 
-from .pipelines import Hunyuan3DDiTPipeline, Hunyuan3DDiTFlowMatchingPipeline
-from .postprocessors import FaceReducer, FloaterRemover, DegenerateFaceRemover, MeshSimplifier
-from .preprocessors import ImageProcessorV2, IMAGE_PROCESSORS, DEFAULT_IMAGEPROCESSOR
+# Re-exports kept for vendor public API surface — accessed via getattr / config.yaml
+# string targets / vendor-internal `from .X import Y`. ruff F401 cannot detect these.
+from .pipelines import (  # noqa: F401
+    Hunyuan3DDiTFlowMatchingPipeline,
+    Hunyuan3DDiTPipeline,
+)
+from .postprocessors import (  # noqa: F401
+    DegenerateFaceRemover,
+    FaceReducer,
+    FloaterRemover,
+    MeshSimplifier,
+)
+from .preprocessors import (  # noqa: F401
+    DEFAULT_IMAGEPROCESSOR,
+    IMAGE_PROCESSORS,
+    ImageProcessorV2,
+)

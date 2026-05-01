@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# DEPRECATED: superseded by storage.dep_store._ensure_schema automatic migration.
+# DEPRECATED: superseded by storage.dep_store.ensure_schema automatic migration.
 from __future__ import annotations
 
 import argparse

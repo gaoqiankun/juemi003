@@ -12,6 +12,7 @@ import {
   DialogTitle,
   ToggleSwitch,
 } from "@/components/ui/primitives";
+import { VramPanel } from "@/components/admin/vram-panel";
 import {
   cleanOrphans,
   fetchSettings,
@@ -224,6 +225,10 @@ export function SystemPage() {
             ))}
           </div>
         </Card>
+      </section>
+
+      <section>
+        <VramPanel />
       </section>
 
       <section>

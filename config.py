@@ -146,11 +146,6 @@ class ServingConfig(BaseSettings):
         alias="RATE_LIMIT_PER_HOUR",
         ge=1,
     )
-    vram_detection_enabled: bool = Field(
-        default=True,
-        alias="VRAM_DETECTION_ENABLED",
-    )
-
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -168,7 +163,7 @@ class ServingConfig(BaseSettings):
 
     @field_validator("admin_token", mode="before")
     @classmethod
-    def _normalize_optional_token(cls, value: Any) -> str | None:
+    def normalize_optional_token(cls, value: Any) -> str | None:
         if value is None:
             return None
         normalized = str(value).strip()
@@ -176,7 +171,7 @@ class ServingConfig(BaseSettings):
 
     @field_validator("dev_proxy_target", mode="before")
     @classmethod
-    def _normalize_dev_proxy_target(cls, value: Any) -> str | None:
+    def normalize_dev_proxy_target(cls, value: Any) -> str | None:
         if value is None:
             return None
         normalized = str(value).strip().rstrip("/")
@@ -184,7 +179,7 @@ class ServingConfig(BaseSettings):
 
     @field_validator("dev_proxy_target")
     @classmethod
-    def _validate_dev_proxy_target(cls, value: str | None) -> str | None:
+    def validate_dev_proxy_target(cls, value: str | None) -> str | None:
         if value is None:
             return None
         parsed = urlsplit(value)
@@ -194,7 +189,7 @@ class ServingConfig(BaseSettings):
 
     @field_validator("dev_local_model_path", mode="before")
     @classmethod
-    def _normalize_dev_local_model_path(cls, value: Any) -> str | None:
+    def normalize_dev_local_model_path(cls, value: Any) -> str | None:
         if value is None:
             return None
         normalized = str(value).strip()
@@ -202,7 +197,7 @@ class ServingConfig(BaseSettings):
 
     @field_validator("allowed_callback_domains", mode="before")
     @classmethod
-    def _parse_allowed_callback_domains(cls, value: Any) -> tuple[str, ...]:
+    def parse_allowed_callback_domains(cls, value: Any) -> tuple[str, ...]:
         if value is None:
             return ()
         if isinstance(value, str):
@@ -215,7 +210,7 @@ class ServingConfig(BaseSettings):
 
     @field_validator("gpu_device_ids", mode="before")
     @classmethod
-    def _parse_gpu_device_ids(cls, value: Any) -> tuple[str, ...]:
+    def parse_gpu_device_ids(cls, value: Any) -> tuple[str, ...]:
         if value is None:
             return ()
         if isinstance(value, str):

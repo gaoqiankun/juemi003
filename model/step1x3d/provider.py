@@ -71,7 +71,7 @@ class MockStep1X3DProvider:
 
     async def run_batch(self, images, options, progress_cb=None, cancel_flags=None):
         _ = cancel_flags
-        failure_stage = self._normalize_failure_stage(options.get("mock_failure_stage"))
+        failure_stage = self.normalize_failure_stage(options.get("mock_failure_stage"))
         for stage_name in ("ss", "shape", "material"):
             if self._stage_delay_seconds:
                 await asyncio.sleep(self._stage_delay_seconds)
@@ -80,7 +80,7 @@ class MockStep1X3DProvider:
                     stage_name=f"gpu_{stage_name}",
                     message=f"mock failure injected at gpu_{stage_name}",
                 )
-            await _emit_progress(progress_cb, stage_name)
+            await emit_progress(progress_cb, stage_name)
         return [
             GenerationResult(
                 mesh={"mock_mesh": True, "input": image},
@@ -97,10 +97,10 @@ class MockStep1X3DProvider:
     ) -> None:
         _ = result
         _ = options
-        Path(output_path).write_bytes(_build_mock_glb_bytes())
+        Path(output_path).write_bytes(build_mock_glb_bytes())
 
     @staticmethod
-    def _normalize_failure_stage(value: Any) -> str | None:
+    def normalize_failure_stage(value: Any) -> str | None:
         if value is None:
             return None
         stage = str(value).strip().lower()
@@ -172,8 +172,8 @@ class Step1X3DProvider:
         model_path: str,
         dep_paths: dict[str, str],
     ) -> "Step1X3DProvider":
-        resolved_dep_paths = cls._resolve_required_dep_paths(dep_paths)
-        report, geometry_pipeline, texture_pipeline = cls._inspect_runtime(
+        resolved_dep_paths = cls.resolve_required_dep_paths(dep_paths)
+        report, geometry_pipeline, texture_pipeline = cls.inspect_runtime_full(
             model_path,
             dep_paths=resolved_dep_paths,
             load_pipeline=True,
@@ -194,7 +194,7 @@ class Step1X3DProvider:
             raise ModelProviderConfigurationError(
                 "MODEL_PATH is required for real provider mode"
             )
-        _, model_reference = cls._resolve_model_reference(model_path)
+        _, model_reference = cls.resolve_model_reference(model_path)
         return cls(
             geometry_pipeline=None,
             texture_pipeline=None,
@@ -209,7 +209,7 @@ class Step1X3DProvider:
         dep_paths: dict[str, str] | None = None,
         load_pipeline: bool = True,
     ) -> dict[str, Any]:
-        report, _, _ = cls._inspect_runtime(
+        report, _, _ = cls.inspect_runtime_full(
             model_path,
             dep_paths=dep_paths,
             load_pipeline=load_pipeline,
@@ -252,17 +252,17 @@ class Step1X3DProvider:
         loop = asyncio.get_running_loop()
         results: list[GenerationResult] = []
         for prepared_input in images:
-            image = _extract_pil_image(prepared_input)
+            image = extract_pil_image(prepared_input)
 
             def emit_stage(stage_name: str) -> None:
                 if progress_cb is None:
                     return
                 asyncio.run_coroutine_threadsafe(
-                    _emit_progress(progress_cb, stage_name), loop
+                    emit_progress(progress_cb, stage_name), loop
                 )
 
             try:
-                mesh = await asyncio.to_thread(self._run_single, image, options, emit_stage)
+                mesh = await asyncio.to_thread(self.run_single, image, options, emit_stage)
             except ModelProviderExecutionError:
                 raise
             except Exception as exc:
@@ -314,8 +314,8 @@ class Step1X3DProvider:
                 message=f"Step1X-3D GLB export failed: {exc}",
             ) from exc
 
-    def _run_single(self, image: Any, options: dict[str, Any], emit_stage=None) -> Any:  # noqa: C901
-        _install_rembg_bria_alias_patch()
+    def run_single(self, image: Any, options: dict[str, Any], emit_stage=None) -> Any:  # noqa: C901
+        install_rembg_bria_alias_patch()
         num_steps = options.get("num_inference_steps", 25)
         guidance_scale = options.get("guidance_scale", 7.5)
 
@@ -368,7 +368,7 @@ class Step1X3DProvider:
         return mesh
 
     @classmethod
-    def _inspect_runtime(  # noqa: C901
+    def inspect_runtime_full(  # noqa: C901
         cls,
         model_path: str,
         *,
@@ -380,7 +380,7 @@ class Step1X3DProvider:
                 "MODEL_PATH is required for real provider mode"
             )
 
-        model_source, model_reference = cls._resolve_model_reference(model_path)
+        model_source, model_reference = cls.resolve_model_reference(model_path)
 
         report: dict[str, Any] = {
             "provider": "step1x3d",
@@ -407,7 +407,7 @@ class Step1X3DProvider:
                 "real provider mode requires a CUDA-enabled torch runtime and visible GPU"
             )
 
-        _install_rembg_bria_alias_patch()
+        install_rembg_bria_alias_patch()
 
         try:
             geo_pipelines = importlib.import_module(cls._GEOMETRY_PIPELINE_MODULE)
@@ -419,7 +419,7 @@ class Step1X3DProvider:
 
         # Must be called AFTER importing the geometry pipeline so that all
         # submodules are already in sys.modules before we register aliases.
-        _install_step1x3d_geometry_alias()
+        install_step1x3d_geometry_alias()
 
         geometry_cls = getattr(geo_pipelines, "Step1X3DGeometryPipeline", None)
         if geometry_cls is None:
@@ -496,19 +496,19 @@ class Step1X3DProvider:
         return report, geometry_pipeline, texture_pipeline
 
     @classmethod
-    def _resolve_required_dep_paths(
+    def resolve_required_dep_paths(
         cls,
         dep_paths: dict[str, str] | None,
     ) -> dict[str, str]:
         normalized_dep_paths = dep_paths or {}
         resolved: dict[str, str] = {}
         for dependency in cls.dependencies():
-            raw_path = cls._require_dep_path(normalized_dep_paths, dependency.dep_id)
+            raw_path = cls.require_dep_path(normalized_dep_paths, dependency.dep_id)
             resolved[dependency.dep_id] = str(Path(raw_path).expanduser())
         return resolved
 
     @staticmethod
-    def _require_dep_path(dep_paths: dict[str, str], dep_id: str) -> str:
+    def require_dep_path(dep_paths: dict[str, str], dep_id: str) -> str:
         value = str(dep_paths.get(dep_id) or "").strip()
         if not value:
             raise ModelProviderConfigurationError(
@@ -517,7 +517,7 @@ class Step1X3DProvider:
         return value
 
     @staticmethod
-    def _resolve_model_reference(model_path: str) -> tuple[str, str]:
+    def resolve_model_reference(model_path: str) -> tuple[str, str]:
         raw_value = model_path.strip()
         resolved_path = Path(raw_value).expanduser().resolve()
         if not resolved_path.exists():
@@ -532,7 +532,7 @@ class Step1X3DProvider:
 # ---------------------------------------------------------------------------
 
 
-def _build_mock_glb_bytes() -> bytes:
+def build_mock_glb_bytes() -> bytes:
     """Emit a tiny but valid triangle mesh so the browser UI can preview mock outputs."""
     positions = (
         -0.6, -0.45, 0.0,
@@ -602,7 +602,7 @@ def _build_mock_glb_bytes() -> bytes:
     )
 
 
-async def _emit_progress(progress_cb, stage_name: str) -> None:
+async def emit_progress(progress_cb, stage_name: str) -> None:
     if progress_cb is None:
         return
     callback_result = progress_cb(
@@ -616,14 +616,14 @@ async def _emit_progress(progress_cb, stage_name: str) -> None:
         await callback_result
 
 
-def _extract_pil_image(prepared_input: Any) -> Any:
+def extract_pil_image(prepared_input: Any) -> Any:
     if isinstance(prepared_input, dict) and "image" in prepared_input:
         return prepared_input["image"]
     return prepared_input
 
 
 @contextmanager
-def _temporary_env_var(name: str, value: str | None):
+def temporary_env_var(name: str, value: str | None):
     old_value = os.environ.get(name)
     if value:
         os.environ[name] = value
@@ -638,7 +638,7 @@ def _temporary_env_var(name: str, value: str | None):
             os.environ[name] = old_value
 
 
-def _install_step1x3d_geometry_alias() -> None:
+def install_step1x3d_geometry_alias() -> None:
     """Register ``step1x3d_geometry.*`` as sys.modules aliases for our internal package.
 
     The HuggingFace checkpoint's model_index.json references components by the
@@ -665,7 +665,7 @@ def _install_step1x3d_geometry_alias() -> None:
             sys.modules.setdefault(alias, mod)
 
 
-def _install_rembg_bria_alias_patch() -> None:
+def install_rembg_bria_alias_patch() -> None:
     """Map legacy Step1X RMBG model name ``bria`` to rembg's ``bria-rmbg``.
 
     Step1X hardcodes ``model_name="bria"`` in preprocess_image. Newer rembg
@@ -686,10 +686,10 @@ def _install_rembg_bria_alias_patch() -> None:
         return
 
     @wraps(original_new_session)
-    def _patched_new_session(*args, **kwargs):
-        model_name = _extract_requested_session_model_name(args, kwargs)
+    def patched_new_session(*args, **kwargs):
+        model_name = extract_requested_session_model_name(args, kwargs)
         if model_name == "bria":
-            mapped_args, mapped_kwargs = _replace_session_model_name(
+            mapped_args, mapped_kwargs = replace_session_model_name(
                 args,
                 kwargs,
                 "bria-rmbg",
@@ -699,15 +699,15 @@ def _install_rembg_bria_alias_patch() -> None:
             except ValueError as exc:
                 if "No session class found for model 'bria-rmbg'" not in str(exc):
                     raise
-                fallback_args, fallback_kwargs = _drop_session_model_name(
+                fallback_args, fallback_kwargs = drop_session_model_name(
                     mapped_args,
                     mapped_kwargs,
                 )
                 return original_new_session(*fallback_args, **fallback_kwargs)
         return original_new_session(*args, **kwargs)
 
-    setattr(_patched_new_session, "_cubie3d_bria_alias_patch", True)
-    rembg_module.new_session = _patched_new_session
+    setattr(patched_new_session, "_cubie3d_bria_alias_patch", True)
+    rembg_module.new_session = patched_new_session
 
     # Keep module-level aliases in sync for versions where rembg exports
     # new_session from rembg.bg.
@@ -716,10 +716,10 @@ def _install_rembg_bria_alias_patch() -> None:
     except ModuleNotFoundError:
         return
     if hasattr(rembg_bg_module, "new_session"):
-        rembg_bg_module.new_session = _patched_new_session
+        rembg_bg_module.new_session = patched_new_session
 
 
-def _extract_requested_session_model_name(
+def extract_requested_session_model_name(
     args: tuple[Any, ...],
     kwargs: dict[str, Any],
 ) -> str | None:
@@ -732,7 +732,7 @@ def _extract_requested_session_model_name(
     return str(value).strip().lower() if value is not None else None
 
 
-def _replace_session_model_name(
+def replace_session_model_name(
     args: tuple[Any, ...],
     kwargs: dict[str, Any],
     model_name: str,
@@ -752,7 +752,7 @@ def _replace_session_model_name(
     return args, rewritten_kwargs
 
 
-def _drop_session_model_name(
+def drop_session_model_name(
     args: tuple[Any, ...],
     kwargs: dict[str, Any],
 ) -> tuple[tuple[Any, ...], dict[str, Any]]:

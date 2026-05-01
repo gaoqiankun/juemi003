@@ -1,3 +1,5 @@
+# ruff: noqa: E402
+
 from __future__ import annotations
 
 import asyncio
@@ -11,9 +13,10 @@ if str(WORKSPACE_ROOT) not in sys.path:
 
 from gen3d.model.base import ModelProviderExecutionError
 from gen3d.stages.gpu.worker import (
+    AsyncGPUWorker,
+    PendingRequest,
     ProcessGPUWorker,
     WorkerProcessConfig,
-    _PendingRequest,
 )
 
 
@@ -91,12 +94,12 @@ def test_process_gpu_worker_rejects_pending_futures_when_child_process_dies() ->
         loop = asyncio.get_running_loop()
         worker._startup_future = loop.create_future()
         pending_future = loop.create_future()
-        worker._pending["req-1"] = _PendingRequest(
+        worker._pending["req-1"] = PendingRequest(
             future=pending_future,
             progress_cb=None,
         )
 
-        pump_task = asyncio.create_task(worker._pump_responses())
+        pump_task = asyncio.create_task(worker.pump_responses())
         await asyncio.wait_for(pump_task, timeout=0.5)
 
         assert worker._response_queue.timeouts == [1.0]
@@ -136,7 +139,7 @@ def test_process_gpu_worker_stop_waits_for_clean_shutdown() -> None:
         startup_future.set_result(None)
         worker._startup_future = startup_future
 
-        response_task = asyncio.create_task(worker._pump_responses())
+        response_task = asyncio.create_task(worker.pump_responses())
         worker._response_task = response_task
 
         await worker.stop()
@@ -152,3 +155,19 @@ def test_process_gpu_worker_stop_waits_for_clean_shutdown() -> None:
         assert worker._pending == {}
 
     asyncio.run(scenario())
+
+
+def test_async_gpu_worker_startup_weight_mb_is_none() -> None:
+    class FakeProvider:
+        async def run_batch(self, images, options, progress_cb):  # noqa: ANN001
+            _ = images
+            _ = options
+            _ = progress_cb
+            return []
+
+    worker = AsyncGPUWorker(
+        worker_id="gpu-worker-test",
+        device_id="0",
+        provider=FakeProvider(),  # type: ignore[arg-type]
+    )
+    assert worker.startup_weight_mb is None

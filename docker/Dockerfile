@@ -1,5 +1,6 @@
 ARG TRELLIS2_IMAGE=cubie3d/trellis2:latest
 ARG NODE_IMAGE=node:24-bookworm-slim
+ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple/
 
 FROM ${NODE_IMAGE} AS web-builder
 
@@ -31,12 +32,13 @@ WORKDIR /app
 
 COPY pyproject.toml uv.lock ./
 
+ARG PIP_INDEX_URL
 RUN apt-get update && \
     apt-get install -y --no-install-recommends libegl1-mesa && \
     rm -rf /var/lib/apt/lists/* && \
-    pip install uv && \
+    pip install uv --index-url ${PIP_INDEX_URL} && \
     uv export --group worker --no-dev --frozen --no-emit-project -o /tmp/requirements.txt && \
-    pip install -r /tmp/requirements.txt
+    uv pip install --system --index-url ${PIP_INDEX_URL} -r /tmp/requirements.txt
 
 # Keep the checkout under /app/gen3d so `python serve.py` sees the same
 # package layout as a normal repo checkout (`<parent>/gen3d/...`).

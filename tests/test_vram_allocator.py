@@ -11,330 +11,202 @@ if str(WORKSPACE_ROOT) not in sys.path:
     sys.path.insert(0, str(WORKSPACE_ROOT))
 
 from gen3d.engine.vram_allocator import (
-    ExternalVRAMOccupationTimeoutError,
-    InternalVRAMContentionTimeoutError,
+    InferenceAllocation,
     VRAMAllocator,
-    VRAMAllocatorError,
-    VRAMMetricsHook,
+    VRAMInsufficientError,
+    WeightAllocation,
 )
 
 
-def test_allocator_places_models_on_available_devices() -> None:
-    allocator = VRAMAllocator(
-        device_totals_mb={
-            "0": 24_000,
-            "1": 24_000,
-        }
-    )
+class FakeEvictableWorker:
+    def __init__(
+        self,
+        *,
+        allocator: VRAMAllocator,
+        model_id: str,
+        weight_allocation: WeightAllocation,
+        inference_busy: bool = False,
+        last_used_tick: int = 0,
+    ) -> None:
+        self._allocator = allocator
+        self._model_id = model_id
+        self._weight_allocation = weight_allocation
+        self.device_id = weight_allocation.device_id
+        self.weight_allocated = True
+        self.inference_busy = inference_busy
+        self.evicting = False
+        self.last_used_tick = last_used_tick
+        self.evict_calls = 0
 
-    first = allocator.reserve(model_name="trellis2", weight_vram_mb=16_000)
-    second = allocator.reserve(model_name="hunyuan3d", weight_vram_mb=16_000)
-
-    assert first == "0"
-    assert second == "1"
-
-
-def test_allocator_allows_multi_model_on_same_device_when_weight_fits() -> None:
-    allocator = VRAMAllocator(
-        device_totals_mb={
-            "0": 24_000,
-            "1": 24_000,
-        }
-    )
-
-    first = allocator.reserve(model_name="model-a", weight_vram_mb=10_000)
-    second = allocator.reserve(model_name="model-b", weight_vram_mb=9_000)
-    third = allocator.reserve(model_name="model-c", weight_vram_mb=9_000)
-
-    assert first == "0"
-    assert second == "0"
-    assert third == "1"
+    async def evict(self) -> None:
+        self.evict_calls += 1
+        self.evicting = True
+        self.weight_allocated = False
+        self._allocator.release_weight(self._weight_allocation.allocation_id)
+        self._allocator.unregister_worker(self._model_id)
+        self.evicting = False
 
 
-def test_allocator_honors_preferred_device_and_release() -> None:
-    allocator = VRAMAllocator(device_totals_mb={"0": 24_000, "1": 24_000})
-    allocator.reserve(
-        model_name="model-a",
-        weight_vram_mb=16_000,
-        preferred_device_id="1",
-    )
-
-    with pytest.raises(VRAMAllocatorError):
-        allocator.reserve(
-            model_name="model-b",
-            weight_vram_mb=10_000,
-            preferred_device_id="1",
-        )
-
-    allocator.release("model-a")
-    assigned = allocator.reserve(
-        model_name="model-b",
-        weight_vram_mb=10_000,
-        preferred_device_id="1",
-    )
-    assert assigned == "1"
-
-
-def test_external_timeout_error_is_allocator_error_subclass() -> None:
-    assert issubclass(ExternalVRAMOccupationTimeoutError, VRAMAllocatorError)
-
-
-def test_internal_timeout_error_is_allocator_error_subclass() -> None:
-    assert issubclass(InternalVRAMContentionTimeoutError, VRAMAllocatorError)
-
-
-def test_external_occupation_timeout_raises_subclass() -> None:
+def test_request_weight_places_models_across_devices() -> None:
     async def scenario() -> None:
-        allocator = VRAMAllocator(device_totals_mb={"0": 24_000})
-        allocator.reserve(
-            model_name="model-a",
-            weight_vram_mb=16_000,
-            preferred_device_id="0",
-        )
-        allocator.set_vram_probe(lambda _device_id: 0)
-        allocator.set_external_vram_wait_timeout_seconds(0.02)
+        allocator = VRAMAllocator(device_totals_mb={"0": 24_000, "1": 24_000})
+        first = await allocator.request_weight("trellis2", 16_000)
+        second = await allocator.request_weight("hunyuan3d", 16_000)
 
-        with pytest.raises(ExternalVRAMOccupationTimeoutError) as error_info:
-            await allocator.acquire_inference(
-                model_name="model-a",
-                device_id="0",
-                inference_vram_mb=4_000,
-            )
-        assert isinstance(error_info.value, VRAMAllocatorError)
+        assert first.device_id == "0"
+        assert second.device_id == "1"
 
     asyncio.run(scenario())
 
 
-def test_internal_contention_timeout_raises_when_evict_is_disabled() -> None:
+def test_release_weight_returns_capacity() -> None:
     async def scenario() -> None:
         allocator = VRAMAllocator(device_totals_mb={"0": 24_000})
-        allocator.reserve(
-            model_name="model-a",
-            weight_vram_mb=16_000,
-            preferred_device_id="0",
-        )
-        allocator.reserve(
-            model_name="model-b",
-            weight_vram_mb=6_000,
-            preferred_device_id="0",
-        )
-        allocator.set_evict_callback(None)
-        allocator.set_internal_vram_wait_timeout_seconds(0.05)
+        first = await allocator.request_weight("model-a", 16_000)
 
-        with pytest.raises(InternalVRAMContentionTimeoutError):
-            await allocator.acquire_inference(
-                model_name="model-a",
-                device_id="0",
-                inference_vram_mb=4_000,
-            )
+        with pytest.raises(VRAMInsufficientError):
+            await allocator.request_weight("model-b", 10_000)
+
+        allocator.release_weight(first.allocation_id)
+        second = await allocator.request_weight("model-b", 10_000)
+        assert second.device_id == "0"
 
     asyncio.run(scenario())
 
 
-def test_internal_and_external_wait_timers_are_independent() -> None:
-    async def internal_timeout_first() -> None:
-        allocator = VRAMAllocator(device_totals_mb={"0": 24_000})
-        allocator.reserve(model_name="model-a", weight_vram_mb=16_000, preferred_device_id="0")
-        allocator.reserve(model_name="model-b", weight_vram_mb=7_000, preferred_device_id="0")
-        allocator.set_vram_probe(lambda _device_id: 0)
-        allocator.set_external_vram_wait_timeout_seconds(1.0)
-        allocator.set_internal_vram_wait_timeout_seconds(0.05)
-        with pytest.raises(InternalVRAMContentionTimeoutError):
-            await allocator.acquire_inference(
-                model_name="model-a",
-                device_id="0",
-                inference_vram_mb=2_000,
-            )
-
-    async def external_timeout_first() -> None:
-        allocator = VRAMAllocator(device_totals_mb={"0": 24_000})
-        allocator.reserve(model_name="model-a", weight_vram_mb=16_000, preferred_device_id="0")
-        allocator.reserve(model_name="model-b", weight_vram_mb=7_000, preferred_device_id="0")
-        allocator.set_vram_probe(lambda _device_id: 0)
-        allocator.set_external_vram_wait_timeout_seconds(0.05)
-        allocator.set_internal_vram_wait_timeout_seconds(1.0)
-        with pytest.raises(ExternalVRAMOccupationTimeoutError):
-            await allocator.acquire_inference(
-                model_name="model-a",
-                device_id="0",
-                inference_vram_mb=2_000,
-            )
-
-    asyncio.run(internal_timeout_first())
-    asyncio.run(external_timeout_first())
-
-
-def test_evict_success_resets_internal_wait_round() -> None:
+def test_correct_weight_only_increases_booked_weight() -> None:
     async def scenario() -> None:
         allocator = VRAMAllocator(device_totals_mb={"0": 24_000})
-        allocator.reserve(
-            model_name="model-a",
-            weight_vram_mb=16_000,
-            preferred_device_id="0",
-        )
-        allocator.set_internal_vram_wait_timeout_seconds(0.05)
-        allocator._EVICT_WAIT_WINDOW_SECONDS = 0.01
-        blocking_id = await allocator.acquire_inference(
-            model_name="model-a",
-            device_id="0",
-            inference_vram_mb=8_000,
-        )
-        evict_returns: list[bool] = []
+        allocation = await allocator.request_weight("model-a", 10_000)
 
-        async def evict_callback(_device_id: str, _requester_model_name: str) -> bool:
-            result = len(evict_returns) >= 1
-            evict_returns.append(result)
-            return result
+        allocator.correct_weight(allocation.allocation_id, 9_000)
+        snapshot_after_downward = allocator.snapshot()["0"]
+        assert snapshot_after_downward["weight_allocations"][str(allocation.allocation_id)] == 10_000
 
-        allocator.set_evict_callback(evict_callback)
-
-        async def release_blocking_allocation_later() -> None:
-            await asyncio.sleep(0.055)
-            allocator.release_inference(blocking_id)
-
-        release_task = asyncio.create_task(release_blocking_allocation_later())
-        try:
-            allocation_id = await allocator.acquire_inference(
-                model_name="model-a",
-                device_id="0",
-                inference_vram_mb=8_000,
-            )
-        finally:
-            await release_task
-
-        assert allocation_id
-        allocator.release_inference(allocation_id)
-        assert evict_returns[:2] == [False, True]
+        allocator.correct_weight(allocation.allocation_id, 12_000)
+        snapshot_after_upward = allocator.snapshot()["0"]
+        assert snapshot_after_upward["weight_allocations"][str(allocation.allocation_id)] == 12_000
 
     asyncio.run(scenario())
 
 
-def test_metrics_hook_records_all_acquire_outcomes() -> None:
-    acquire_outcomes: list[tuple[str, str]] = []
-    acquire_waits: list[tuple[str, float]] = []
-    evict_events: list[tuple[str, str]] = []
-
-    hook = VRAMMetricsHook(
-        on_acquire_outcome=lambda *, device, outcome: acquire_outcomes.append((device, outcome)),
-        on_acquire_wait=lambda *, device, wait_seconds: acquire_waits.append(
-            (device, wait_seconds)
-        ),
-        on_evict=lambda *, device, result: evict_events.append((device, result)),
-    )
-
+def test_request_weight_evicts_idle_registered_worker() -> None:
     async def scenario() -> None:
-        # immediate
-        immediate_allocator = VRAMAllocator(device_totals_mb={"0": 24_000})
-        immediate_allocator.set_metrics_hook(hook)
-        immediate_allocator.reserve(model_name="model-a", weight_vram_mb=16_000, preferred_device_id="0")
-        immediate_id = await immediate_allocator.acquire_inference(
-            model_name="model-a",
-            device_id="0",
-            inference_vram_mb=2_000,
+        allocator = VRAMAllocator(device_totals_mb={"0": 24_000})
+        victim_weight = await allocator.request_weight("victim", 16_000)
+        victim_worker = FakeEvictableWorker(
+            allocator=allocator,
+            model_id="victim",
+            weight_allocation=victim_weight,
+            inference_busy=False,
+            last_used_tick=1,
         )
-        immediate_allocator.release_inference(immediate_id)
+        allocator.register_worker("victim", victim_worker)
 
-        # after_wait
-        wait_allocator = VRAMAllocator(device_totals_mb={"0": 24_000})
-        wait_allocator.set_metrics_hook(hook)
-        wait_allocator.reserve(model_name="model-a", weight_vram_mb=16_000, preferred_device_id="0")
-        blocking_id = await wait_allocator.acquire_inference(
-            model_name="model-a",
-            device_id="0",
-            inference_vram_mb=8_000,
-        )
+        allocation = await allocator.request_weight("new-model", 12_000)
 
-        async def release_wait_blocker() -> None:
-            await asyncio.sleep(0.03)
-            wait_allocator.release_inference(blocking_id)
-
-        release_wait_task = asyncio.create_task(release_wait_blocker())
-        try:
-            waited_id = await wait_allocator.acquire_inference(
-                model_name="model-a",
-                device_id="0",
-                inference_vram_mb=8_000,
-            )
-        finally:
-            await release_wait_task
-        wait_allocator.release_inference(waited_id)
-
-        # after_evict
-        evict_allocator = VRAMAllocator(device_totals_mb={"0": 24_000})
-        evict_allocator.set_metrics_hook(hook)
-        evict_allocator.reserve(model_name="model-a", weight_vram_mb=16_000, preferred_device_id="0")
-        evict_allocator._EVICT_WAIT_WINDOW_SECONDS = 0.01
-        evict_blocking_id = await evict_allocator.acquire_inference(
-            model_name="model-a",
-            device_id="0",
-            inference_vram_mb=8_000,
-        )
-        evicted_once = False
-
-        async def evict_callback(_device_id: str, _requester_model_name: str) -> bool:
-            nonlocal evicted_once
-            if evicted_once:
-                return False
-            evicted_once = True
-            evict_allocator.release_inference(evict_blocking_id)
-            return True
-
-        evict_allocator.set_evict_callback(evict_callback)
-        after_evict_id = await evict_allocator.acquire_inference(
-            model_name="model-a",
-            device_id="0",
-            inference_vram_mb=8_000,
-        )
-        evict_allocator.release_inference(after_evict_id)
-
-        # timeout_internal
-        internal_timeout_allocator = VRAMAllocator(device_totals_mb={"0": 24_000})
-        internal_timeout_allocator.set_metrics_hook(hook)
-        internal_timeout_allocator.reserve(
-            model_name="model-a",
-            weight_vram_mb=16_000,
-            preferred_device_id="0",
-        )
-        internal_timeout_allocator.reserve(
-            model_name="model-b",
-            weight_vram_mb=6_000,
-            preferred_device_id="0",
-        )
-        internal_timeout_allocator.set_internal_vram_wait_timeout_seconds(0.03)
-        with pytest.raises(InternalVRAMContentionTimeoutError):
-            await internal_timeout_allocator.acquire_inference(
-                model_name="model-a",
-                device_id="0",
-                inference_vram_mb=4_000,
-            )
-
-        # timeout_external
-        external_timeout_allocator = VRAMAllocator(device_totals_mb={"0": 24_000})
-        external_timeout_allocator.set_metrics_hook(hook)
-        external_timeout_allocator.reserve(
-            model_name="model-a",
-            weight_vram_mb=16_000,
-            preferred_device_id="0",
-        )
-        external_timeout_allocator.set_vram_probe(lambda _device_id: 0)
-        external_timeout_allocator.set_external_vram_wait_timeout_seconds(0.02)
-        external_timeout_allocator.set_internal_vram_wait_timeout_seconds(0.20)
-        with pytest.raises(ExternalVRAMOccupationTimeoutError):
-            await external_timeout_allocator.acquire_inference(
-                model_name="model-a",
-                device_id="0",
-                inference_vram_mb=4_000,
-            )
+        assert allocation.device_id == "0"
+        assert victim_worker.evict_calls == 1
+        snapshot = allocator.snapshot()["0"]
+        assert snapshot["allocations"] == {"new-model": 12_000}
 
     asyncio.run(scenario())
 
-    seen_outcomes = {outcome for _, outcome in acquire_outcomes}
-    assert {
-        "immediate",
-        "after_wait",
-        "after_evict",
-        "timeout_internal",
-        "timeout_external",
-    } <= seen_outcomes
-    assert all(wait_seconds >= 0.0 for _, wait_seconds in acquire_waits)
-    assert ("0", "success") in evict_events
+
+def test_request_inference_supports_migration_booking() -> None:
+    async def scenario() -> None:
+        allocator = VRAMAllocator(device_totals_mb={"0": 24_000, "1": 24_000})
+        allocator._MIGRATION_WAIT_SECONDS = 0.01
+
+        model_weight = await allocator.request_weight("model-a", 12_000)
+        blocker_weight = await allocator.request_weight("blocker", 9_000)
+        blocker_worker = FakeEvictableWorker(
+            allocator=allocator,
+            model_id="blocker",
+            weight_allocation=blocker_weight,
+            inference_busy=True,
+            last_used_tick=1,
+        )
+        allocator.register_worker("blocker", blocker_worker)
+
+        inference = await allocator.request_inference(
+            model_id="model-a",
+            device_id=model_weight.device_id,
+            inference_mb=4_000,
+            weight_mb=12_000,
+        )
+
+        assert isinstance(inference, InferenceAllocation)
+        assert inference.device_id == "1"
+        assert inference.weight_allocation_id is not None
+
+    asyncio.run(scenario())
+
+
+def test_inference_lease_releases_on_normal_exit() -> None:
+    async def scenario() -> None:
+        allocator = VRAMAllocator(device_totals_mb={"0": 24_000})
+        await allocator.request_weight("model-a", 12_000)
+
+        async with allocator.reserve_for_task(
+            model_id="model-a",
+            estimate_mb=3_000,
+            weight_mb=12_000,
+        ) as lease:
+            allocation_id = str(lease.allocation.inference_allocation_id)
+            snapshot = allocator.snapshot()["0"]
+            assert snapshot["used_inference_vram_mb"] == 3_000
+            assert allocation_id in snapshot["inference_allocations"]
+
+        snapshot_after = allocator.snapshot()["0"]
+        assert snapshot_after["used_inference_vram_mb"] == 0
+        assert snapshot_after["inference_allocations"] == {}
+
+    asyncio.run(scenario())
+
+
+def test_inference_lease_releases_on_exception() -> None:
+    async def scenario() -> None:
+        allocator = VRAMAllocator(device_totals_mb={"0": 24_000})
+        await allocator.request_weight("model-a", 12_000)
+
+        with pytest.raises(RuntimeError, match="boom"):
+            async with allocator.reserve_for_task(
+                model_id="model-a",
+                estimate_mb=3_000,
+                weight_mb=12_000,
+            ):
+                raise RuntimeError("boom")
+
+        snapshot = allocator.snapshot()["0"]
+        assert snapshot["used_inference_vram_mb"] == 0
+        assert snapshot["inference_allocations"] == {}
+
+    asyncio.run(scenario())
+
+
+def test_inference_lease_bump_rebooks_allocation() -> None:
+    async def scenario() -> None:
+        allocator = VRAMAllocator(device_totals_mb={"0": 24_000})
+        await allocator.request_weight("model-a", 12_000)
+
+        async with allocator.reserve_for_task(
+            model_id="model-a",
+            estimate_mb=2_000,
+            weight_mb=12_000,
+        ) as lease:
+            first_allocation_id = str(lease.allocation.inference_allocation_id)
+            await lease.bump_and_retry_once(3_500)
+            second_allocation_id = str(lease.allocation.inference_allocation_id)
+
+            assert first_allocation_id != second_allocation_id
+            snapshot = allocator.snapshot()["0"]
+            assert snapshot["used_inference_vram_mb"] == 3_500
+            assert first_allocation_id not in snapshot["inference_allocations"]
+            assert second_allocation_id in snapshot["inference_allocations"]
+
+        snapshot_after = allocator.snapshot()["0"]
+        assert snapshot_after["used_inference_vram_mb"] == 0
+        assert snapshot_after["inference_allocations"] == {}
+
+    asyncio.run(scenario())

@@ -12,9 +12,22 @@
 # fine-tuning enabling code and other elements of the foregoing made publicly available
 # by Tencent in accordance with TENCENT HUNYUAN COMMUNITY LICENSE AGREEMENT.
 
-from .attention_blocks import CrossAttentionDecoder
-from .attention_processors import FlashVDMCrossAttentionProcessor, CrossAttentionProcessor, \
-    FlashVDMTopMCrossAttentionProcessor
-from .model import ShapeVAE, VectsetVAE
-from .surface_extractors import SurfaceExtractors, MCSurfaceExtractor, DMCSurfaceExtractor, Latent2MeshOutput
-from .volume_decoders import HierarchicalVolumeDecoding, FlashVDMVolumeDecoding, VanillaVolumeDecoder
+# Re-exports for vendor public API + config.yaml string targets
+from .attention_blocks import CrossAttentionDecoder  # noqa: F401
+from .attention_processors import (  # noqa: F401
+    CrossAttentionProcessor,
+    FlashVDMCrossAttentionProcessor,
+    FlashVDMTopMCrossAttentionProcessor,
+)
+from .model import ShapeVAE, VectsetVAE  # noqa: F401
+from .surface_extractors import (  # noqa: F401
+    DMCSurfaceExtractor,
+    Latent2MeshOutput,
+    MCSurfaceExtractor,
+    SurfaceExtractors,
+)
+from .volume_decoders import (  # noqa: F401
+    FlashVDMVolumeDecoding,
+    HierarchicalVolumeDecoding,
+    VanillaVolumeDecoder,
+)

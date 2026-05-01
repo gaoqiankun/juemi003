@@ -54,7 +54,7 @@ class ArtifactMinioBackend:
         size_bytes: int,
         content_type: str | None,
     ) -> dict[str, Any]:
-        object_key = self._object_key(task_id, file_name)
+        object_key = self.object_key(task_id, file_name)
         try:
             await asyncio.to_thread(
                 self._object_store_client.upload_file,
@@ -107,7 +107,7 @@ class ArtifactMinioBackend:
             await asyncio.to_thread(
                 self._object_store_client.download_file,
                 bucket=self._object_store_bucket,
-                key=self._object_key(task_id, file_name),
+                key=self.object_key(task_id, file_name),
                 destination_path=temp_path,
             )
         except Exception as exc:
@@ -133,7 +133,7 @@ class ArtifactMinioBackend:
             stream_result = await asyncio.to_thread(
                 self._object_store_client.get_object_stream,
                 bucket=self._object_store_bucket,
-                key=self._object_key(task_id, file_name),
+                key=self.object_key(task_id, file_name),
             )
         except Exception as exc:
             raise ArtifactStoreOperationError(
@@ -179,5 +179,5 @@ class ArtifactMinioBackend:
                 f"failed to delete artifacts for task {task_id}: {exc}",
             ) from exc
 
-    def _object_key(self, task_id: str, file_name: str) -> str:
+    def object_key(self, task_id: str, file_name: str) -> str:
         return f"{self._object_store_prefix}/{task_id}/{file_name}"

@@ -63,7 +63,7 @@ class PreviewRendererService:
     async def start(self) -> None:
         async with self._lock:
             try:
-                await self._ensure_process_ready_locked(
+                await self.ensure_process_ready_locked(
                     timeout_seconds=self._startup_timeout_seconds,
                 )
             except Exception as exc:
@@ -74,7 +74,7 @@ class PreviewRendererService:
 
     async def stop(self) -> None:
         async with self._lock:
-            await self._stop_process_locked()
+            await self.stop_process_locked()
 
     async def render_preview_png(
         self,
@@ -85,32 +85,21 @@ class PreviewRendererService:
         if (model_path is None) == (model_bytes is None):
             raise ValueError("exactly one of model_path or model_bytes must be provided")
 
-        request_header: dict[str, object] = {"action": "render"}
-        request_body = b""
-        if model_path is not None:
-            request_header.update(
-                {
-                    "input_type": "path",
-                    "path": str(Path(model_path).resolve()),
-                }
-            )
-        else:
-            request_header["input_type"] = "bytes"
-            request_body = bytes(model_bytes or b"")
+        request_header, request_body = self.build_render_request(model_path, model_bytes)
 
         async with self._lock:
             for attempt in range(2):
-                await self._ensure_process_ready_locked(
+                await self.ensure_process_ready_locked(
                     timeout_seconds=self._startup_timeout_seconds,
                 )
                 try:
-                    return await self._send_request_locked(
+                    return await self.send_request_locked(
                         request_header,
                         request_body,
                         timeout_seconds=self._request_timeout_seconds,
                     )
                 except PreviewRendererTransportError as exc:
-                    await self._stop_process_locked()
+                    await self.stop_process_locked()
                     if attempt == 0:
                         self._logger.warning(
                             "preview_renderer.request_retrying_after_crash",
@@ -120,30 +109,47 @@ class PreviewRendererService:
                     raise
         raise RuntimeError("preview renderer request retry loop exhausted")
 
-    async def _ensure_process_ready_locked(
+    @staticmethod
+    def build_render_request(
+        model_path: Path | None,
+        model_bytes: bytes | None,
+    ) -> tuple[dict[str, object], bytes]:
+        request_header: dict[str, object] = {"action": "render"}
+        if model_path is not None:
+            request_header.update(
+                {
+                    "input_type": "path",
+                    "path": str(Path(model_path).resolve()),
+                }
+            )
+            return request_header, b""
+        request_header["input_type"] = "bytes"
+        return request_header, bytes(model_bytes or b"")
+
+    async def ensure_process_ready_locked(
         self,
         *,
         timeout_seconds: int,
     ) -> None:
         if self._process is not None and self._process.returncode is not None:
-            await self._stop_process_locked()
+            await self.stop_process_locked()
         if self._process is not None and self._warmed_up:
             return
 
-        await self._stop_process_locked()
-        await self._spawn_process_locked()
+        await self.stop_process_locked()
+        await self.spawn_process_locked()
         try:
-            await self._send_request_locked(
+            await self.send_request_locked(
                 {"action": "warmup"},
                 b"",
                 timeout_seconds=timeout_seconds,
             )
             self._warmed_up = True
         except Exception:
-            await self._stop_process_locked()
+            await self.stop_process_locked()
             raise
 
-    async def _spawn_process_locked(self) -> None:
+    async def spawn_process_locked(self) -> None:
         pythonpath_entries = [str(Path(__file__).resolve().parents[3])]
         existing_pythonpath = os.environ.get("PYTHONPATH")
         if existing_pythonpath:
@@ -166,17 +172,50 @@ class PreviewRendererService:
         self._warmed_up = False
         if self._process.stderr is not None:
             self._stderr_task = asyncio.create_task(
-                self._collect_stderr(self._process.stderr),
+                self.collect_stderr(self._process.stderr),
                 name="preview-renderer-stderr",
             )
 
-    async def _send_request_locked(
+    async def send_request_locked(
         self,
         header: dict[str, object],
         body: bytes,
         *,
         timeout_seconds: int,
     ) -> bytes:
+        process = self.validate_process_or_raise_locked()
+
+        try:
+            response_header, response_body = await asyncio.wait_for(
+                self.exchange_messages_locked(process, header, body),
+                timeout=timeout_seconds,
+            )
+        except asyncio.TimeoutError as exc:
+            message = self.format_error_message(
+                f"preview renderer timed out after {timeout_seconds} seconds",
+            )
+            await self.stop_process_locked()
+            raise PreviewRendererServiceError(message) from exc
+        except (
+            asyncio.IncompleteReadError,
+            BrokenPipeError,
+            ConnectionResetError,
+        ) as exc:
+            raise PreviewRendererTransportError(
+                self.format_error_message(
+                    "preview renderer process exited unexpectedly",
+                )
+            ) from exc
+
+        if response_header.get("status") != "ok":
+            raise PreviewRendererServiceError(
+                self.format_error_message(
+                    str(response_header.get("error") or "preview renderer request failed"),
+                )
+            )
+        return response_body
+
+    def validate_process_or_raise_locked(self) -> asyncio.subprocess.Process:
         process = self._process
         if (
             process is None
@@ -185,46 +224,13 @@ class PreviewRendererService:
             or process.returncode is not None
         ):
             raise PreviewRendererTransportError(
-                self._format_error_message(
+                self.format_error_message(
                     "preview renderer process is not running",
                 )
             )
+        return process
 
-        try:
-            response_header, response_body = await asyncio.wait_for(
-                self._exchange_messages_locked(
-                    process,
-                    header,
-                    body,
-                ),
-                timeout=timeout_seconds,
-            )
-        except asyncio.TimeoutError as exc:
-            message = self._format_error_message(
-                f"preview renderer timed out after {timeout_seconds} seconds",
-            )
-            await self._stop_process_locked()
-            raise PreviewRendererServiceError(message) from exc
-        except (
-            asyncio.IncompleteReadError,
-            BrokenPipeError,
-            ConnectionResetError,
-        ) as exc:
-            raise PreviewRendererTransportError(
-                self._format_error_message(
-                    "preview renderer process exited unexpectedly",
-                )
-            ) from exc
-
-        if response_header.get("status") != "ok":
-            raise PreviewRendererServiceError(
-                self._format_error_message(
-                    str(response_header.get("error") or "preview renderer request failed"),
-                )
-            )
-        return response_body
-
-    async def _exchange_messages_locked(
+    async def exchange_messages_locked(
         self,
         process: asyncio.subprocess.Process,
         header: dict[str, object],
@@ -236,7 +242,7 @@ class PreviewRendererService:
         response_header, response_body = await read_message(process.stdout)
         return response_header, response_body
 
-    async def _stop_process_locked(self) -> None:
+    async def stop_process_locked(self) -> None:
         process = self._process
         stderr_task = self._stderr_task
         self._process = None
@@ -245,32 +251,8 @@ class PreviewRendererService:
 
         if process is not None:
             try:
-                if (
-                    process.returncode is None
-                    and process.stdin is not None
-                    and process.stdout is not None
-                ):
-                    try:
-                        await asyncio.wait_for(
-                            self._exchange_messages_locked(
-                                process,
-                                {"action": "shutdown"},
-                                b"",
-                            ),
-                            timeout=self._shutdown_timeout_seconds,
-                        )
-                    except Exception:
-                        pass
-                if process.returncode is None:
-                    process.terminate()
-                    try:
-                        await asyncio.wait_for(
-                            process.wait(),
-                            timeout=self._shutdown_timeout_seconds,
-                        )
-                    except asyncio.TimeoutError:
-                        process.kill()
-                        await process.wait()
+                await self.try_graceful_shutdown_locked(process)
+                await self.terminate_or_kill_locked(process)
             finally:
                 if process.stdin is not None and not process.stdin.is_closing():
                     process.stdin.close()
@@ -280,7 +262,45 @@ class PreviewRendererService:
             with suppress(asyncio.CancelledError):
                 await stderr_task
 
-    async def _collect_stderr(
+    async def try_graceful_shutdown_locked(
+        self,
+        process: asyncio.subprocess.Process,
+    ) -> None:
+        if (
+            process.returncode is not None
+            or process.stdin is None
+            or process.stdout is None
+        ):
+            return
+        try:
+            await asyncio.wait_for(
+                self.exchange_messages_locked(
+                    process,
+                    {"action": "shutdown"},
+                    b"",
+                ),
+                timeout=self._shutdown_timeout_seconds,
+            )
+        except Exception:
+            pass
+
+    async def terminate_or_kill_locked(
+        self,
+        process: asyncio.subprocess.Process,
+    ) -> None:
+        if process.returncode is not None:
+            return
+        process.terminate()
+        try:
+            await asyncio.wait_for(
+                process.wait(),
+                timeout=self._shutdown_timeout_seconds,
+            )
+        except asyncio.TimeoutError:
+            process.kill()
+            await process.wait()
+
+    async def collect_stderr(
         self,
         stream: asyncio.StreamReader,
     ) -> None:
@@ -292,7 +312,7 @@ class PreviewRendererService:
             if decoded:
                 self._stderr_lines.append(decoded)
 
-    def _format_error_message(
+    def format_error_message(
         self,
         message: str,
     ) -> str:

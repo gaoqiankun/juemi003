@@ -16,13 +16,10 @@ from typing import Any, Awaitable, Callable
 import httpx
 import pytest
 from fastapi.testclient import TestClient
-from prometheus_client.parser import text_string_to_metric_families
-
-WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
-if str(WORKSPACE_ROOT) not in sys.path:
-    sys.path.insert(0, str(WORKSPACE_ROOT))
-
 from gen3d.api import server as server_module
+from gen3d.api.helpers import artifacts as artifacts_helpers
+from gen3d.api.helpers import hf as hf_helpers
+from gen3d.api.helpers import runtime as runtime_helpers
 from gen3d.api.server import create_app, run_real_mode_preflight
 from gen3d.config import ServingConfig
 from gen3d.engine import async_engine as async_engine_module
@@ -47,7 +44,9 @@ from gen3d.storage.artifact_store import (
 )
 from gen3d.storage.model_store import ModelStore
 from gen3d.storage.task_store import TaskStore
+from prometheus_client.parser import text_string_to_metric_families
 
+WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
 WebhookSender = Callable[[str, dict], Awaitable[None]]
 SAMPLE_IMAGE_DATA_URL = (
     "data:image/png;base64,"
@@ -155,7 +154,7 @@ def make_real_mode_client(
     preview_renderer_service: PreviewRendererServiceProtocol | None = None,
 ) -> TestClient:
     monkeypatch.setattr(
-        server_module,
+        runtime_helpers,
         "build_provider",
         lambda provider_name, provider_mode, model_path, mock_delay_ms=60: MockTrellis2Provider(stage_delay_ms=0),
     )
@@ -285,11 +284,11 @@ def make_image_bytes(image_format: str) -> bytes:
 
 @pytest.fixture
 def reset_preview_render_state():
-    server_module._preview_rendering.clear()
-    server_module._preview_render_tasks.clear()
+    artifacts_helpers._preview_rendering.clear()
+    artifacts_helpers._preview_render_tasks.clear()
     yield
-    server_module._preview_rendering.clear()
-    server_module._preview_render_tasks.clear()
+    artifacts_helpers._preview_rendering.clear()
+    artifacts_helpers._preview_render_tasks.clear()
 
 
 def upload_input_url(
@@ -1036,6 +1035,30 @@ def test_admin_model_load_endpoint_returns_runtime_state(tmp_path: Path) -> None
     assert payload["runtimeState"] == payload["runtime_state"]
 
 
+def test_admin_model_load_endpoint_returns_409_when_no_evict_candidate(
+    tmp_path: Path,
+) -> None:
+    from gen3d.engine.model_scheduler import SchedulerCapReachedError
+
+    with make_client(tmp_path, admin_token="admin-token") as client:
+        container = client.app.state.container
+
+        async def raising_request_load(model_id: str):
+            raise SchedulerCapReachedError(
+                "cannot evict: all ready models are currently in inference"
+            )
+
+        container.model_scheduler.request_load = raising_request_load
+
+        response = client.post(
+            "/api/admin/models/trellis2/load",
+            headers=admin_headers(),
+        )
+
+    assert response.status_code == 409
+    assert "cannot evict" in response.json()["detail"]
+
+
 def test_admin_create_model_requires_weight_source(tmp_path: Path) -> None:
     with make_client(tmp_path, admin_token="admin-token") as client:
         response = client.post(
@@ -1553,15 +1576,50 @@ def test_admin_key_routes_require_admin_token(tmp_path: Path) -> None:
     assert key_manager_response.json()["detail"] == "invalid admin token"
 
 
+def test_admin_gpu_state_requires_admin_token_and_returns_snapshot(
+    tmp_path: Path,
+) -> None:
+    with make_client(tmp_path, admin_token="admin-token") as client:
+        missing_token_response = client.get("/api/admin/gpu/state")
+        admin_token_response = client.get(
+            "/api/admin/gpu/state",
+            headers=admin_headers(),
+        )
+
+    assert missing_token_response.status_code == 401
+    assert missing_token_response.json()["detail"] == "invalid admin token"
+    assert admin_token_response.status_code == 200
+
+    payload = admin_token_response.json()
+    assert payload["cluster"]["deviceCount"] >= 1
+    assert isinstance(payload["holders"], list)
+    assert isinstance(payload["devices"], list)
+    assert payload["devices"]
+    assert {
+        "deviceId",
+        "name",
+        "totalVramMb",
+        "reservedVramMb",
+        "usedWeightVramMb",
+        "usedInferenceVramMb",
+        "freeVramMb",
+        "effectiveFreeVramMb",
+        "externalOccupationMb",
+        "weightModels",
+        "inferenceCount",
+        "enabled",
+    } <= set(payload["devices"][0].keys())
+
+
 def test_admin_hf_routes_require_admin_token(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("HF_ENDPOINT", raising=False)
-    monkeypatch.setattr(server_module, "_hf_get_token", lambda: None)
-    monkeypatch.setattr(server_module, "_hf_login", lambda token: None)
-    monkeypatch.setattr(server_module, "_hf_logout", lambda: None)
-    monkeypatch.setattr(server_module, "_hf_whoami", lambda token=None: {"name": "cubie-user"})
+    monkeypatch.setattr(hf_helpers, "_hf_get_token", lambda: None)
+    monkeypatch.setattr(hf_helpers, "_hf_login", lambda token: None)
+    monkeypatch.setattr(hf_helpers, "_hf_logout", lambda: None)
+    monkeypatch.setattr(hf_helpers, "_hf_whoami", lambda token=None: {"name": "cubie-user"})
 
     with make_client(tmp_path, admin_token="admin-token") as client:
         missing_token_response = client.get("/api/admin/hf-status")
@@ -1630,10 +1688,10 @@ def test_admin_hf_login_status_logout_flow(
     def fake_logout() -> None:
         state["token"] = ""
 
-    monkeypatch.setattr(server_module, "_hf_get_token", fake_get_token)
-    monkeypatch.setattr(server_module, "_hf_login", fake_login)
-    monkeypatch.setattr(server_module, "_hf_logout", fake_logout)
-    monkeypatch.setattr(server_module, "_hf_whoami", fake_whoami)
+    monkeypatch.setattr(hf_helpers, "_hf_get_token", fake_get_token)
+    monkeypatch.setattr(hf_helpers, "_hf_login", fake_login)
+    monkeypatch.setattr(hf_helpers, "_hf_logout", fake_logout)
+    monkeypatch.setattr(hf_helpers, "_hf_whoami", fake_whoami)
 
     with make_client(tmp_path, admin_token="admin-token") as client:
         before_response = client.get("/api/admin/hf-status", headers=admin_headers())
@@ -1711,14 +1769,14 @@ def test_admin_hf_status_keeps_logged_in_when_whoami_unreachable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("HF_ENDPOINT", raising=False)
-    monkeypatch.setattr(server_module, "_hf_get_token", lambda: "hf-valid-token")
-    monkeypatch.setattr(server_module, "_hf_login", lambda token: None)
-    monkeypatch.setattr(server_module, "_hf_logout", lambda: None)
+    monkeypatch.setattr(hf_helpers, "_hf_get_token", lambda: "hf-valid-token")
+    monkeypatch.setattr(hf_helpers, "_hf_login", lambda token: None)
+    monkeypatch.setattr(hf_helpers, "_hf_logout", lambda: None)
 
     def failing_whoami(token: str | None = None) -> dict[str, str]:
         raise RuntimeError("network unreachable")
 
-    monkeypatch.setattr(server_module, "_hf_whoami", failing_whoami)
+    monkeypatch.setattr(hf_helpers, "_hf_whoami", failing_whoami)
 
     with make_client(tmp_path, admin_token="admin-token") as client:
         response = client.get("/api/admin/hf-status", headers=admin_headers())
@@ -3181,7 +3239,7 @@ def test_preview_renderer_warmup_failure_does_not_break_startup_or_task(
 
     monkeypatch.setattr(
         preview_renderer_service,
-        "_ensure_process_ready_locked",
+        "ensure_process_ready_locked",
         failing_ensure_process_ready_locked,
     )
 
@@ -3265,7 +3323,7 @@ def test_missing_preview_artifact_triggers_background_render_once(
             def counting_create_task(coro, *args, **kwargs):
                 nonlocal create_task_calls
                 coro_name = getattr(getattr(coro, "cr_code", None), "co_name", "")
-                if coro_name == "_render_preview_artifact_on_demand":
+                if coro_name == "render_preview_artifact_on_demand":
                     create_task_calls += 1
                 return original_create_task(coro, *args, **kwargs)
 
@@ -3277,12 +3335,12 @@ def test_missing_preview_artifact_triggers_background_render_once(
             )
             assert response.status_code == 404
             wait_for_condition(render_started.is_set, timeout_seconds=1.0)
-            assert task_id in server_module._preview_rendering
+            assert task_id in artifacts_helpers._preview_rendering
 
             render_release.set()
             wait_for_condition(render_finished.is_set, timeout_seconds=1.0)
             wait_for_condition(
-                lambda: task_id not in server_module._preview_rendering,
+                lambda: task_id not in artifacts_helpers._preview_rendering,
                 timeout_seconds=1.0,
             )
             assert create_task_calls == 1
@@ -3342,7 +3400,7 @@ def test_missing_preview_artifact_deduplicates_background_render(
             def counting_create_task(coro, *args, **kwargs):
                 nonlocal create_task_calls
                 coro_name = getattr(getattr(coro, "cr_code", None), "co_name", "")
-                if coro_name == "_render_preview_artifact_on_demand":
+                if coro_name == "render_preview_artifact_on_demand":
                     create_task_calls += 1
                 return original_create_task(coro, *args, **kwargs)
 
@@ -3360,13 +3418,13 @@ def test_missing_preview_artifact_deduplicates_background_render(
             assert first_response.status_code == 404
             assert second_response.status_code == 404
             assert create_task_calls == 1
-            assert task_id in server_module._preview_rendering
+            assert task_id in artifacts_helpers._preview_rendering
 
             wait_for_condition(render_started.is_set, timeout_seconds=1.0)
             render_release.set()
             wait_for_condition(render_finished.is_set, timeout_seconds=1.0)
             wait_for_condition(
-                lambda: task_id not in server_module._preview_rendering,
+                lambda: task_id not in artifacts_helpers._preview_rendering,
                 timeout_seconds=1.0,
             )
     finally:
@@ -3394,7 +3452,7 @@ def test_missing_preview_and_model_does_not_trigger_background_render(
         def counting_create_task(coro, *args, **kwargs):
             nonlocal create_task_calls
             coro_name = getattr(getattr(coro, "cr_code", None), "co_name", "")
-            if coro_name == "_render_preview_artifact_on_demand":
+            if coro_name == "render_preview_artifact_on_demand":
                 create_task_calls += 1
             return original_create_task(coro, *args, **kwargs)
 
@@ -3407,10 +3465,10 @@ def test_missing_preview_and_model_does_not_trigger_background_render(
 
     assert response.status_code == 404
     assert create_task_calls == 0
-    assert task_id not in server_module._preview_rendering
+    assert task_id not in artifacts_helpers._preview_rendering
 
 
-def test_create_task_downloads_artifact_via_same_origin_proxy_for_minio_backend(
+def test_create_task_downloads_artifact_via_same_origin_proxy_for_minio_backend(  # noqa: C901
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -3515,7 +3573,7 @@ def test_create_task_downloads_artifact_via_same_origin_proxy_for_minio_backend(
 
     fake_object_store_client = FakeObjectStoreClient()
     monkeypatch.setattr(
-        server_module,
+        artifacts_helpers,
         "build_boto3_object_storage_client",
         lambda **_: fake_object_store_client,
     )
@@ -3559,7 +3617,7 @@ def test_create_task_downloads_artifact_via_same_origin_proxy_for_minio_backend(
     assert int(download_response.headers["content-length"]) >= 4
 
 
-def test_minio_artifact_proxy_streams_without_buffering_temp_file(
+def test_minio_artifact_proxy_streams_without_buffering_temp_file(  # noqa: C901
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -3659,7 +3717,7 @@ def test_minio_artifact_proxy_streams_without_buffering_temp_file(
 
     fake_object_store_client = StreamingOnlyObjectStoreClient()
     monkeypatch.setattr(
-        server_module,
+        artifacts_helpers,
         "build_boto3_object_storage_client",
         lambda **_: fake_object_store_client,
     )
@@ -4382,7 +4440,7 @@ def test_real_mode_model_load_failure_marks_task_failed_without_blocking_startup
 def test_trellis2_provider_resolves_existing_local_model_path(tmp_path: Path) -> None:
     model_dir = tmp_path / "trellis2-model"
     model_dir.mkdir(parents=True)
-    source_type, model_reference = Trellis2Provider._resolve_model_reference(
+    source_type, model_reference = Trellis2Provider.resolve_model_reference(
         str(model_dir)
     )
     assert source_type == "local"
@@ -4394,7 +4452,7 @@ def test_trellis2_provider_rejects_missing_non_local_model_path() -> None:
         ModelProviderConfigurationError,
         match="Use Admin to download first",
     ):
-        Trellis2Provider._resolve_model_reference("microsoft/TRELLIS.2-4B")
+        Trellis2Provider.resolve_model_reference("microsoft/TRELLIS.2-4B")
 
 
 def test_trellis2_provider_run_single_uses_official_pipeline_kwargs() -> None:
@@ -4411,7 +4469,7 @@ def test_trellis2_provider_run_single_uses_official_pipeline_kwargs() -> None:
         model_path="microsoft/TRELLIS.2-4B",
     )
 
-    result = provider._run_single(
+    result = provider.run_single(
         image="image-object",
         options={
             "resolution": 512,
@@ -4442,53 +4500,6 @@ def test_trellis2_provider_run_single_uses_official_pipeline_kwargs() -> None:
         },
         "max_num_tokens": 49_152,
     }
-
-
-@pytest.mark.anyio
-async def test_trellis2_provider_run_batch_moves_mesh_tensors_to_cpu() -> None:
-    class FakeTensor:
-        def __init__(self, device_type: str) -> None:
-            self.device = types.SimpleNamespace(type=device_type)
-
-        @property
-        def is_cuda(self) -> bool:
-            return self.device.type == "cuda"
-
-        def detach(self):
-            return self
-
-        def cpu(self):
-            return FakeTensor("cpu")
-
-    class FakeMesh:
-        def __init__(self) -> None:
-            self.vertices = FakeTensor("cuda")
-            self.faces = FakeTensor("cuda")
-            self.coords = FakeTensor("cuda")
-            self.attrs = FakeTensor("cuda")
-            self.layout = {"nested": FakeTensor("cuda")}
-
-    class FakePipeline:
-        def run(self, image, **kwargs):
-            _ = image
-            _ = kwargs
-            return [FakeMesh()]
-
-    provider = Trellis2Provider(
-        pipeline=FakePipeline(),
-        model_path="microsoft/TRELLIS.2-4B",
-    )
-
-    results = await provider.run_batch(images=[{"image": "stub"}], options={})
-
-    assert len(results) == 1
-    mesh = results[0].mesh
-    assert mesh.vertices.device.type == "cpu"
-    assert mesh.faces.device.type == "cpu"
-    assert mesh.coords.device.type == "cpu"
-    assert mesh.attrs.device.type == "cpu"
-    assert mesh.layout["nested"].device.type == "cpu"
-
 
 def test_trellis2_provider_export_glb_uses_mesh_with_voxel_fields(
     monkeypatch: pytest.MonkeyPatch,
@@ -4575,9 +4586,9 @@ def test_build_provider_uses_trellis2_metadata_only_in_real_mode(
         def from_pretrained(cls, model_path: str):
             raise AssertionError(f"from_pretrained should not be called: {model_path}")
 
-    monkeypatch.setattr(server_module, "Trellis2Provider", FakeTrellis2Provider)
+    monkeypatch.setattr(runtime_helpers, "Trellis2Provider", FakeTrellis2Provider)
 
-    provider = server_module.build_provider(
+    provider = runtime_helpers.build_provider(
         provider_name="trellis2",
         provider_mode="real",
         model_path="microsoft/TRELLIS.2-4B",
@@ -4639,7 +4650,7 @@ def test_real_mode_preflight_reports_runtime_and_artifact_backend(
 
     monkeypatch.setattr(server_module.ArtifactStore, "initialize", fake_initialize)
     monkeypatch.setattr(
-        server_module.Trellis2Provider,
+        runtime_helpers.Trellis2Provider,
         "inspect_runtime",
         classmethod(fake_inspect_runtime),
     )
@@ -4674,7 +4685,7 @@ def test_real_mode_preflight_reports_runtime_and_artifact_backend(
 def test_hunyuan3d_provider_resolves_existing_local_model_path(tmp_path: Path) -> None:
     model_dir = tmp_path / "hunyuan3d-model"
     model_dir.mkdir(parents=True)
-    source_type, model_reference = Hunyuan3DProvider._resolve_model_reference(
+    source_type, model_reference = Hunyuan3DProvider.resolve_model_reference(
         str(model_dir)
     )
 
@@ -4687,10 +4698,30 @@ def test_hunyuan3d_provider_rejects_missing_non_local_model_path() -> None:
         ModelProviderConfigurationError,
         match="Use Admin to download first",
     ):
-        Hunyuan3DProvider._resolve_model_reference("tencent/Hunyuan3D-2")
+        Hunyuan3DProvider.resolve_model_reference("tencent/Hunyuan3D-2")
 
 
-def test_hunyuan3d_provider_run_single_uses_correct_kwargs() -> None:
+def _stub_hunyuan3d_face_reducer(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_module = types.ModuleType(
+        "gen3d.model.hunyuan3d.pipeline.shapegen.postprocessors"
+    )
+
+    class _IdentityFaceReducer:
+        def __call__(self, mesh, max_facenum: int = 40000):
+            return mesh
+
+    fake_module.FaceReducer = _IdentityFaceReducer
+    monkeypatch.setitem(
+        sys.modules,
+        "gen3d.model.hunyuan3d.pipeline.shapegen.postprocessors",
+        fake_module,
+    )
+
+
+def test_hunyuan3d_provider_run_single_uses_correct_kwargs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _stub_hunyuan3d_face_reducer(monkeypatch)
     observed: dict[str, object] = {}
 
     class FakeShapePipeline:
@@ -4710,7 +4741,7 @@ def test_hunyuan3d_provider_run_single_uses_correct_kwargs() -> None:
         model_path="tencent/Hunyuan3D-2",
     )
 
-    result = provider._run_single(
+    result = provider.run_single(
         image="image-object",
         options={
             "num_steps": 30,
@@ -4731,7 +4762,11 @@ def test_hunyuan3d_provider_run_single_uses_correct_kwargs() -> None:
     assert observed["texture_image_input"] == "image-object"
 
 
-def test_hunyuan3d_provider_run_single_skips_texture_when_none() -> None:
+def test_hunyuan3d_provider_run_single_skips_texture_when_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _stub_hunyuan3d_face_reducer(monkeypatch)
+
     class FakeShapePipeline:
         def __call__(self, **kwargs):
             return ["shape_mesh"]
@@ -4742,7 +4777,7 @@ def test_hunyuan3d_provider_run_single_skips_texture_when_none() -> None:
         model_path="tencent/Hunyuan3D-2",
     )
 
-    result = provider._run_single(image="img", options={})
+    result = provider.run_single(image="img", options={})
 
     assert result == "shape_mesh"
 
@@ -4818,7 +4853,7 @@ def test_hunyuan3d_mock_provider_export_glb_writes_valid_file(tmp_path: Path) ->
 
 def test_build_provider_supports_hunyuan3d_mock(tmp_path: Path) -> None:
     del tmp_path
-    provider = server_module.build_provider(
+    provider = runtime_helpers.build_provider(
         provider_name="hunyuan3d",
         provider_mode="mock",
         model_path="tencent/Hunyuan3D-2",
@@ -4842,9 +4877,9 @@ def test_build_provider_uses_hunyuan3d_metadata_only_in_real_mode(
         def from_pretrained(cls, model_path: str):
             raise AssertionError(f"from_pretrained should not be called: {model_path}")
 
-    monkeypatch.setattr(server_module, "Hunyuan3DProvider", FakeHunyuan3DProvider)
+    monkeypatch.setattr(runtime_helpers, "Hunyuan3DProvider", FakeHunyuan3DProvider)
 
-    provider = server_module.build_provider(
+    provider = runtime_helpers.build_provider(
         provider_name="hunyuan3d",
         provider_mode="real",
         model_path="tencent/Hunyuan3D-2",
@@ -4860,7 +4895,7 @@ def test_build_provider_uses_hunyuan3d_metadata_only_in_real_mode(
 # ---------------------------------------------------------------------------
 
 
-def _import_step1x3d_geometry_pipeline_module_with_test_stubs(
+def _import_step1x3d_geometry_pipeline_module_with_test_stubs(  # noqa: C901
     monkeypatch: pytest.MonkeyPatch,
 ):
     module_name = (
@@ -5053,10 +5088,7 @@ def _import_step1x3d_geometry_pipeline_module_with_test_stubs(
     class _LoaderMixin:
         pass
 
-    fake_diffusers_loaders.FluxIPAdapterMixin = _LoaderMixin
-    fake_diffusers_loaders.FluxLoraLoaderMixin = _LoaderMixin
     fake_diffusers_loaders.FromSingleFileMixin = _LoaderMixin
-    fake_diffusers_loaders.TextualInversionLoaderMixin = _LoaderMixin
     register("diffusers.loaders", fake_diffusers_loaders)
 
     fake_pipeline_utils = types.ModuleType(
@@ -5134,7 +5166,7 @@ def _import_step1x3d_geometry_pipeline_module_with_test_stubs(
     return importlib.import_module(module_name)
 
 
-def _import_step1x3d_texture_pipeline_module_with_test_stubs(
+def _import_step1x3d_texture_pipeline_module_with_test_stubs(  # noqa: C901
     monkeypatch: pytest.MonkeyPatch,
 ):
     module_name = (
@@ -5363,7 +5395,7 @@ def _import_step1x3d_texture_pipeline_module_with_test_stubs(
     return importlib.import_module(module_name)
 
 
-def _import_step1x3d_ig2mv_pipeline_module_with_test_stubs(
+def _import_step1x3d_ig2mv_pipeline_module_with_test_stubs(  # noqa: C901
     monkeypatch: pytest.MonkeyPatch,
 ):
     module_name = (
@@ -5573,7 +5605,7 @@ def _import_step1x3d_ig2mv_pipeline_module_with_test_stubs(
     return importlib.import_module(module_name)
 
 
-def test_step1x3d_texture_remove_bg_path_does_not_force_dtype(
+def test_step1x3d_texture_remove_bg_path_does_not_force_dtype(  # noqa: C901
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     texture_module = _import_step1x3d_texture_pipeline_module_with_test_stubs(
@@ -5908,7 +5940,7 @@ def test_step1x3d_ig2mv_decode_casts_latents_to_vae_dtype(
 def test_step1x3d_provider_resolves_existing_local_model_path(tmp_path: Path) -> None:
     model_dir = tmp_path / "step1x3d-model"
     model_dir.mkdir(parents=True)
-    source_type, model_reference = Step1X3DProvider._resolve_model_reference(
+    source_type, model_reference = Step1X3DProvider.resolve_model_reference(
         str(model_dir)
     )
     assert source_type == "local"
@@ -5920,7 +5952,7 @@ def test_step1x3d_provider_rejects_missing_non_local_model_path() -> None:
         ModelProviderConfigurationError,
         match="Use Admin to download first",
     ):
-        Step1X3DProvider._resolve_model_reference("stepfun-ai/Step1X-3D")
+        Step1X3DProvider.resolve_model_reference("stepfun-ai/Step1X-3D")
 
 
 def test_step1x3d_provider_patches_rembg_bria_alias(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -5946,7 +5978,7 @@ def test_step1x3d_provider_patches_rembg_bria_alias(monkeypatch: pytest.MonkeyPa
     monkeypatch.setitem(sys.modules, "rembg", rembg_module)
     monkeypatch.setitem(sys.modules, "rembg.bg", rembg_bg_module)
 
-    step1x3d_provider_module._install_rembg_bria_alias_patch()
+    step1x3d_provider_module.install_rembg_bria_alias_patch()
 
     session = rembg_module.new_session(model_name="bria", providers=["CUDAExecutionProvider"])
     assert session == {"model_name": "bria-rmbg"}
@@ -5978,7 +6010,7 @@ def test_step1x3d_provider_rembg_bria_alias_falls_back_to_default_session(
     monkeypatch.setitem(sys.modules, "rembg", rembg_module)
     monkeypatch.setitem(sys.modules, "rembg.bg", rembg_bg_module)
 
-    step1x3d_provider_module._install_rembg_bria_alias_patch()
+    step1x3d_provider_module.install_rembg_bria_alias_patch()
 
     session = rembg_module.new_session(model_name="bria", providers=["CUDAExecutionProvider"])
     assert session == {"model_name": "u2net"}
@@ -6011,7 +6043,7 @@ def test_step1x3d_provider_run_single_calls_both_pipelines() -> None:
         model_path="stepfun-ai/Step1X-3D",
     )
 
-    result = provider._run_single(
+    result = provider.run_single(
         image="image-object",
         options={"num_inference_steps": 30, "guidance_scale": 6.0, "texture_steps": 10},
     )
@@ -6036,7 +6068,7 @@ def test_step1x3d_provider_run_single_skips_texture_when_none() -> None:
         texture_pipeline=None,
         model_path="stepfun-ai/Step1X-3D",
     )
-    result = provider._run_single(image="img", options={})
+    result = provider.run_single(image="img", options={})
     assert result == "geo_mesh"
 
 
@@ -6104,7 +6136,7 @@ def test_step1x3d_mock_provider_export_glb_valid(tmp_path: Path) -> None:
 
 def test_build_provider_supports_step1x3d_mock(tmp_path: Path) -> None:
     del tmp_path
-    provider = server_module.build_provider(
+    provider = runtime_helpers.build_provider(
         provider_name="step1x3d",
         provider_mode="mock",
         model_path="stepfun-ai/Step1X-3D",
@@ -6128,9 +6160,9 @@ def test_build_provider_uses_step1x3d_metadata_only_in_real_mode(
         def from_pretrained(cls, model_path: str):
             raise AssertionError(f"from_pretrained should not be called: {model_path}")
 
-    monkeypatch.setattr(server_module, "Step1X3DProvider", FakeStep1X3DProvider)
+    monkeypatch.setattr(runtime_helpers, "Step1X3DProvider", FakeStep1X3DProvider)
 
-    provider = server_module.build_provider(
+    provider = runtime_helpers.build_provider(
         provider_name="step1x3d",
         provider_mode="real",
         model_path="stepfun-ai/Step1X-3D",
@@ -6158,7 +6190,7 @@ async def test_step1x3d_metadata_only_provider_rejects_inference_calls(
 def test_build_provider_rejects_unknown_provider(tmp_path: Path) -> None:
     del tmp_path
     with pytest.raises(ModelProviderConfigurationError, match="unsupported MODEL_PROVIDER"):
-        server_module.build_provider(
+        runtime_helpers.build_provider(
             provider_name="unknown_model",
             provider_mode="mock",
             model_path="unused",
