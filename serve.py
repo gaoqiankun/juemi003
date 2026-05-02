@@ -14,8 +14,8 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from gen3d.api.server import create_app, run_real_mode_preflight
-from gen3d.config import ServingConfig
-from gen3d.observability.logging import configure_logging
+from gen3d.core.config import ServingConfig
+from gen3d.core.observability.logging import configure_logging
 
 
 def build_arg_parser() -> argparse.ArgumentParser:

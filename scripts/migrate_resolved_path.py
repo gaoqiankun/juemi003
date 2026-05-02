@@ -6,7 +6,6 @@ from __future__ import annotations
 # 2) Optional: export HF_HOME=/path/to/hf/cache
 # 3) Dry run:  python scripts/migrate_resolved_path.py --dry-run
 # 4) Apply:    python scripts/migrate_resolved_path.py
-
 import argparse
 import os
 import sqlite3

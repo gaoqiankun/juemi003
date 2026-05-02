@@ -6,9 +6,9 @@ from urllib.parse import urlsplit
 
 from fastapi import HTTPException
 from gen3d.api.helpers.hf import is_hf_repo_id
-from gen3d.engine.weight_manager import get_provider_deps
 from gen3d.model.base import ModelProviderConfigurationError
-from gen3d.storage.dep_store import DepInstanceStore, ModelDepRequirementsStore
+from gen3d.model.dep_store import DepInstanceStore, ModelDepRequirementsStore
+from gen3d.model.weight import get_provider_deps
 
 
 def validation_error(detail: str) -> HTTPException:

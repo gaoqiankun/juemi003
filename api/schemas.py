@@ -3,8 +3,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Generic, Literal, TypeVar
 
-from gen3d.engine.sequence import RequestSequence, TaskStatus, TaskType
-from gen3d.pagination import DEFAULT_CURSOR_PAGE_LIMIT, MAX_CURSOR_PAGE_LIMIT
+from gen3d.core.pagination import DEFAULT_CURSOR_PAGE_LIMIT, MAX_CURSOR_PAGE_LIMIT
+from gen3d.task.sequence import RequestSequence, TaskStatus, TaskType
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 T = TypeVar("T")

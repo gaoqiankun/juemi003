@@ -28,10 +28,10 @@ from fastapi.staticfiles import StaticFiles
 from gen3d.api.helpers import hf as _hf_helpers
 from gen3d.api.helpers.artifacts import (
     artifact_exists,
+    build_artifact_store,
     dispatch_preview_render,
     extract_artifact_filename,
     resolve_dev_local_model_path,
-    build_artifact_store,
 )
 from gen3d.api.helpers.deps import build_dep_response_rows, prepare_dep_assignments
 from gen3d.api.helpers.gpu_device import (
@@ -48,22 +48,11 @@ from gen3d.api.helpers.hf import (
     resolve_hf_status,
     set_hf_endpoint,
 )
-from gen3d.api.helpers.keys import (
-    build_user_key_label_map,
-    resolve_task_owner,
-    safe_record_usage,
-)
 from gen3d.api.helpers.preflight import (
     run_real_mode_preflight,  # noqa: F401
     validate_runtime_security_config,
 )
-from gen3d.api.helpers.runtime import build_model_runtime
 from gen3d.api.helpers.tasks import friendly_model_error_message, map_task_status
-from gen3d.api.helpers.vram import (
-    clamp_inference_estimate_mb,  # noqa: F401 — re-exported for tests
-    detect_device_total_vram_mb,
-    normalize_vram_mb,
-)
 from gen3d.api.schemas import (
     AdminApiKeyCreateRequest,
     AdminApiKeyCreateResponse,
@@ -89,46 +78,38 @@ from gen3d.api.schemas import (
     UserModelSummary,
     task_type_from_request,
 )
-from gen3d.config import ServingConfig
-from gen3d.engine.async_engine import AsyncGen3DEngine
-from gen3d.engine.model_registry import ModelRegistry
-from gen3d.engine.model_scheduler import ModelScheduler, SchedulerCapReachedError
-from gen3d.engine.pipeline import PipelineCoordinator, PipelineQueueFullError
-from gen3d.engine.sequence import TERMINAL_STATUSES, TaskStatus
-from gen3d.engine.vram_allocator import (
-    VRAMAllocator,
-    VRAMMetricsHook,
+from gen3d.artifact.store import ArtifactStore
+from gen3d.auth.api_key_store import (
+    METRICS_SCOPE,
+    USER_KEY_SCOPE,
+    ApiKeyStore,
 )
-from gen3d.engine.weight_manager import WeightManager, get_provider_deps
-from gen3d.model.base import ModelProviderConfigurationError
-from gen3d.observability.metrics import (
+from gen3d.auth.helpers import (
+    build_user_key_label_map,
+    resolve_task_owner,
+    safe_record_usage,
+)
+from gen3d.core.config import ServingConfig
+from gen3d.core.observability.metrics import (
     increment_vram_acquire_inference,
     increment_vram_evict,
     initialize_vram_metrics,
     observe_vram_acquire_inference_wait,
     render_metrics,
 )
-from gen3d.security import (
+from gen3d.core.security import (
     RateLimitExceededError,
     TaskSubmissionValidationError,
     TokenRateLimiter,
 )
-from gen3d.stages.export.preview_renderer_service import (
-    PreviewRendererService,
-    PreviewRendererServiceProtocol,
-)
-from gen3d.stages.export.stage import ExportStage
-from gen3d.stages.gpu.stage import GPUStage
-from gen3d.stages.preprocess.stage import PreprocessStage
-from gen3d.storage.api_key_store import (
-    METRICS_SCOPE,
-    USER_KEY_SCOPE,
-    ApiKeyStore,
-)
-from gen3d.storage.artifact_store import ArtifactStore
-from gen3d.storage.dep_store import DepInstanceStore, ModelDepRequirementsStore
-from gen3d.storage.model_store import ModelStore
-from gen3d.storage.settings_store import (
+from gen3d.model.base import ModelProviderConfigurationError
+from gen3d.model.dep_store import DepInstanceStore, ModelDepRequirementsStore
+from gen3d.model.registry import ModelRegistry
+from gen3d.model.runtime import build_model_runtime
+from gen3d.model.scheduler import ModelScheduler, SchedulerCapReachedError
+from gen3d.model.store import ModelStore
+from gen3d.model.weight import WeightManager, get_provider_deps
+from gen3d.settings.store import (
     EXTERNAL_VRAM_WAIT_TIMEOUT_SECONDS_KEY,
     GPU_DISABLED_DEVICES_KEY,
     INTERNAL_VRAM_WAIT_TIMEOUT_SECONDS_KEY,
@@ -136,7 +117,26 @@ from gen3d.storage.settings_store import (
     MAX_TASKS_PER_SLOT_KEY,
     SettingsStore,
 )
-from gen3d.storage.task_store import TaskStore
+from gen3d.stage.export.preview_renderer_service import (
+    PreviewRendererService,
+    PreviewRendererServiceProtocol,
+)
+from gen3d.stage.export.stage import ExportStage
+from gen3d.stage.gpu.stage import GPUStage
+from gen3d.stage.preprocess.stage import PreprocessStage
+from gen3d.task.engine import AsyncGen3DEngine
+from gen3d.task.pipeline import PipelineCoordinator, PipelineQueueFullError
+from gen3d.task.sequence import TERMINAL_STATUSES, TaskStatus
+from gen3d.task.store import TaskStore
+from gen3d.vram.allocator import (
+    VRAMAllocator,
+    VRAMMetricsHook,
+)
+from gen3d.vram.helpers import (
+    clamp_inference_estimate_mb,  # noqa: F401 — re-exported for tests
+    detect_device_total_vram_mb,
+    normalize_vram_mb,
+)
 from starlette.background import BackgroundTask
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.types import Scope
@@ -359,7 +359,7 @@ def create_app(
         )
     )
     if not config.is_mock_provider:
-        from gen3d.engine.vram_probe import probe_device_free_mb
+        from gen3d.vram.probe import probe_device_free_mb
 
         vram_allocator.set_vram_probe(probe_device_free_mb)
     disabled_devices: set[str] = set()
@@ -425,7 +425,7 @@ def create_app(
     ):
         _ = device_id
         _ = exclude_device_ids
-        from gen3d.engine.model_worker import ModelWorker
+        from gen3d.model.worker import ModelWorker
 
         return ModelWorker(
             model_id=model_name,

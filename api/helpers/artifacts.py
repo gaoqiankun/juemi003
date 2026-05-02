@@ -6,14 +6,14 @@ from typing import Any
 from urllib.parse import urlsplit
 
 import structlog
-from gen3d.config import ServingConfig
-from gen3d.stages.export.preview_renderer_service import PreviewRendererServiceProtocol
-from gen3d.stages.export.stage import ExportStage
-from gen3d.storage.artifact_store import (
+from gen3d.artifact.store import (
     ArtifactStore,
     ArtifactStoreConfigurationError,
     build_boto3_object_storage_client,
 )
+from gen3d.core.config import ServingConfig
+from gen3d.stage.export.preview_renderer_service import PreviewRendererServiceProtocol
+from gen3d.stage.export.stage import ExportStage
 
 _preview_rendering: set[str] = set()
 _preview_render_tasks: set[asyncio.Task[None]] = set()

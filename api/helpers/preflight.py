@@ -4,10 +4,10 @@ import asyncio
 from typing import Any
 
 from gen3d.api.helpers.artifacts import build_artifact_store
-from gen3d.config import ServingConfig
+from gen3d.core.config import ServingConfig
 from gen3d.model.base import ModelProviderConfigurationError
-from gen3d.model.trellis2.provider import Trellis2Provider
-from gen3d.storage.model_store import ModelStore
+from gen3d.model.providers.trellis2.provider import Trellis2Provider
+from gen3d.model.store import ModelStore
 
 
 async def run_real_mode_preflight(config: ServingConfig) -> dict[str, Any]:

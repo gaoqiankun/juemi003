@@ -32,9 +32,9 @@ worker = [
 exclude = [
     ".venv",
     "Hunyuan3D-2",
-    "model/trellis2/ext/o-voxel",
-    "model/step1x3d/ext/custom_rasterizer",
-    "model/step1x3d/ext/differentiable_renderer",
+    "model/providers/trellis2/ext",
+    "model/providers/step1x3d/ext",
+    "model/providers/hunyuan3d/pipeline",
 ]
 
 [tool.ruff.lint]

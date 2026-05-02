@@ -4,11 +4,11 @@ import asyncio
 import sqlite3
 from pathlib import Path
 
-from gen3d.engine.sequence import RequestSequence, utcnow
-from gen3d.storage.api_key_store import ApiKeyStore
-from gen3d.storage.dep_store import DepInstanceStore
-from gen3d.storage.model_store import ModelStore
-from gen3d.storage.task_store import TaskStore
+from gen3d.auth.api_key_store import ApiKeyStore
+from gen3d.model.dep_store import DepInstanceStore
+from gen3d.model.store import ModelStore
+from gen3d.task.sequence import RequestSequence, utcnow
+from gen3d.task.store import TaskStore
 
 ROUND_COUNT = 240
 

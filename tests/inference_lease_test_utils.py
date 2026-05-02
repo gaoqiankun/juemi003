@@ -2,22 +2,16 @@
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
 from typing import Any, Callable, cast
 
-WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
-if str(WORKSPACE_ROOT) not in sys.path:
-    sys.path.insert(0, str(WORKSPACE_ROOT))
-
-from gen3d.engine.model_registry import ModelRuntime
-from gen3d.engine.model_worker import ModelWorker
-from gen3d.engine.sequence import RequestSequence, TaskStatus
-from gen3d.engine.vram_allocator import VRAMAllocator
 from gen3d.model.base import BaseModelProvider, GenerationResult
-from gen3d.stages.base import BaseStage, StageExecutionError, StageUpdateHandler
-from gen3d.stages.gpu.scheduler import GPUSlotScheduler
-from gen3d.stages.gpu.worker import GPUWorkerHandle
+from gen3d.model.registry import ModelRuntime
+from gen3d.model.worker import ModelWorker
+from gen3d.stage.base import BaseStage, StageExecutionError, StageUpdateHandler
+from gen3d.stage.gpu.scheduler import GPUSlotScheduler
+from gen3d.stage.gpu.worker import GPUWorkerHandle
+from gen3d.task.sequence import RequestSequence, TaskStatus
+from gen3d.vram.allocator import VRAMAllocator
 
 
 class FakeModelStore:

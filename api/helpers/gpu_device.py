@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from gen3d.config import ServingConfig
+from gen3d.core.config import ServingConfig
 
 
 def resolve_device_ids(config: ServingConfig) -> tuple[str, ...]:
