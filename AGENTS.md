@@ -30,11 +30,11 @@ Architecture: **API → Engine (async worker) → Stage Pipeline → Provider**.
 
 | What | Where |
 |------|-------|
-| New API route | `api/server.py` (centralized, do not split) |
-| New request/response schema | `api/schemas.py` |
-| New Provider | `model/<name>/provider.py`, implement `model/base.py` Protocol |
-| New Stage | `stages/<name>/stage.py` |
-| New storage logic | new store file under `storage/` |
+| New API route | `cubie/api/server.py` (centralized, do not split) |
+| New request/response schema | `cubie/api/schemas.py` |
+| New Provider | `cubie/model/providers/<name>/provider.py`, implement `cubie/model/base.py` Protocol |
+| New Stage | `cubie/stage/<name>/stage.py` |
+| New storage logic | `cubie/task/store/` for task DB, `cubie/artifact/` for artifacts |
 
 ## Rules
 
@@ -46,7 +46,7 @@ Architecture: **API → Engine (async worker) → Stage Pipeline → Provider**.
 - Orchestrator reads the report during validate and writes these persistent files before commit
 - Do not upgrade dependencies unless explicitly asked
 - Public API changes must be backward-compatible (new fields: `Optional` + default value)
-- No business logic in `config.py` / `serve.py`
+- No business logic in `cubie/core/config.py` / `cubie/serve.py`
 - When scope impact is unclear, check `.ai/impact-map.md` before proceeding
 - Debugging: check `.ai/troubleshooting.md` symptom index first → `.ai/decisions.md` for recent changes → `git log --oneline -20` → `.ai/impact-map.md`
 
@@ -54,7 +54,7 @@ Architecture: **API → Engine (async worker) → Stage Pipeline → Provider**.
 
 - New files: split before exceeding 300 lines, single responsibility per file
 - Modified files: if over 500 lines after change, stop and note in plan file — architect decides
-- Known oversized file (`api/server.py` ~1900 lines, v0.2 refactor): do not add more code; new routes require architect approval
+- Known oversized file (`cubie/api/server.py` ~1900 lines, v0.2 refactor): do not add more code; new routes require architect approval
 - Functions/methods over 50 lines — consider extracting
 
 ## Frontend Rules

@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import pytest
-from gen3d.api.server import clamp_inference_estimate_mb
-from gen3d.vram import helpers as vram_helpers
+
+from cubie.api.server import clamp_inference_estimate_mb
+from cubie.vram import helpers as vram_helpers
 
 
 @pytest.mark.parametrize(

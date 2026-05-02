@@ -4,7 +4,8 @@ import asyncio
 from pathlib import Path
 
 import pytest
-from gen3d.stage.export.preview_renderer_service import (
+
+from cubie.stage.export.preview_renderer_service import (
     PREVIEW_RENDERER_REQUEST_TIMEOUT_SECONDS,
     PREVIEW_RENDERER_STARTUP_TIMEOUT_SECONDS,
     PreviewRendererService,

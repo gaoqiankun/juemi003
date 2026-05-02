@@ -5,8 +5,8 @@ from __future__ import annotations
 import asyncio
 import queue
 
-from gen3d.model.base import ModelProviderExecutionError
-from gen3d.stage.gpu.worker import (
+from cubie.model.base import ModelProviderExecutionError
+from cubie.stage.gpu.worker import (
     AsyncGPUWorker,
     PendingRequest,
     ProcessGPUWorker,

@@ -8,8 +8,8 @@ import sys
 import threading
 import types
 
-from gen3d.stage.gpu import worker as worker_module
-from gen3d.stage.gpu.worker import (
+from cubie.stage.gpu import worker as worker_module
+from cubie.stage.gpu.worker import (
     PendingRequest,
     ProcessGPUWorker,
     WorkerProcessConfig,

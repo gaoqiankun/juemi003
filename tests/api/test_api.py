@@ -16,44 +16,45 @@ from typing import Any, Awaitable, Callable
 import httpx
 import pytest
 from fastapi.testclient import TestClient
-from gen3d.api import server as server_module
-from gen3d.api.helpers import artifacts as artifacts_helpers
-from gen3d.api.helpers import hf as hf_helpers
-from gen3d.api.server import create_app, run_real_mode_preflight
-from gen3d.artifact.store import (
+from prometheus_client.parser import text_string_to_metric_families
+
+from cubie.api import server as server_module
+from cubie.api.helpers import artifacts as artifacts_helpers
+from cubie.api.helpers import hf as hf_helpers
+from cubie.api.server import create_app, run_real_mode_preflight
+from cubie.artifact.store import (
     ArtifactStoreConfigurationError,
     ArtifactStoreOperationError,
     ObjectStorageStreamResult,
 )
-from gen3d.core.config import ServingConfig
-from gen3d.model import runtime as runtime_helpers
-from gen3d.model.base import (
+from cubie.core.config import ServingConfig
+from cubie.model import runtime as runtime_helpers
+from cubie.model.base import (
     GenerationResult,
     ModelProviderConfigurationError,
     ModelProviderExecutionError,
 )
-from gen3d.model.providers.hunyuan3d.provider import (
+from cubie.model.providers.hunyuan3d.provider import (
     Hunyuan3DProvider,
     MockHunyuan3DProvider,
 )
-from gen3d.model.providers.step1x3d import provider as step1x3d_provider_module
-from gen3d.model.providers.step1x3d.provider import (
+from cubie.model.providers.step1x3d import provider as step1x3d_provider_module
+from cubie.model.providers.step1x3d.provider import (
     MockStep1X3DProvider,
     Step1X3DProvider,
 )
-from gen3d.model.providers.trellis2.provider import (
+from cubie.model.providers.trellis2.provider import (
     MockTrellis2Provider,
     Trellis2Provider,
 )
-from gen3d.model.store import ModelStore
-from gen3d.stage.export.preview_renderer_service import (
+from cubie.model.store import ModelStore
+from cubie.stage.export.preview_renderer_service import (
     PreviewRendererService,
     PreviewRendererServiceProtocol,
 )
-from gen3d.task import engine as async_engine_module
-from gen3d.task.sequence import RequestSequence, TaskStatus, TaskType, utcnow
-from gen3d.task.store import TaskStore
-from prometheus_client.parser import text_string_to_metric_families
+from cubie.task import engine as async_engine_module
+from cubie.task.sequence import RequestSequence, TaskStatus, TaskType, utcnow
+from cubie.task.store import TaskStore
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[3]
 WebhookSender = Callable[[str, dict], Awaitable[None]]
@@ -1047,7 +1048,7 @@ def test_admin_model_load_endpoint_returns_runtime_state(tmp_path: Path) -> None
 def test_admin_model_load_endpoint_returns_409_when_no_evict_candidate(
     tmp_path: Path,
 ) -> None:
-    from gen3d.model.scheduler import SchedulerCapReachedError
+    from cubie.model.scheduler import SchedulerCapReachedError
 
     with make_client(tmp_path, admin_token="admin-token") as client:
         container = client.app.state.container
@@ -4712,7 +4713,7 @@ def test_hunyuan3d_provider_rejects_missing_non_local_model_path() -> None:
 
 def _stub_hunyuan3d_face_reducer(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_module = types.ModuleType(
-        "gen3d.model.providers.hunyuan3d.pipeline.shapegen.postprocessors"
+        "cubie.model.providers.hunyuan3d.pipeline.shapegen.postprocessors"
     )
 
     class _IdentityFaceReducer:
@@ -4722,7 +4723,7 @@ def _stub_hunyuan3d_face_reducer(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_module.FaceReducer = _IdentityFaceReducer
     monkeypatch.setitem(
         sys.modules,
-        "gen3d.model.providers.hunyuan3d.pipeline.shapegen.postprocessors",
+        "cubie.model.providers.hunyuan3d.pipeline.shapegen.postprocessors",
         fake_module,
     )
 
@@ -4908,7 +4909,7 @@ def _import_step1x3d_geometry_pipeline_module_with_test_stubs(  # noqa: C901
     monkeypatch: pytest.MonkeyPatch,
 ):
     module_name = (
-        "gen3d.model.providers.step1x3d.pipeline.step1x3d_geometry.models.pipelines.pipeline"
+        "cubie.model.providers.step1x3d.pipeline.step1x3d_geometry.models.pipelines.pipeline"
     )
     sys.modules.pop(module_name, None)
 
@@ -4923,6 +4924,7 @@ def _import_step1x3d_geometry_pipeline_module_with_test_stubs(  # noqa: C901
     geometry_root = (
         WORKSPACE_ROOT
         / "gen3d"
+        / "cubie"
         / "model"
         / "providers"
         / "step1x3d"
@@ -4930,27 +4932,31 @@ def _import_step1x3d_geometry_pipeline_module_with_test_stubs(  # noqa: C901
         / "step1x3d_geometry"
     )
     register_package(
-        "gen3d.model.providers.step1x3d.pipeline.step1x3d_geometry",
+        "cubie.model.providers.step1x3d.pipeline",
+        geometry_root.parent,
+    )
+    register_package(
+        "cubie.model.providers.step1x3d.pipeline.step1x3d_geometry",
         geometry_root,
     )
     register_package(
-        "gen3d.model.providers.step1x3d.pipeline.step1x3d_geometry.models",
+        "cubie.model.providers.step1x3d.pipeline.step1x3d_geometry.models",
         geometry_root / "models",
     )
     register_package(
-        "gen3d.model.providers.step1x3d.pipeline.step1x3d_geometry.models.pipelines",
+        "cubie.model.providers.step1x3d.pipeline.step1x3d_geometry.models.pipelines",
         geometry_root / "models" / "pipelines",
     )
     register_package(
-        "gen3d.model.providers.step1x3d.pipeline.step1x3d_geometry.models.autoencoders",
+        "cubie.model.providers.step1x3d.pipeline.step1x3d_geometry.models.autoencoders",
         geometry_root / "models" / "autoencoders",
     )
     register_package(
-        "gen3d.model.providers.step1x3d.pipeline.step1x3d_geometry.models.conditional_encoders",
+        "cubie.model.providers.step1x3d.pipeline.step1x3d_geometry.models.conditional_encoders",
         geometry_root / "models" / "conditional_encoders",
     )
     register_package(
-        "gen3d.model.providers.step1x3d.pipeline.step1x3d_geometry.models.transformers",
+        "cubie.model.providers.step1x3d.pipeline.step1x3d_geometry.models.transformers",
         geometry_root / "models" / "transformers",
     )
 
@@ -5107,7 +5113,7 @@ def _import_step1x3d_geometry_pipeline_module_with_test_stubs(  # noqa: C901
     register("diffusers.loaders", fake_diffusers_loaders)
 
     fake_pipeline_utils = types.ModuleType(
-        "gen3d.model.providers.step1x3d.pipeline.step1x3d_geometry.models.pipelines.pipeline_utils"
+        "cubie.model.providers.step1x3d.pipeline.step1x3d_geometry.models.pipelines.pipeline_utils"
     )
 
     class _TransformerDiffusionMixin:
@@ -5136,43 +5142,43 @@ def _import_step1x3d_geometry_pipeline_module_with_test_stubs(  # noqa: C901
     register("transformers", fake_transformers)
 
     fake_surface_extractors = types.ModuleType(
-        "gen3d.model.providers.step1x3d.pipeline.step1x3d_geometry.models.autoencoders.surface_extractors"
+        "cubie.model.providers.step1x3d.pipeline.step1x3d_geometry.models.autoencoders.surface_extractors"
     )
     fake_surface_extractors.MeshExtractResult = object
     register(fake_surface_extractors.__name__, fake_surface_extractors)
 
     fake_autoencoder = types.ModuleType(
-        "gen3d.model.providers.step1x3d.pipeline.step1x3d_geometry.models.autoencoders.michelangelo_autoencoder"
+        "cubie.model.providers.step1x3d.pipeline.step1x3d_geometry.models.autoencoders.michelangelo_autoencoder"
     )
     fake_autoencoder.MichelangeloAutoencoder = object
     register(fake_autoencoder.__name__, fake_autoencoder)
 
     fake_dinov2 = types.ModuleType(
-        "gen3d.model.providers.step1x3d.pipeline.step1x3d_geometry.models.conditional_encoders.dinov2_encoder"
+        "cubie.model.providers.step1x3d.pipeline.step1x3d_geometry.models.conditional_encoders.dinov2_encoder"
     )
     fake_dinov2.Dinov2Encoder = object
     register(fake_dinov2.__name__, fake_dinov2)
 
     fake_t5 = types.ModuleType(
-        "gen3d.model.providers.step1x3d.pipeline.step1x3d_geometry.models.conditional_encoders.t5_encoder"
+        "cubie.model.providers.step1x3d.pipeline.step1x3d_geometry.models.conditional_encoders.t5_encoder"
     )
     fake_t5.T5Encoder = object
     register(fake_t5.__name__, fake_t5)
 
     fake_label = types.ModuleType(
-        "gen3d.model.providers.step1x3d.pipeline.step1x3d_geometry.models.conditional_encoders.label_encoder"
+        "cubie.model.providers.step1x3d.pipeline.step1x3d_geometry.models.conditional_encoders.label_encoder"
     )
     fake_label.LabelEncoder = object
     register(fake_label.__name__, fake_label)
 
     fake_flux = types.ModuleType(
-        "gen3d.model.providers.step1x3d.pipeline.step1x3d_geometry.models.transformers.flux_transformer_1d"
+        "cubie.model.providers.step1x3d.pipeline.step1x3d_geometry.models.transformers.flux_transformer_1d"
     )
     fake_flux.FluxDenoiser = object
     register(fake_flux.__name__, fake_flux)
 
     fake_config = types.ModuleType(
-        "gen3d.model.providers.step1x3d.pipeline.step1x3d_geometry.utils.config"
+        "cubie.model.providers.step1x3d.pipeline.step1x3d_geometry.utils.config"
     )
     fake_config.ExperimentConfig = object
     fake_config.load_config = lambda *args, **kwargs: None
@@ -5185,7 +5191,7 @@ def _import_step1x3d_texture_pipeline_module_with_test_stubs(  # noqa: C901
     monkeypatch: pytest.MonkeyPatch,
 ):
     module_name = (
-        "gen3d.model.providers.step1x3d.pipeline.step1x3d_texture.pipelines."
+        "cubie.model.providers.step1x3d.pipeline.step1x3d_texture.pipelines."
         "step1x_3d_texture_synthesis_pipeline"
     )
     sys.modules.pop(module_name, None)
@@ -5323,13 +5329,13 @@ def _import_step1x3d_texture_pipeline_module_with_test_stubs(  # noqa: C901
     register("scipy.sparse.linalg", fake_scipy_sparse_linalg)
 
     fake_attn = types.ModuleType(
-        "gen3d.model.providers.step1x3d.pipeline.step1x3d_texture.models.attention_processor"
+        "cubie.model.providers.step1x3d.pipeline.step1x3d_texture.models.attention_processor"
     )
     fake_attn.DecoupledMVRowColSelfAttnProcessor2_0 = object
     register(fake_attn.__name__, fake_attn)
 
     fake_ig2mv = types.ModuleType(
-        "gen3d.model.providers.step1x3d.pipeline.step1x3d_texture.pipelines.ig2mv_sdxl_pipeline"
+        "cubie.model.providers.step1x3d.pipeline.step1x3d_texture.pipelines.ig2mv_sdxl_pipeline"
     )
 
     class _StubIG2MVPipe:
@@ -5360,7 +5366,7 @@ def _import_step1x3d_texture_pipeline_module_with_test_stubs(  # noqa: C901
     register(fake_ig2mv.__name__, fake_ig2mv)
 
     fake_scheduler = types.ModuleType(
-        "gen3d.model.providers.step1x3d.pipeline.step1x3d_texture.schedulers.scheduling_shift_snr"
+        "cubie.model.providers.step1x3d.pipeline.step1x3d_texture.schedulers.scheduling_shift_snr"
     )
 
     class _ShiftSNRScheduler:
@@ -5374,7 +5380,7 @@ def _import_step1x3d_texture_pipeline_module_with_test_stubs(  # noqa: C901
     register(fake_scheduler.__name__, fake_scheduler)
 
     fake_utils = types.ModuleType(
-        "gen3d.model.providers.step1x3d.pipeline.step1x3d_texture.utils"
+        "cubie.model.providers.step1x3d.pipeline.step1x3d_texture.utils"
     )
     fake_utils.get_orthogonal_camera = lambda *args, **kwargs: None
     fake_utils.make_image_grid = lambda *args, **kwargs: None
@@ -5382,7 +5388,7 @@ def _import_step1x3d_texture_pipeline_module_with_test_stubs(  # noqa: C901
     register(fake_utils.__name__, fake_utils)
 
     fake_render = types.ModuleType(
-        "gen3d.model.providers.step1x3d.pipeline.step1x3d_texture.utils.render"
+        "cubie.model.providers.step1x3d.pipeline.step1x3d_texture.utils.render"
     )
     fake_render.NVDiffRastContextWrapper = object
     fake_render.load_mesh = lambda *args, **kwargs: (None, None)
@@ -5400,7 +5406,7 @@ def _import_step1x3d_texture_pipeline_module_with_test_stubs(  # noqa: C901
     register(fake_diff_renderer.__name__, fake_diff_renderer)
 
     fake_pipeline_utils = types.ModuleType(
-        "gen3d.model.providers.step1x3d.pipeline.step1x3d_geometry.models.pipelines.pipeline_utils"
+        "cubie.model.providers.step1x3d.pipeline.step1x3d_geometry.models.pipelines.pipeline_utils"
     )
     fake_pipeline_utils.smart_load_model = (
         lambda model_path, subfolder=None: model_path
@@ -5414,7 +5420,7 @@ def _import_step1x3d_ig2mv_pipeline_module_with_test_stubs(  # noqa: C901
     monkeypatch: pytest.MonkeyPatch,
 ):
     module_name = (
-        "gen3d.model.providers.step1x3d.pipeline.step1x3d_texture.pipelines."
+        "cubie.model.providers.step1x3d.pipeline.step1x3d_texture.pipelines."
         "ig2mv_sdxl_pipeline"
     )
     sys.modules.pop(module_name, None)
@@ -5430,6 +5436,7 @@ def _import_step1x3d_ig2mv_pipeline_module_with_test_stubs(  # noqa: C901
     texture_root = (
         WORKSPACE_ROOT
         / "gen3d"
+        / "cubie"
         / "model"
         / "providers"
         / "step1x3d"
@@ -5437,19 +5444,23 @@ def _import_step1x3d_ig2mv_pipeline_module_with_test_stubs(  # noqa: C901
         / "step1x3d_texture"
     )
     register_package(
-        "gen3d.model.providers.step1x3d.pipeline.step1x3d_texture",
+        "cubie.model.providers.step1x3d.pipeline",
+        texture_root.parent,
+    )
+    register_package(
+        "cubie.model.providers.step1x3d.pipeline.step1x3d_texture",
         texture_root,
     )
     register_package(
-        "gen3d.model.providers.step1x3d.pipeline.step1x3d_texture.pipelines",
+        "cubie.model.providers.step1x3d.pipeline.step1x3d_texture.pipelines",
         texture_root / "pipelines",
     )
     register_package(
-        "gen3d.model.providers.step1x3d.pipeline.step1x3d_texture.models",
+        "cubie.model.providers.step1x3d.pipeline.step1x3d_texture.models",
         texture_root / "models",
     )
     register_package(
-        "gen3d.model.providers.step1x3d.pipeline.step1x3d_texture.texture_sync",
+        "cubie.model.providers.step1x3d.pipeline.step1x3d_texture.texture_sync",
         texture_root / "texture_sync",
     )
 
@@ -5586,13 +5597,13 @@ def _import_step1x3d_ig2mv_pipeline_module_with_test_stubs(  # noqa: C901
     register("transformers", fake_transformers)
 
     fake_loaders = types.ModuleType(
-        "gen3d.model.providers.step1x3d.pipeline.step1x3d_texture.loaders"
+        "cubie.model.providers.step1x3d.pipeline.step1x3d_texture.loaders"
     )
     fake_loaders.CustomAdapterMixin = object
     register(fake_loaders.__name__, fake_loaders)
 
     fake_attention = types.ModuleType(
-        "gen3d.model.providers.step1x3d.pipeline.step1x3d_texture.models.attention_processor"
+        "cubie.model.providers.step1x3d.pipeline.step1x3d_texture.models.attention_processor"
     )
     fake_attention.DecoupledMVRowSelfAttnProcessor2_0 = object
     fake_attention.set_unet_2d_condition_attn_processor = (
@@ -5601,13 +5612,13 @@ def _import_step1x3d_ig2mv_pipeline_module_with_test_stubs(  # noqa: C901
     register(fake_attention.__name__, fake_attention)
 
     fake_project = types.ModuleType(
-        "gen3d.model.providers.step1x3d.pipeline.step1x3d_texture.texture_sync.project"
+        "cubie.model.providers.step1x3d.pipeline.step1x3d_texture.texture_sync.project"
     )
     fake_project.UVProjection = object
     register(fake_project.__name__, fake_project)
 
     fake_step_sync = types.ModuleType(
-        "gen3d.model.providers.step1x3d.pipeline.step1x3d_texture.texture_sync.step_sync"
+        "cubie.model.providers.step1x3d.pipeline.step1x3d_texture.texture_sync.step_sync"
     )
     fake_step_sync.step_tex_sync = lambda *args, **kwargs: None
     register(fake_step_sync.__name__, fake_step_sync)

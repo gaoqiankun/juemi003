@@ -3,7 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from gen3d.auth.api_key_store import ApiKeyStore
+
+from cubie.auth.api_key_store import ApiKeyStore
 
 
 @pytest.fixture()

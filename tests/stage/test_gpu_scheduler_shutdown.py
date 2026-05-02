@@ -5,10 +5,10 @@ from __future__ import annotations
 import asyncio
 from typing import cast
 
-from gen3d.model.base import BaseModelProvider, GenerationResult
-from gen3d.model.registry import ModelRegistry, ModelRuntime
-from gen3d.stage.gpu.scheduler import GPUSlotScheduler, SchedulerShutdownError
-from gen3d.stage.gpu.worker import GPUWorkerHandle
+from cubie.model.base import BaseModelProvider, GenerationResult
+from cubie.model.registry import ModelRegistry, ModelRuntime
+from cubie.stage.gpu.scheduler import GPUSlotScheduler, SchedulerShutdownError
+from cubie.stage.gpu.worker import GPUWorkerHandle
 
 
 class FakeWorker:

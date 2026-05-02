@@ -39,9 +39,9 @@ docker compose up --build
 
 ```bash
 # 后端
-pip install -r requirements.txt
-python serve.py
-python -m pytest tests -q       # 161 passed
+uv sync
+uv run python -m cubie.serve
+uv run python -m pytest tests -q       # 221 passed
 
 # 前端
 cd web
@@ -53,11 +53,14 @@ npm run dev -- --host 127.0.0.1 --port 5173  # 开发服务器
 
 ```
 gen3d/
-├── api/        FastAPI 路由与 Schema
-├── engine/     任务引擎（调度 / 状态机 / 模型管理）
-├── model/      Provider 实现（trellis2 / hunyuan3d / step1x3d）
-├── stages/     任务 Stage（preprocess / gpu / export）
-├── storage/    存储层（SQLite + 文件系统/MinIO）
+├── cubie/api/               FastAPI 路由与 Schema
+├── cubie/task/              任务引擎（调度 / 状态机 / SQLite）
+├── cubie/model/providers/   Provider 实现（trellis2 / hunyuan3d / step1x3d）
+├── cubie/stage/             任务 Stage（preprocess / gpu / export）
+├── cubie/artifact/          产物存储（本地文件系统 / MinIO）
+├── cubie/auth/              API Key 与鉴权
+├── cubie/settings/          服务设置持久化
+├── cubie/core/              配置、分页、安全、观测
 ├── web/        React 前端 SPA
 ├── docker/     Dockerfile
 ├── scripts/    烟测脚本、模型下载脚本

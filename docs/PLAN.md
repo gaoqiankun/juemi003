@@ -143,7 +143,7 @@ HTTP 请求 (server 调用)
 
 ## 3. 各组件设计
 
-### 3.1 API Server（`api/`）
+### 3.1 API Server（`cubie/api/`）
 - FastAPI，与 AsyncGen3DEngine 共享 asyncio loop
 - Bearer token 分层鉴权（`ADMIN_TOKEN` 只创建特权 token；`key_manager` / `task_viewer` / `metrics` / `user` 各司其职）
 - 支持 `POST /v1/upload` 保存图片，并在任务流转里使用内部 `upload://{upload_id}` scheme
@@ -213,7 +213,7 @@ while True:
 - 支持 cancel 检查（在阶段边界，不是 step 边界）
 - SIGTERM → 完成当前 batch → 退出
 
-### 3.5.1 Model Provider 抽象层（`model/base.py`）
+### 3.5.1 Model Provider 抽象层（`cubie/model/base.py`）
 
 GPUWorker 不直接依赖 TRELLIS2，面向 `BaseModelProvider` 接口编程，方便后续换模型：
 
@@ -262,12 +262,12 @@ class BaseModelProvider(Protocol):
         ...
 ```
 
-**TRELLIS2 实现**（`model/trellis2/provider.py`）：
+**TRELLIS2 实现**（`cubie/model/providers/trellis2/provider.py`）：
 - 封装官方 `Trellis2ImageTo3DPipeline`
 - `export_glb` 调用 `o_voxel.postprocess.to_glb()`
 - `estimate_vram_mb`：按分辨率返回经验值 + 20% 裕量
 
-**未来换混元 3D**（`model/hunyuan3d/provider.py`）：
+**未来换混元 3D**（`cubie/model/providers/hunyuan3d/provider.py`）：
 - 实现同一接口，GPUWorker / Scheduler 代码无需改动
 
 **配置切换**（`config.py`）：
@@ -299,7 +299,7 @@ class ServingConfig(BaseSettings):
 每个 GPU 加载完整 TRELLIS2 pipeline，独立处理不同请求：
 
 ```bash
-python -m gen3d.serve \
+python -m cubie.serve \
   --model /models/trellis2 \
   --gpus 0,1,2,3 \           # 所有 GPU 均作为完整 pipeline worker
   --max-batch-size 2 \       # 每 GPU 每次处理 2 个请求（24GB VRAM 约束）
@@ -334,7 +334,7 @@ services:
 
 拆分 SS+Shape 与 Material 到不同 GPU 池，实现级间流水线并行：
 ```bash
-python -m gen3d.serve \
+python -m cubie.serve \
   --model /models/trellis2 \
   --geometry-gpus 0,1 \      # 只跑 SS + Shape
   --material-gpus 2,3 \      # 只跑 Material
@@ -579,7 +579,7 @@ ready                          # readiness gauge
 
 ```
 gen3d/
-├── serve.py                        # 入口：python -m gen3d.serve
+├── cubie/serve.py                  # 入口：python -m cubie.serve
 ├── config.py                       # ServingConfig (pydantic-settings)
 │
 ├── engine/
@@ -598,14 +598,14 @@ gen3d/
 │   └── export/
 │       └── stage.py                # CPU 线程池（o_voxel GLB + MinIO）
 │
-├── model/
+├── cubie/model/
 │   ├── base.py                     # BaseModelProvider 接口（所有模型必须实现）
 │   ├── trellis2/
 │   │   └── provider.py             # Trellis2Provider（封装官方 pipeline）
 │   └── hunyuan3d/
 │       └── provider.py             # Hunyuan3DProvider（未来实现）
 │
-├── api/
+├── cubie/api/
 │   ├── server.py                   # FastAPI app
 │   └── schemas.py                  # Pydantic 请求/响应模型
 │
@@ -652,7 +652,7 @@ gen3d/
 6. 端到端冒烟（mock，验证状态流转、进度上报、Webhook 回调）
 
 ### Phase B（1 周）：接入真实 TRELLIS2
-1. `model/trellis2/pipeline.py`：封装官方 `Trellis2ImageTo3DPipeline`
+1. `cubie/model/providers/trellis2/pipeline.py`：封装官方 `Trellis2ImageTo3DPipeline`
 2. GPUWorker 换用真实 pipeline，含 SS/Shape/Material 进度 hook
 3. ExportStage：`o_voxel.postprocess.to_glb()` + MinIO 上传
 4. SSE 实时进度推送

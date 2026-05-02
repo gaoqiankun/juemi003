@@ -6,12 +6,13 @@ import asyncio
 from typing import Any, Callable, cast
 
 import pytest
-from gen3d.model.base import BaseModelProvider, GenerationResult
-from gen3d.model.registry import ModelRuntime
-from gen3d.model.worker import ModelWorker
-from gen3d.stage.gpu.scheduler import GPUSlotScheduler
-from gen3d.stage.gpu.worker import GPUWorkerHandle
-from gen3d.vram.allocator import VRAMAllocator, WeightAllocation
+
+from cubie.model.base import BaseModelProvider, GenerationResult
+from cubie.model.registry import ModelRuntime
+from cubie.model.worker import ModelWorker
+from cubie.stage.gpu.scheduler import GPUSlotScheduler
+from cubie.stage.gpu.worker import GPUWorkerHandle
+from cubie.vram.allocator import VRAMAllocator, WeightAllocation
 
 
 class FakeModelStore:

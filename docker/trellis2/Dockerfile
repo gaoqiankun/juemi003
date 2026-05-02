@@ -92,24 +92,24 @@ RUN python -m pip install \
 RUN python -m pip install "git+https://github.com/EasternJournalist/utils3d.git@9a4eb15e4021b67b12c460c7057d642626897ec8"
 
 WORKDIR /workspace
-COPY model/trellis2/ext/o-voxel /workspace/model/trellis2/ext/o-voxel
-COPY model/step1x3d/ext/custom_rasterizer /workspace/model/step1x3d/ext/custom_rasterizer
-COPY model/step1x3d/ext/differentiable_renderer /workspace/model/step1x3d/ext/differentiable_renderer
+COPY cubie/model/providers/trellis2/ext/o-voxel /workspace/cubie/model/providers/trellis2/ext/o-voxel
+COPY cubie/model/providers/step1x3d/ext/custom_rasterizer /workspace/cubie/model/providers/step1x3d/ext/custom_rasterizer
+COPY cubie/model/providers/step1x3d/ext/differentiable_renderer /workspace/cubie/model/providers/step1x3d/ext/differentiable_renderer
 
 RUN TORCH_CUDA_ARCH_LIST=${TORCH_CUDA_ARCH_LIST} \
     FORCE_CUDA=1 \
     CUDA_HOME=/usr/local/cuda \
-    python -m pip install model/trellis2/ext/o-voxel --no-build-isolation
+    python -m pip install cubie/model/providers/trellis2/ext/o-voxel --no-build-isolation
 
 RUN TORCH_CUDA_ARCH_LIST=${TORCH_CUDA_ARCH_LIST} \
     FORCE_CUDA=1 \
     CUDA_HOME=/usr/local/cuda \
-    python -m pip install model/step1x3d/ext/custom_rasterizer --no-build-isolation
+    python -m pip install cubie/model/providers/step1x3d/ext/custom_rasterizer --no-build-isolation
 
 RUN TORCH_CUDA_ARCH_LIST=${TORCH_CUDA_ARCH_LIST} \
     FORCE_CUDA=1 \
     CUDA_HOME=/usr/local/cuda \
-    python -m pip install model/step1x3d/ext/differentiable_renderer --no-build-isolation
+    python -m pip install cubie/model/providers/step1x3d/ext/differentiable_renderer --no-build-isolation
 
 RUN git clone -b v0.4.0 https://github.com/NVlabs/nvdiffrast.git /tmp/nvdiffrast && \
     python -m pip install /tmp/nvdiffrast --no-build-isolation && \

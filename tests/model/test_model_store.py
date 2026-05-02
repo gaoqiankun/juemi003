@@ -3,7 +3,8 @@ from __future__ import annotations
 import sqlite3
 
 import pytest
-from gen3d.model.store import ModelStore
+
+from cubie.model.store import ModelStore
 
 
 @pytest.fixture()

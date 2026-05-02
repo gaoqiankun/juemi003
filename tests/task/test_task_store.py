@@ -5,9 +5,9 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from gen3d.model.store import ModelStore
-from gen3d.task.sequence import TaskStatus
-from gen3d.task.store import TaskStore, serialize_datetime
+from cubie.model.store import ModelStore
+from cubie.task.sequence import TaskStatus
+from cubie.task.store import TaskStore, serialize_datetime
 
 
 def _now() -> datetime:

@@ -40,14 +40,13 @@ RUN apt-get update && \
     uv export --group worker --no-dev --frozen --no-emit-project -o /tmp/requirements.txt && \
     uv pip install --system --index-url ${PIP_INDEX_URL} -r /tmp/requirements.txt
 
-# Keep the checkout under /app/gen3d so `python serve.py` sees the same
-# package layout as a normal repo checkout (`<parent>/gen3d/...`).
-COPY . /app/gen3d
-COPY --from=web-builder /web/dist /app/gen3d/web/dist
+# Project source lives under /app/cubie.
+COPY . /app/cubie
+COPY --from=web-builder /web/dist /app/cubie/web/dist
 
-RUN chmod +x /app/gen3d/scripts/download_models.sh
+RUN chmod +x /app/cubie/scripts/download_models.sh
 
-WORKDIR /app/gen3d
+WORKDIR /app/cubie
 
 ENV PROVIDER_MODE=real \
     ARTIFACT_STORE_MODE=local \
@@ -56,4 +55,4 @@ ENV PROVIDER_MODE=real \
 
 EXPOSE 18001
 
-CMD ["python", "serve.py"]
+CMD ["python", "-m", "cubie.serve"]

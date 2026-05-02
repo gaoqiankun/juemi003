@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import asyncio
 
-from gen3d.model.scheduler import (
+from cubie.model.scheduler import (
     ModelScheduler,
     SchedulerCapReachedError,
     normalize_model_name,
 )
-from gen3d.settings.store import (
+from cubie.settings.store import (
     MAX_LOADED_MODELS_KEY,
     MAX_TASKS_PER_SLOT_KEY,
 )

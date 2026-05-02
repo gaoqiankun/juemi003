@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from gen3d.stage.gpu.scheduler import FlowMatchingScheduler
+from cubie.stage.gpu.scheduler import FlowMatchingScheduler
 
 
 def test_scheduler_collects_waiting_items_in_order() -> None:

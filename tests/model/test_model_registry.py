@@ -7,15 +7,16 @@ import time
 from typing import cast
 
 import pytest
-from gen3d.api.server import persist_vram_estimate_measurement, update_vram_estimate
-from gen3d.model.base import BaseModelProvider, GenerationResult
-from gen3d.model.registry import (
+
+from cubie.api.server import persist_vram_estimate_measurement, update_vram_estimate
+from cubie.model.base import BaseModelProvider, GenerationResult
+from cubie.model.registry import (
     ModelRegistry,
     ModelRegistryLoadError,
     ModelRuntime,
 )
-from gen3d.stage.gpu.scheduler import GPUSlotScheduler
-from gen3d.stage.gpu.worker import GPUWorkerHandle
+from cubie.stage.gpu.scheduler import GPUSlotScheduler
+from cubie.stage.gpu.worker import GPUWorkerHandle
 
 
 class FakeGPUWorker:

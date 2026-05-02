@@ -5,7 +5,8 @@ from __future__ import annotations
 import asyncio
 
 import pytest
-from gen3d.vram.allocator import (
+
+from cubie.vram.allocator import (
     InferenceAllocation,
     VRAMAllocator,
     VRAMInsufficientError,

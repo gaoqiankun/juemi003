@@ -63,9 +63,9 @@ class DepSpec:
 
 def provider_dep_specs(provider_type: str) -> list[DepSpec]:
     try:
-        from gen3d.model.providers.hunyuan3d.provider import Hunyuan3DProvider
-        from gen3d.model.providers.step1x3d.provider import Step1X3DProvider
-        from gen3d.model.providers.trellis2.provider import Trellis2Provider
+        from cubie.model.providers.hunyuan3d.provider import Hunyuan3DProvider
+        from cubie.model.providers.step1x3d.provider import Step1X3DProvider
+        from cubie.model.providers.trellis2.provider import Trellis2Provider
     except Exception as exc:
         raise RuntimeError(f"failed to import providers: {exc}") from exc
 

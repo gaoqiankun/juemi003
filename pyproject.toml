@@ -32,9 +32,9 @@ worker = [
 exclude = [
     ".venv",
     "Hunyuan3D-2",
-    "model/providers/trellis2/ext",
-    "model/providers/step1x3d/ext",
-    "model/providers/hunyuan3d/pipeline",
+    "cubie/model/providers/trellis2/ext",
+    "cubie/model/providers/step1x3d/ext",
+    "cubie/model/providers/hunyuan3d/pipeline",
 ]
 
 [tool.ruff.lint]

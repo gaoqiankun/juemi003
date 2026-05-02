@@ -7,13 +7,14 @@ from collections import deque
 from typing import cast
 
 import pytest
-from gen3d.model.base import BaseModelProvider, GenerationResult
-from gen3d.model.registry import ModelRegistry, ModelRuntime
-from gen3d.stage.gpu.scheduler import GPUSlot, GPUSlotScheduler
-from gen3d.stage.gpu.stage import GPUStage
-from gen3d.stage.gpu.worker import GPUWorkerHandle
-from gen3d.task.sequence import RequestSequence, TaskStatus
-from gen3d.vram.allocator import InternalVRAMContentionTimeoutError
+
+from cubie.model.base import BaseModelProvider, GenerationResult
+from cubie.model.registry import ModelRegistry, ModelRuntime
+from cubie.stage.gpu.scheduler import GPUSlot, GPUSlotScheduler
+from cubie.stage.gpu.stage import GPUStage
+from cubie.stage.gpu.worker import GPUWorkerHandle
+from cubie.task.sequence import RequestSequence, TaskStatus
+from cubie.vram.allocator import InternalVRAMContentionTimeoutError
 
 
 class FakeMigratingWorker:

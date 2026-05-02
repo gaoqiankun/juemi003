@@ -3,7 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from gen3d.settings.store import SettingsStore
+
+from cubie.settings.store import SettingsStore
 
 
 @pytest.fixture()

@@ -9,7 +9,7 @@ from pathlib import Path
 import httpx
 
 if __package__ in {None, ""}:
-    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 DEFAULT_SAMPLE_IMAGE_URL = (
     "data:image/png;base64,"
