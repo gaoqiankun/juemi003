@@ -9,8 +9,8 @@ from typing import Any, Awaitable, Callable, Iterable, Protocol
 import structlog
 
 from cubie.model.base import BaseModelProvider
+from cubie.model.gpu_scheduler import GPUSlotScheduler, GPUWorkerHandle
 from cubie.model.worker import ModelWorker
-from cubie.stage.gpu.scheduler import GPUSlotScheduler, GPUWorkerHandle
 
 _ORIGINAL_ASYNCIO_SLEEP = asyncio.sleep
 

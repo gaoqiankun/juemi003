@@ -20,13 +20,14 @@ from prometheus_client.parser import text_string_to_metric_families
 
 from cubie.api import server as server_module
 from cubie.api.helpers import artifacts as artifacts_helpers
-from cubie.api.helpers import hf as hf_helpers
+from cubie.api.routers import spa as spa_router
 from cubie.api.server import create_app, run_real_mode_preflight
 from cubie.artifact.store import (
     ArtifactStoreConfigurationError,
     ArtifactStoreOperationError,
     ObjectStorageStreamResult,
 )
+from cubie.core import hf as hf_helpers
 from cubie.core.config import ServingConfig
 from cubie.model import runtime as runtime_helpers
 from cubie.model.base import (
@@ -554,7 +555,7 @@ def test_dev_proxy_is_disabled_by_default(tmp_path: Path, monkeypatch: pytest.Mo
 
     assert health_response.status_code == 200
     assert health_response.json() == {"status": "ok", "service": "cubie3d"}
-    expected_root_status = 200 if server_module.SPA_INDEX_PATH.is_file() else 204
+    expected_root_status = 200 if spa_router.SPA_INDEX_PATH.is_file() else 204
     assert root_response.status_code == expected_root_status
 
 
@@ -710,7 +711,7 @@ def test_root_and_spa_routes_serve_built_index_when_present(
     spa_index = tmp_path / "dist" / "index.html"
     spa_index.parent.mkdir(parents=True, exist_ok=True)
     spa_index.write_text("<!doctype html><html><body>cubie3d spa</body></html>", encoding="utf-8")
-    monkeypatch.setattr(server_module, "SPA_INDEX_PATH", spa_index)
+    monkeypatch.setattr(spa_router, "SPA_INDEX_PATH", spa_index)
 
     with make_client(tmp_path) as client:
         root_response = client.get("/")
@@ -737,8 +738,8 @@ def test_root_assets_and_legacy_static_routes_work_with_built_spa(
     spa_dist.mkdir(parents=True, exist_ok=True)
     spa_index.write_text("<!doctype html><html><body>cubie3d static spa</body></html>", encoding="utf-8")
     (spa_dist / "favicon.svg").write_text("<svg></svg>", encoding="utf-8")
-    monkeypatch.setattr(server_module, "WEB_DIST_DIR", spa_dist)
-    monkeypatch.setattr(server_module, "SPA_INDEX_PATH", spa_index)
+    monkeypatch.setattr(spa_router, "WEB_DIST_DIR", spa_dist)
+    monkeypatch.setattr(spa_router, "SPA_INDEX_PATH", spa_index)
 
     with make_client(tmp_path) as client:
         generate_response = client.get("/generate")
@@ -767,7 +768,7 @@ def test_dev_proxy_does_not_forward_spa_routes(
     spa_index = tmp_path / "dist" / "index.html"
     spa_index.parent.mkdir(parents=True, exist_ok=True)
     spa_index.write_text("<!doctype html><html><body>local spa</body></html>", encoding="utf-8")
-    monkeypatch.setattr(server_module, "SPA_INDEX_PATH", spa_index)
+    monkeypatch.setattr(spa_router, "SPA_INDEX_PATH", spa_index)
 
     class FakeProxyClient:
         def __init__(self, *args, **kwargs) -> None:

@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 import structlog
 
@@ -25,6 +25,24 @@ def cleanup_temporary_artifact(path: Path) -> None:
         path.unlink()
     except FileNotFoundError:
         pass
+
+
+def build_artifact_download_headers(
+    *,
+    file_name: str,
+    content_length: int | None = None,
+    etag: str | None = None,
+) -> dict[str, str]:
+    safe_name = Path(file_name).name or "artifact"
+    headers = {
+        "Content-Disposition": f"attachment; filename*=utf-8''{quote(safe_name)}",
+    }
+    if content_length is not None and content_length >= 0:
+        headers["Content-Length"] = str(content_length)
+    if etag:
+        headers["ETag"] = str(etag)
+    return headers
+
 
 def extract_artifact_filename(path: str) -> str | None:
     parts = [part for part in path.split("/") if part]

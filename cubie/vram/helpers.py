@@ -4,7 +4,7 @@ from typing import Any
 
 import structlog
 
-from cubie.api.helpers.gpu_device import get_gpu_device_info
+from cubie.core.gpu import get_gpu_device_info
 
 _DEFAULT_DEVICE_TOTAL_VRAM_MB = 24 * 1024
 _DEFAULT_WEIGHT_RATIO = 0.75

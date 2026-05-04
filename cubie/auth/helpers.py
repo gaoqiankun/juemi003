@@ -1,6 +1,27 @@
 from __future__ import annotations
 
+import secrets
+
+from fastapi.security import HTTPAuthorizationCredentials
+
 from cubie.auth.api_key_store import ApiKeyStore
+
+
+def extract_bearer_token(
+    credentials: HTTPAuthorizationCredentials | None,
+) -> str | None:
+    if credentials is None or credentials.scheme.lower() != "bearer":
+        return None
+    token = credentials.credentials.strip()
+    return token or None
+
+
+def is_valid_token(provided_token: str | None, configured_token: str | None) -> bool:
+    return (
+        provided_token is not None
+        and configured_token is not None
+        and secrets.compare_digest(provided_token, configured_token)
+    )
 
 
 def short_key_id(key_id: str | None) -> str:

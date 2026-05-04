@@ -8,7 +8,7 @@ from typing import Any, Awaitable, Callable, Protocol, cast
 import structlog
 
 from cubie.model.base import GenerationResult, StageProgress
-from cubie.stage.gpu.scheduler import GPUSlotScheduler, GPUWorkerHandle
+from cubie.model.gpu_scheduler import GPUSlotScheduler, GPUWorkerHandle
 from cubie.vram.allocator import (
     InferenceAllocation,
     VRAMAllocator,

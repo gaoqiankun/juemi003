@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 
 from cubie.model.base import ModelProviderExecutionError
-from cubie.stage.gpu.worker import (
+from cubie.model.gpu_subprocess import (
     PendingRequest,
     ProcessGPUWorker,
     WorkerProcessConfig,

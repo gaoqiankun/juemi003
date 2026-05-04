@@ -9,10 +9,10 @@ from typing import cast
 import pytest
 
 from cubie.model.base import BaseModelProvider, GenerationResult
+from cubie.model.gpu_scheduler import GPUSlot, GPUSlotScheduler
+from cubie.model.gpu_subprocess import GPUWorkerHandle
 from cubie.model.registry import ModelRegistry, ModelRuntime
-from cubie.stage.gpu.scheduler import GPUSlot, GPUSlotScheduler
 from cubie.stage.gpu.stage import GPUStage
-from cubie.stage.gpu.worker import GPUWorkerHandle
 from cubie.task.sequence import RequestSequence, TaskStatus
 from cubie.vram.allocator import InternalVRAMContentionTimeoutError
 

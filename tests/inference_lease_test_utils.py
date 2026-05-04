@@ -5,11 +5,11 @@ from __future__ import annotations
 from typing import Any, Callable, cast
 
 from cubie.model.base import BaseModelProvider, GenerationResult
+from cubie.model.gpu_scheduler import GPUSlotScheduler
+from cubie.model.gpu_subprocess import GPUWorkerHandle
 from cubie.model.registry import ModelRuntime
 from cubie.model.worker import ModelWorker
 from cubie.stage.base import BaseStage, StageExecutionError, StageUpdateHandler
-from cubie.stage.gpu.scheduler import GPUSlotScheduler
-from cubie.stage.gpu.worker import GPUWorkerHandle
 from cubie.task.sequence import RequestSequence, TaskStatus
 from cubie.vram.allocator import VRAMAllocator
 

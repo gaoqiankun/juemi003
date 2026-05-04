@@ -8,8 +8,8 @@ import sys
 import threading
 import types
 
-from cubie.stage.gpu import worker as worker_module
-from cubie.stage.gpu.worker import (
+from cubie.model import gpu_subprocess as worker_module
+from cubie.model.gpu_subprocess import (
     PendingRequest,
     ProcessGPUWorker,
     WorkerProcessConfig,
