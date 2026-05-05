@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 from fastapi import APIRouter, Depends
 from fastapi.responses import PlainTextResponse
 
-from cubie.api.routers.auth import build_require_scoped_api_key
+from cubie.api.helpers.auth import build_require_scoped_api_key
 from cubie.auth.api_key_store import METRICS_SCOPE
 from cubie.core.observability.metrics import render_metrics
 

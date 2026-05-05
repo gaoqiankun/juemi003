@@ -10,8 +10,8 @@ import pytest
 
 from cubie.api.server import persist_vram_estimate_measurement, update_vram_estimate
 from cubie.model.base import BaseModelProvider, GenerationResult
+from cubie.model.gpu import GPUWorkerHandle
 from cubie.model.gpu_scheduler import GPUSlotScheduler
-from cubie.model.gpu_subprocess import GPUWorkerHandle
 from cubie.model.registry import (
     ModelRegistry,
     ModelRegistryLoadError,

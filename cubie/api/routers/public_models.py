@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Depends
 
-from cubie.api.routers.auth import build_require_bearer_token
+from cubie.api.helpers.auth import build_require_bearer_token
 from cubie.api.schemas import UserModelListResponse, UserModelSummary
 
 if TYPE_CHECKING:

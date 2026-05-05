@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
-from cubie.api.routers.auth import build_require_bearer_token
+from cubie.api.helpers.auth import build_require_bearer_token
 from cubie.api.schemas import UploadImageResponse
 
 if TYPE_CHECKING:

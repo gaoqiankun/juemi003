@@ -4,8 +4,8 @@ from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Depends
 
+from cubie.api.helpers.auth import build_require_admin_token
 from cubie.api.helpers.tasks import map_task_status
-from cubie.api.routers.auth import build_require_admin_token
 from cubie.auth.helpers import build_user_key_label_map, resolve_task_owner
 
 if TYPE_CHECKING:

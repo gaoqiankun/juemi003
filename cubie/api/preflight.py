@@ -72,6 +72,3 @@ async def run_real_mode_preflight(config: ServingConfig) -> dict[str, Any]:
         "provider": provider_report,
         "artifact_store": artifact_report,
     }
-
-def validate_runtime_security_config(config: ServingConfig) -> None:
-    del config

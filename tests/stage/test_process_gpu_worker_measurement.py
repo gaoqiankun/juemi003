@@ -8,13 +8,13 @@ import sys
 import threading
 import types
 
-from cubie.model import gpu_subprocess as worker_module
-from cubie.model.gpu_subprocess import (
+from cubie.model.gpu import (
     PendingRequest,
     ProcessGPUWorker,
     WorkerProcessConfig,
     worker_process_main,
 )
+from cubie.model.gpu import worker_main as worker_module
 
 
 class FakeProcess:

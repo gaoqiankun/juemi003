@@ -9,8 +9,8 @@ from typing import cast
 import pytest
 
 from cubie.model.base import BaseModelProvider, GenerationResult
+from cubie.model.gpu import GPUWorkerHandle
 from cubie.model.gpu_scheduler import GPUSlot, GPUSlotScheduler
-from cubie.model.gpu_subprocess import GPUWorkerHandle
 from cubie.model.registry import ModelRegistry, ModelRuntime
 from cubie.stage.gpu.stage import GPUStage
 from cubie.task.sequence import RequestSequence, TaskStatus

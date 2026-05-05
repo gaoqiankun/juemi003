@@ -4,8 +4,8 @@ from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Depends
 
+from cubie.api.helpers.auth import build_require_admin_token
 from cubie.api.helpers.deps import build_dep_response_rows
-from cubie.api.routers.auth import build_require_admin_token
 
 if TYPE_CHECKING:
     from cubie.api.server import AppContainer

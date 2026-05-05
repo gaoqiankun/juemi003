@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Depends
 
-from cubie.api.routers.auth import build_require_admin_token
+from cubie.api.helpers.auth import build_require_admin_token
 from cubie.core.gpu import get_gpu_device_info
 
 if TYPE_CHECKING:

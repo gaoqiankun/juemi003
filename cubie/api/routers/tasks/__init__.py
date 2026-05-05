@@ -6,17 +6,7 @@ from typing import TYPE_CHECKING
 from fastapi import APIRouter, Depends, Query, Response, status
 from fastapi.responses import StreamingResponse
 
-from cubie.api.routers.auth import build_require_bearer_token
-from cubie.api.routers.task_artifacts import handle_download_artifact
-from cubie.api.routers.task_handlers import (
-    handle_cancel_task,
-    handle_create_task,
-    handle_delete_task,
-    handle_get_artifacts,
-    handle_get_task,
-    handle_list_tasks,
-    handle_task_events,
-)
+from cubie.api.helpers.auth import build_require_bearer_token
 from cubie.api.schemas import (
     CursorPaginationParams,
     TaskArtifactsResponse,
@@ -24,6 +14,17 @@ from cubie.api.schemas import (
     TaskCreateResponse,
     TaskListResponse,
     TaskResponse,
+)
+
+from .artifacts import handle_download_artifact
+from .handlers import (
+    handle_cancel_task,
+    handle_create_task,
+    handle_delete_task,
+    handle_get_artifacts,
+    handle_get_task,
+    handle_list_tasks,
+    handle_task_events,
 )
 
 if TYPE_CHECKING:

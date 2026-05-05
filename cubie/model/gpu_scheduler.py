@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Any, Generic, Iterable, TypeVar
 
 from cubie.core.observability.metrics import initialize_gpu_slots, set_gpu_slot_active
-from cubie.model.gpu_subprocess import GPUWorkerHandle
+from cubie.model.gpu import GPUWorkerHandle
 
 T = TypeVar("T")
 

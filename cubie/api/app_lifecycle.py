@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from cubie.api.routers.admin_model_downloads import cancel_model_download_task
+from cubie.api.routers.admin.models.downloads import cancel_model_download_task
 from cubie.core.gpu import (
     normalize_persisted_disabled_devices,
     ordered_disabled_devices,

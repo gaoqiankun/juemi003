@@ -16,8 +16,8 @@ from cubie.artifact.store import (
     ArtifactStoreOperationError,
     ObjectStorageStreamResult,
 )
+from cubie.model.gpu import build_gpu_workers
 from cubie.model.gpu_scheduler import GPUSlotScheduler
-from cubie.model.gpu_subprocess import build_gpu_workers
 from cubie.model.providers.trellis2.provider import MockTrellis2Provider
 from cubie.model.registry import ModelRegistry, ModelRuntime
 from cubie.stage.export.preview_renderer_service import PreviewRendererServiceProtocol

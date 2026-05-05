@@ -4,8 +4,10 @@ from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Depends, Query, status
 
-from cubie.api.routers.admin_model_create import handle_create_model
-from cubie.api.routers.admin_model_handlers import (
+from cubie.api.helpers.auth import build_require_admin_token
+
+from .create import handle_create_model
+from .handlers import (
     handle_delete_model,
     handle_get_model,
     handle_get_model_deps,
@@ -15,7 +17,6 @@ from cubie.api.routers.admin_model_handlers import (
     handle_unload_model,
     handle_update_model,
 )
-from cubie.api.routers.auth import build_require_admin_token
 
 if TYPE_CHECKING:
     from cubie.api.server import AppContainer

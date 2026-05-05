@@ -11,20 +11,17 @@ from fastapi import FastAPI, HTTPException, Request, status
 
 from cubie.api.app_components import build_app_components
 from cubie.api.app_lifecycle import close_app_container, initialize_app_container
-from cubie.api.routers import include_api_routers
-from cubie.api.routers.dev_proxy import (
+from cubie.api.dev_proxy import (
     forward_dev_proxy_request,
     rewrite_legacy_api_path,
     should_proxy_dev_request,
 )
+from cubie.api.preflight import run_real_mode_preflight  # noqa: F401
+from cubie.api.routers import include_api_routers
 from cubie.artifact.store import ArtifactStore
 from cubie.core.config import ServingConfig
 from cubie.model.runtime import build_model_runtime
 from cubie.model.store import ModelStore
-from cubie.preflight import (
-    run_real_mode_preflight,  # noqa: F401
-    validate_runtime_security_config,
-)
 from cubie.stage.export.preview_renderer_service import (
     PreviewRendererServiceProtocol,
 )
@@ -205,7 +202,6 @@ def create_app(
     preview_renderer_service: PreviewRendererServiceProtocol | None = None,
 ) -> FastAPI:
     config = config or ServingConfig()
-    validate_runtime_security_config(config)
     container = AppContainer(
         **build_app_components(
             config=config,

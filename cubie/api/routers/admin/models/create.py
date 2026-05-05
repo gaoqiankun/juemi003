@@ -8,7 +8,8 @@ from urllib.parse import urlsplit
 from fastapi import HTTPException
 
 from cubie.api.helpers.deps import prepare_dep_assignments
-from cubie.api.routers.admin_model_downloads import (
+
+from .downloads import (
     cancel_model_download_task,
     run_model_weight_download,
 )
