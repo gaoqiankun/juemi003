@@ -17,6 +17,7 @@ from cubie.model.registry import (
     ModelRegistryLoadError,
     ModelRuntime,
 )
+from cubie.vram.allocator import VRAMAllocator
 
 
 class FakeGPUWorker:
@@ -58,6 +59,16 @@ class BlockingStopWorker(FakeGPUWorker):
         self.stop_calls += 1
         self.stop_started.set()
         await self.allow_stop.wait()
+
+
+class ExternallyEvictedWorker:
+    def __init__(self) -> None:
+        self.evict_calls = 0
+        self.weight_allocated = True
+
+    async def evict(self) -> None:
+        self.evict_calls += 1
+        self.weight_allocated = False
 
 
 def _build_runtime(model_name: str, worker: FakeGPUWorker) -> ModelRuntime:
@@ -173,6 +184,72 @@ def test_wait_ready_waits_for_scheduler_to_load() -> None:
         runtime = await asyncio.wait_for(wait_task, timeout=0.5)
         assert runtime.model_name == "trellis2"
         assert registry.get_state("trellis2") == "ready"
+        await registry.close()
+
+    asyncio.run(scenario())
+
+
+def test_wait_ready_recovers_after_external_eviction() -> None:
+    async def scenario() -> None:
+        attempts = 0
+
+        def runtime_loader(model_name: str) -> ModelRuntime:
+            nonlocal attempts
+            attempts += 1
+            return _build_runtime(model_name, FakeGPUWorker(str(attempts)))
+
+        registry = ModelRegistry(runtime_loader)
+        registry.load("trellis2")
+        first_runtime = await registry.wait_ready("trellis2")
+
+        entry = registry._entries["trellis2"]
+        assert entry.worker is not None
+        entry.worker._loaded = False
+
+        second_runtime = await asyncio.wait_for(
+            registry.wait_ready("trellis2", timeout_seconds=1.0),
+            timeout=1.0,
+        )
+
+        assert second_runtime is not first_runtime
+        assert second_runtime.assigned_device_id == "2"
+        assert registry.get_state("trellis2") == "ready"
+        assert attempts == 2
+        await registry.close()
+
+    asyncio.run(scenario())
+
+
+def test_evict_worker_notifies_registry() -> None:
+    async def scenario() -> None:
+        unloaded_events: list[str] = []
+
+        def runtime_loader(model_name: str) -> ModelRuntime:
+            return _build_runtime(model_name, FakeGPUWorker("0"))
+
+        allocator = VRAMAllocator(device_totals_mb={"0": 24_000})
+        registry = ModelRegistry(runtime_loader)
+        allocator.add_eviction_listener(registry.on_external_eviction)
+        registry.add_model_unloaded_listener(unloaded_events.append)
+        registry.load("trellis2")
+        await registry.wait_ready("trellis2")
+        old_event = registry._entries["trellis2"].event
+
+        candidate_worker = ExternallyEvictedWorker()
+        evicted = await allocator.evict_worker(
+            device_id="0",
+            requester_model_name="hunyuan3d",
+            candidate_model_name="trellis2",
+            candidate_worker=candidate_worker,
+        )
+
+        entry = registry._entries["trellis2"]
+        assert evicted is True
+        assert candidate_worker.evict_calls == 1
+        assert registry.get_state("trellis2") == "not_loaded"
+        assert entry.worker is None
+        assert entry.event is not old_event
+        assert unloaded_events == ["trellis2"]
         await registry.close()
 
     asyncio.run(scenario())

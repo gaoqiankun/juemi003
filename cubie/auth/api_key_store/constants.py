@@ -1,0 +1,12 @@
+from __future__ import annotations
+
+USER_KEY_SCOPE = "user"
+KEY_MANAGER_SCOPE = "key_manager"
+TASK_VIEWER_SCOPE = "task_viewer"
+METRICS_SCOPE = "metrics"
+PRIVILEGED_KEY_SCOPES = (
+    KEY_MANAGER_SCOPE,
+    TASK_VIEWER_SCOPE,
+    METRICS_SCOPE,
+)
+VALID_API_KEY_SCOPES = (USER_KEY_SCOPE, *PRIVILEGED_KEY_SCOPES)

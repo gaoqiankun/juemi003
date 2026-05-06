@@ -148,10 +148,7 @@ def get_assigned_dep_types(conn: sqlite3.Connection, model_id: str) -> set[str]:
     return {str(r["dep_type"]) for r in rows}
 
 
-def migrate(conn: sqlite3.Connection, dry_run: bool) -> tuple[int, int, int]:
-    """
-    Returns (models_updated, instances_created, assignments_added).
-    """
+def _ensure_dep_instances_table(conn: sqlite3.Connection) -> None:
     # Verify dep_instances table exists (app must have started once to create it)
     dep_instances_exists = conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='dep_instances' LIMIT 1"
@@ -163,6 +160,65 @@ def migrate(conn: sqlite3.Connection, dry_run: bool) -> tuple[int, int, int]:
             file=sys.stderr,
         )
         sys.exit(1)
+
+
+def _resolve_or_create_instance(
+    conn: sqlite3.Connection,
+    spec: DepSpec,
+    dep_type_instance_cache: dict[str, str],
+    dry_run: bool,
+) -> tuple[str, str, int]:
+    dep_type = spec.dep_type
+
+    if dep_type in dep_type_instance_cache:
+        return dep_type_instance_cache[dep_type], "reuse-cached", 0
+
+    existing = get_best_instance_for_dep_type(conn, dep_type)
+    if existing:
+        instance_id = str(existing["id"])
+        dep_type_instance_cache[dep_type] = instance_id
+        return instance_id, f"reuse-existing (status={existing['download_status']})", 0
+
+    resolved = resolve_local_snapshot(spec.hf_repo_id)
+    has_weights = snapshot_has_model_weights(resolved)
+    status = "done" if has_weights else "pending"
+    resolved_path = resolved if has_weights else None
+    progress = 100 if has_weights else 0
+    display_name = spec.dep_type
+    instance_id = dep_type  # use dep_type as id for the default instance
+
+    suffix = f" → {resolved_path}" if resolved_path else " (will download)"
+    action = f"create-new ({status}){suffix}"
+
+    if not dry_run:
+        conn.execute(
+            """
+            INSERT OR IGNORE INTO dep_instances
+                (id, dep_type, hf_repo_id, display_name, weight_source,
+                 resolved_path, download_status, download_progress,
+                 download_speed_bps, download_error)
+            VALUES (?, ?, ?, ?, 'huggingface', ?, ?, ?, 0, NULL)
+            """,
+            (
+                instance_id,
+                dep_type,
+                spec.hf_repo_id,
+                display_name,
+                resolved_path,
+                status,
+                progress,
+            ),
+        )
+
+    dep_type_instance_cache[dep_type] = instance_id
+    return instance_id, action, 1
+
+
+def migrate(conn: sqlite3.Connection, dry_run: bool) -> tuple[int, int, int]:
+    """
+    Returns (models_updated, instances_created, assignments_added).
+    """
+    _ensure_dep_instances_table(conn)
 
     model_rows = conn.execute(
         "SELECT id, provider_type FROM model_definitions "
@@ -197,54 +253,10 @@ def migrate(conn: sqlite3.Connection, dry_run: bool) -> tuple[int, int, int]:
         model_had_update = False
         for spec in missing:
             dep_type = spec.dep_type
-
-            # Determine which instance_id to link
-            if dep_type in dep_type_instance_cache:
-                instance_id = dep_type_instance_cache[dep_type]
-                action = "reuse-cached"
-            else:
-                existing = get_best_instance_for_dep_type(conn, dep_type)
-                if existing:
-                    instance_id = str(existing["id"])
-                    dep_type_instance_cache[dep_type] = instance_id
-                    action = f"reuse-existing (status={existing['download_status']})"
-                else:
-                    # Create a new dep_instance
-                    resolved = resolve_local_snapshot(spec.hf_repo_id)
-                    has_weights = snapshot_has_model_weights(resolved)
-                    status = "done" if has_weights else "pending"
-                    resolved_path = resolved if has_weights else None
-                    progress = 100 if has_weights else 0
-                    display_name = spec.dep_type
-                    instance_id = dep_type  # use dep_type as id for the default instance
-
-                    suffix = f" → {resolved_path}" if resolved_path else " (will download)"
-                    action = f"create-new ({status}){suffix}"
-
-                    if not dry_run:
-                        conn.execute(
-                            """
-                            INSERT OR IGNORE INTO dep_instances
-                                (id, dep_type, hf_repo_id, display_name, weight_source,
-                                 resolved_path, download_status, download_progress,
-                                 download_speed_bps, download_error)
-                            VALUES (?, ?, ?, ?, 'huggingface', ?, ?, ?, 0, NULL)
-                            """,
-                            (
-                                instance_id,
-                                dep_type,
-                                spec.hf_repo_id,
-                                display_name,
-                                resolved_path,
-                                status,
-                                progress,
-                            ),
-                        )
-                        instances_created += 1
-                    else:
-                        instances_created += 1
-
-                    dep_type_instance_cache[dep_type] = instance_id
+            instance_id, action, created_delta = _resolve_or_create_instance(
+                conn, spec, dep_type_instance_cache, dry_run
+            )
+            instances_created += created_delta
 
             print(
                 f"  model={model_id}  dep_type={dep_type}  instance={instance_id}  [{action}]"

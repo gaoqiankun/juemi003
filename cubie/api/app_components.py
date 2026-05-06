@@ -127,6 +127,7 @@ def build_app_components(
         )
 
     model_registry = ModelRegistry(create_model_worker)
+    vram_allocator.add_eviction_listener(model_registry.on_external_eviction)
     model_scheduler = ModelScheduler(
         model_registry=model_registry,
         task_store=task_store,

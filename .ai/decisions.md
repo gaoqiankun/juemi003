@@ -5,6 +5,12 @@
 
 ---
 
+## 2026-05-06
+
+- **已知未修 bug:request_inference 在 mid-load worker 存在时误报 VRAMInsufficient**:`_attempt_local_book_with_eviction` 的 wait loop 不区分"device 上没有 worker"与"device 上有 mid-load worker"。后者(weight_allocated=False 但 _weight_allocation 已写入)被 `idle_candidates_on` 过滤,wait loop 在 `_MIGRATION_WAIT_SECONDS` 内等不到 mid-load 完成 → raise。生产现象:并发提交两个大模型任务时,后到的 inference 请求会被误报"insufficient VRAM"(其实只要等前者加载完就能驱逐)。修法待定(预计 ~60 行 diff:Worker.is_loading property + inference wait loop 区分对待 + 状态组合测试)。
+
+- **Allocator 直接驱逐(`evict_worker`)现在通知 registry**(plan: `2026-05-06-stage-u-fix-allocator-eviction-registry-sync.md`):`VRAMAllocator` 加 `add_eviction_listener` API,`ModelRegistry.on_external_eviction` 注册为 listener — `evict_worker` 成功后 reset registry entry 到 `not_loaded`,清 `entry.worker`。`wait_ready` 在 ready 分支补防御 guard:见 `entry.worker.weight_allocated == False` 视为 stale,reset entry + re-trigger load + 继续 poll。修 pre-existing 架构 bug(自 `c204aac` 引入,与 cleanup batch K-T 无关)— trellis2 idle 被 evict 后再次提交触发 `RuntimeError("model not loaded")` 的症状。**注意**:这是补丁式修复 — 当前仍存两条 unload 代码路径(`registry.unload` vs `allocator.evict_worker`),只是终态一致。统一 unload 入口需重构 allocator 锁结构,作为后续架构清债任务。
+
 ## 2026-04-24
 
 - **ModelScheduler 超 `max_loaded_models` cap 时自动 LRU evict，原 silent-return bug 修复**（plan: `2026-04-24-scheduler-cap-evict.md`）：
