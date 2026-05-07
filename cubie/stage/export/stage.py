@@ -10,13 +10,17 @@ from typing import Iterator
 import structlog
 from structlog.contextvars import bound_contextvars
 
-from cubie.artifact.store import ArtifactStore, ArtifactStoreOperationError
-from cubie.core.observability.metrics import observe_stage_duration
-from cubie.model.base import GenerationResult, ModelProviderExecutionError
-from cubie.model.registry import ModelRegistry, ModelRuntime
-from cubie.stage.base import BaseStage, StageExecutionError, StageUpdateHandler
+from cubie.artifact import ArtifactStore, ArtifactStoreOperationError
+from cubie.core import observe_stage_duration
+from cubie.model import (
+    GenerationResult,
+    ModelProviderExecutionError,
+    ModelRegistry,
+    ModelRuntime,
+)
+from cubie.stage import BaseStage, StageExecutionError, StageUpdateHandler
 from cubie.stage.export.preview_renderer_service import PreviewRendererServiceProtocol
-from cubie.task.sequence import RequestSequence, TaskStatus
+from cubie.task import RequestSequence, TaskStatus
 
 
 class ExportStage(BaseStage):

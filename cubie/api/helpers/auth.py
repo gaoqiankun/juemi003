@@ -6,8 +6,7 @@ from typing import TYPE_CHECKING, Any
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from cubie.auth.api_key_store import USER_KEY_SCOPE
-from cubie.auth.helpers import extract_bearer_token, is_valid_token
+from cubie.auth import USER_KEY_SCOPE, extract_bearer_token, is_valid_token
 
 if TYPE_CHECKING:
     from cubie.api.server import AppContainer

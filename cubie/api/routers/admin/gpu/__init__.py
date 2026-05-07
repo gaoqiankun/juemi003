@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 from fastapi import APIRouter, Depends
 
 from cubie.api.helpers.auth import build_require_admin_token
-from cubie.core.gpu import get_gpu_device_info
+from cubie.core import get_gpu_device_info
 
 if TYPE_CHECKING:
     from cubie.api.server import AppContainer

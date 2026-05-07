@@ -5,9 +5,9 @@ from pathlib import Path
 
 import aiosqlite
 
-from cubie.model.store.migrations import MigrationsMixin
-from cubie.model.store.mutations import MutationsMixin
-from cubie.model.store.normalize import (
+from .migrations import MigrationsMixin
+from .mutations import MutationsMixin
+from .normalize import (
     normalize_download_progress,
     normalize_download_speed_bps,
     normalize_download_status,
@@ -18,7 +18,7 @@ from cubie.model.store.normalize import (
     row_to_dict,
     utcnow_iso,
 )
-from cubie.model.store.queries import QueriesMixin
+from .queries import QueriesMixin
 
 __all__ = (
     "ModelStore",

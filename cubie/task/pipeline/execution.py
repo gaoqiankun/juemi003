@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from structlog.contextvars import bound_contextvars
 
-from cubie.stage.base import StageExecutionError
-from cubie.task.sequence import RequestSequence, TaskStatus
+from cubie.stage import StageExecutionError
+from cubie.task import RequestSequence, TaskStatus
 
 
 class ExecutionMixin:

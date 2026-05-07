@@ -5,16 +5,12 @@ from typing import Any
 
 from structlog.contextvars import bound_contextvars
 
-from cubie.core.observability.metrics import increment_webhook_total, set_queue_depth
-from cubie.model.registry import ModelRegistryLoadError
+from cubie.core import increment_webhook_total, set_queue_depth
+from cubie.model import ModelRegistryLoadError
+from cubie.task import RequestSequence, TaskStatus, utcnow
 from cubie.task.eta import PROCESSING_STATUSES, decorate_sequence_eta
 from cubie.task.events import build_event_payload, publish_event
-from cubie.task.sequence import (
-    TERMINAL_STATUSES,
-    RequestSequence,
-    TaskStatus,
-    utcnow,
-)
+from cubie.task.sequence import TERMINAL_STATUSES
 from cubie.task.webhook import send_webhook_with_retries
 
 

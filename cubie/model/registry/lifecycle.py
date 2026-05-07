@@ -4,10 +4,11 @@ import asyncio
 import gc
 from typing import Iterable
 
-from cubie.model.registry import ModelRegistryLoadError, ModelRuntime
-from cubie.model.registry.compat import (
+from cubie.model.registry.compat import invoke_worker_factory
+from cubie.model.types import (
+    ModelRegistryLoadError,
+    ModelRuntime,
     _ModelEntry,
-    invoke_worker_factory,
     normalize_name,
     reset_entry,
 )

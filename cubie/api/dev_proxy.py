@@ -8,11 +8,11 @@ from fastapi.responses import StreamingResponse
 from starlette.background import BackgroundTask
 from starlette.types import Scope
 
-from cubie.api.helpers.artifacts import (
+from cubie.api.helpers.artifact_paths import (
     extract_artifact_filename,
     resolve_dev_local_model_path,
 )
-from cubie.core.config import ServingConfig
+from cubie.core import ServingConfig
 
 HOP_BY_HOP_HEADERS = {
     "connection",

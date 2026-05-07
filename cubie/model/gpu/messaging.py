@@ -4,7 +4,7 @@ import io
 import multiprocessing as mp
 from typing import Any, Awaitable, Callable
 
-from cubie.model.base import ModelProviderConfigurationError, StageProgress
+from cubie.model import ModelProviderConfigurationError, StageProgress
 
 
 def serialize_prepared_inputs(prepared_inputs: list[object]) -> list[object]:

@@ -3,29 +3,44 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, AsyncIterator
+from urllib.parse import quote
 
 from fastapi import HTTPException, Response, status
 from fastapi.responses import FileResponse, StreamingResponse
 from starlette.background import BackgroundTask
 
+from cubie.api.helpers.artifact_paths import resolve_dev_local_model_path
 from cubie.api.helpers.artifacts import (
     artifact_exists,
-    build_artifact_download_headers,
     cleanup_temporary_artifact,
     dispatch_preview_render,
-    resolve_dev_local_model_path,
 )
-from cubie.task.sequence import TaskStatus
+from cubie.task import TaskStatus
 
 if TYPE_CHECKING:
     from cubie.api.server import AppContainer
-    from cubie.artifact.store import ArtifactStore
-    from cubie.stage.export.preview_renderer_service import (
-        PreviewRendererServiceProtocol,
-    )
+    from cubie.artifact import ArtifactStore
+    from cubie.stage import PreviewRendererServiceProtocol
 
 
 ARTIFACT_STREAM_CHUNK_SIZE = 1024 * 1024
+
+
+def build_artifact_download_headers(
+    *,
+    file_name: str,
+    content_length: int | None = None,
+    etag: str | None = None,
+) -> dict[str, str]:
+    safe_name = Path(file_name).name or "artifact"
+    headers = {
+        "Content-Disposition": f"attachment; filename*=utf-8''{quote(safe_name)}",
+    }
+    if content_length is not None and content_length >= 0:
+        headers["Content-Length"] = str(content_length)
+    if etag:
+        headers["ETag"] = str(etag)
+    return headers
 
 
 async def stream_artifact_body(body: Any) -> AsyncIterator[bytes]:

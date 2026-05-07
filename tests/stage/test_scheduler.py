@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from cubie.model.gpu_scheduler import FlowMatchingScheduler
+from cubie.model.gpu import FlowMatchingScheduler
 
 
 def test_scheduler_collects_waiting_items_in_order() -> None:

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from structlog.contextvars import bound_contextvars
 
+from cubie.task import RequestSequence, TaskStatus, utcnow
 from cubie.task.pipeline import RecoverySummary
-from cubie.task.sequence import RequestSequence, TaskStatus, utcnow
 
 
 class RecoveryMixin:

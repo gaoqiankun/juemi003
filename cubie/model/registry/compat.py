@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-import asyncio
 import inspect
-from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable, Protocol
 
 from cubie.model.worker import ModelWorker
 
 if TYPE_CHECKING:
-    from cubie.model.registry import ModelRuntime
+    from cubie.model import ModelRuntime
 
 ModelWorkerFactory = Callable[..., Any]
 
@@ -58,18 +56,6 @@ class _CompatRuntimeWorker:
             await worker.stop()
         self._loaded = False
 
-
-@dataclass(slots=True)
-class _ModelEntry:
-    state: str = "not_loaded"
-    event: asyncio.Event = field(default_factory=asyncio.Event)
-    worker: _RegistryWorker | None = None
-    error: Exception | None = None
-    load_task: asyncio.Task[None] | None = None
-    requested_device_id: str | None = None
-    excluded_device_ids: tuple[str, ...] = ()
-
-
 async def invoke_worker_factory(
     worker_factory: ModelWorkerFactory,
     model_name: str,
@@ -99,21 +85,11 @@ async def invoke_worker_factory(
             ):
                 kwargs.pop("exclude_device_ids", None)
                 continue
-            if (
-                "unexpected keyword argument 'device_id'" in message
-                and "device_id" in kwargs
-            ):
-                kwargs.pop("device_id", None)
-                continue
             raise
 
 
-def normalize_name(model_name: str) -> str:
-    return str(model_name).strip().lower()
-
-
 def coerce_factory_result(worker_obj: Any) -> _RegistryWorker:
-    from cubie.model.registry import ModelRuntime
+    from cubie.model import ModelRuntime
 
     if isinstance(worker_obj, ModelWorker):
         return worker_obj
@@ -123,12 +99,3 @@ def coerce_factory_result(worker_obj: Any) -> _RegistryWorker:
         "worker_factory must return ModelWorker or ModelRuntime; "
         f"got {type(worker_obj).__name__}"
     )
-
-
-def reset_entry(entry: _ModelEntry) -> None:
-    entry.error = None
-    entry.state = "not_loaded"
-    entry.event = asyncio.Event()
-    entry.load_task = None
-    entry.requested_device_id = None
-    entry.excluded_device_ids = ()

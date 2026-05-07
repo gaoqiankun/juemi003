@@ -7,12 +7,10 @@ from typing import Any, Callable, cast
 
 import pytest
 
-from cubie.model.base import BaseModelProvider, GenerationResult
-from cubie.model.gpu import GPUWorkerHandle
-from cubie.model.gpu_scheduler import GPUSlotScheduler
-from cubie.model.registry import ModelRuntime
+from cubie.model import BaseModelProvider, GenerationResult, ModelRuntime
+from cubie.model.gpu import GPUSlotScheduler, GPUWorkerHandle
 from cubie.model.worker import ModelWorker
-from cubie.vram.allocator import VRAMAllocator, WeightAllocation
+from cubie.vram import VRAMAllocator, WeightAllocation
 
 
 class FakeModelStore:

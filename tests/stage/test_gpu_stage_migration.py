@@ -8,13 +8,11 @@ from typing import cast
 
 import pytest
 
-from cubie.model.base import BaseModelProvider, GenerationResult
-from cubie.model.gpu import GPUWorkerHandle
-from cubie.model.gpu_scheduler import GPUSlot, GPUSlotScheduler
-from cubie.model.registry import ModelRegistry, ModelRuntime
-from cubie.stage.gpu.stage import GPUStage
-from cubie.task.sequence import RequestSequence, TaskStatus
-from cubie.vram.allocator import InternalVRAMContentionTimeoutError
+from cubie.model import BaseModelProvider, GenerationResult, ModelRegistry, ModelRuntime
+from cubie.model.gpu import GPUSlot, GPUSlotScheduler, GPUWorkerHandle
+from cubie.stage import GPUStage
+from cubie.task import RequestSequence, TaskStatus
+from cubie.vram import InternalVRAMContentionTimeoutError
 
 
 class FakeMigratingWorker:

@@ -11,29 +11,27 @@ from pathlib import Path
 
 import pytest
 
-from cubie.artifact.store import (
-    ArtifactStore,
-    ArtifactStoreOperationError,
-    ObjectStorageStreamResult,
-)
-from cubie.model.gpu import build_gpu_workers
-from cubie.model.gpu_scheduler import GPUSlotScheduler
+from cubie.artifact import ArtifactStore, ArtifactStoreOperationError
+from cubie.artifact.store import ObjectStorageStreamResult
+from cubie.model import ModelRegistry, ModelRuntime
+from cubie.model.gpu import GPUSlotScheduler, build_gpu_workers
 from cubie.model.providers.trellis2.provider import MockTrellis2Provider
-from cubie.model.registry import ModelRegistry, ModelRuntime
-from cubie.stage.export.preview_renderer_service import PreviewRendererServiceProtocol
-from cubie.stage.export.stage import ExportStage
-from cubie.stage.gpu.stage import GPUStage
-from cubie.stage.preprocess.stage import PreprocessStage
-from cubie.task.engine import AsyncGen3DEngine
-from cubie.task.pipeline import PipelineCoordinator
-from cubie.task.sequence import (
+from cubie.stage import (
+    ExportStage,
+    GPUStage,
+    PreprocessStage,
+    PreviewRendererServiceProtocol,
+)
+from cubie.task import (
     DEFAULT_PROGRESS_BY_STATUS,
+    AsyncGen3DEngine,
+    PipelineCoordinator,
     RequestSequence,
     TaskStatus,
+    TaskStore,
     TaskType,
     utcnow,
 )
-from cubie.task.store import TaskStore
 
 SAMPLE_IMAGE_DATA_URL = (
     "data:image/png;base64,"

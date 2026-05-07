@@ -5,7 +5,8 @@ from datetime import timedelta
 
 import aiosqlite
 
-from cubie.task.sequence import TERMINAL_STATUSES, TaskStatus, utcnow
+from cubie.task import TaskStatus, utcnow
+from cubie.task.sequence import TERMINAL_STATUSES
 from cubie.task.store.codec import serialize_datetime
 
 

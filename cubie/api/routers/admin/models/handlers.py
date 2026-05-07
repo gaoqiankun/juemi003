@@ -5,9 +5,11 @@ from typing import TYPE_CHECKING
 from fastapi import HTTPException
 
 from cubie.api.helpers.deps import build_dep_response_rows
-from cubie.api.helpers.tasks import friendly_model_error_message
-from cubie.model.scheduler import SchedulerCapReachedError
-from cubie.model.weight import get_provider_deps
+from cubie.model import (
+    SchedulerCapReachedError,
+    friendly_model_error_message,
+    get_provider_deps,
+)
 
 from .downloads import cancel_model_download_task
 

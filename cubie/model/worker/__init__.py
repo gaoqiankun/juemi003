@@ -6,9 +6,9 @@ from typing import Any, Awaitable, Callable, Protocol, cast
 
 import structlog
 
-from cubie.model.base import GenerationResult, StageProgress
-from cubie.model.gpu_scheduler import GPUSlotScheduler, GPUWorkerHandle
-from cubie.vram.allocator import VRAMAllocator, WeightAllocation
+from cubie.model import GenerationResult, StageProgress
+from cubie.model.gpu import GPUSlotScheduler, GPUWorkerHandle
+from cubie.vram import VRAMAllocator, WeightAllocation
 
 
 class _ModelStoreProtocol(Protocol):
@@ -112,9 +112,9 @@ class _ModelWorkerSchedulerAdapter:
 
 
 # Public types above are imported by submodules during package initialization.
-from cubie.model.worker.inference import InferenceMixin  # noqa: E402
-from cubie.model.worker.lifecycle import LifecycleMixin  # noqa: E402
-from cubie.model.worker.vram_estimate import VRAMEstimateMixin  # noqa: E402
+from .inference import InferenceMixin  # noqa: E402
+from .lifecycle import LifecycleMixin  # noqa: E402
+from .vram_estimate import VRAMEstimateMixin  # noqa: E402
 
 __all__ = (
     "GPUWorkerFactory",

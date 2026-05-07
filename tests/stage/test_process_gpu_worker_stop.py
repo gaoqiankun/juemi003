@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
-from cubie.model.base import ModelProviderExecutionError
+from cubie.model import ModelProviderExecutionError
 from cubie.model.gpu import (
     PendingRequest,
     ProcessGPUWorker,

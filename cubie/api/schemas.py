@@ -5,8 +5,8 @@ from typing import Generic, Literal, TypeVar
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
-from cubie.core.pagination import DEFAULT_CURSOR_PAGE_LIMIT, MAX_CURSOR_PAGE_LIMIT
-from cubie.task.sequence import RequestSequence, TaskStatus, TaskType
+from cubie.core import DEFAULT_CURSOR_PAGE_LIMIT, MAX_CURSOR_PAGE_LIMIT
+from cubie.task import RequestSequence, TaskStatus, TaskType
 
 T = TypeVar("T")
 

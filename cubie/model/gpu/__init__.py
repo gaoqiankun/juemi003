@@ -4,14 +4,16 @@ import asyncio
 import multiprocessing as mp
 from typing import Any, Callable, Protocol
 
-from cubie.model.base import BaseModelProvider, GenerationResult
-from cubie.model.gpu.lifecycle import (
+from cubie.model import BaseModelProvider, GenerationResult
+from cubie.model.providers.trellis2.provider import MockTrellis2Provider
+
+from .lifecycle import (
     PendingRequest,
     ProcessGPUWorkerLifecycleMixin,
     ProgressCallback,
     dispatch_progress,
 )
-from cubie.model.gpu.messaging import (
+from .messaging import (
     deserialize_prepared_input,
     deserialize_prepared_inputs,
     make_progress_publisher,
@@ -19,7 +21,7 @@ from cubie.model.gpu.messaging import (
     serialize_prepared_input,
     serialize_prepared_inputs,
 )
-from cubie.model.gpu.worker_main import (
+from .worker_main import (
     WorkerProcessConfig,
     build_process_provider,
     capture_cuda_baseline_mb,
@@ -29,17 +31,20 @@ from cubie.model.gpu.worker_main import (
     reset_cuda_peak,
     worker_process_main,
 )
-from cubie.model.providers.trellis2.provider import MockTrellis2Provider
 
 MeasurementCallback = Callable[[str, str, int], None]
 
 __all__ = (
     "AsyncGPUWorker",
+    "FlowMatchingScheduler",
+    "GPUSlot",
+    "GPUSlotScheduler",
     "GPUWorkerHandle",
     "MeasurementCallback",
     "PendingRequest",
     "ProcessGPUWorker",
     "ProgressCallback",
+    "SchedulerShutdownError",
     "WorkerProcessConfig",
     "build_gpu_workers",
     "build_process_provider",
@@ -182,3 +187,11 @@ def build_gpu_workers(
         )
         for device_id in device_ids
     ]
+
+
+from .scheduler import (  # noqa: E402
+    FlowMatchingScheduler,
+    GPUSlot,
+    GPUSlotScheduler,
+    SchedulerShutdownError,
+)

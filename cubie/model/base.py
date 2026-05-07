@@ -5,6 +5,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from cubie.model.errors import (
+    ModelProviderConfigurationError,
+    ModelProviderExecutionError,
+)
+
 
 @dataclass(slots=True)
 class StageProgress:
@@ -24,16 +29,6 @@ class ProviderDependency:
     dep_id: str
     hf_repo_id: str
     description: str
-
-
-class ModelProviderConfigurationError(RuntimeError):
-    pass
-
-
-class ModelProviderExecutionError(RuntimeError):
-    def __init__(self, stage_name: str, message: str) -> None:
-        super().__init__(message)
-        self.stage_name = stage_name
 
 
 class BaseModelProvider(ABC):
@@ -85,3 +80,13 @@ class BaseModelProvider(ABC):
         options: dict[str, Any],
     ) -> None:
         raise NotImplementedError
+
+
+__all__ = (
+    "BaseModelProvider",
+    "GenerationResult",
+    "ModelProviderConfigurationError",
+    "ModelProviderExecutionError",
+    "ProviderDependency",
+    "StageProgress",
+)

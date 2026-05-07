@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends
 
 from cubie.api.helpers.auth import build_require_admin_token
 from cubie.api.helpers.tasks import map_task_status
-from cubie.auth.helpers import build_user_key_label_map, resolve_task_owner
+from cubie.auth import build_user_key_label_map, resolve_task_owner
 
 if TYPE_CHECKING:
     from cubie.api.server import AppContainer

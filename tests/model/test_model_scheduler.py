@@ -4,15 +4,8 @@ from __future__ import annotations
 
 import asyncio
 
-from cubie.model.scheduler import (
-    ModelScheduler,
-    SchedulerCapReachedError,
-    normalize_model_name,
-)
-from cubie.settings.store import (
-    MAX_LOADED_MODELS_KEY,
-    MAX_TASKS_PER_SLOT_KEY,
-)
+from cubie.model import ModelScheduler, SchedulerCapReachedError, normalize_model_name
+from cubie.settings import MAX_LOADED_MODELS_KEY, MAX_TASKS_PER_SLOT_KEY
 
 
 class FakeWorker:

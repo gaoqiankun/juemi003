@@ -1,6 +1,6 @@
 # Project Snapshot
 
-Last updated: 2026-05-06
+Last updated: 2026-05-07
 
 ## Overview
 
@@ -43,7 +43,7 @@ Other modules: `probe.py` (NVML-based free VRAM sampling), `helpers.py` (Inferen
 - **`weight/` (5 files)**: Weight sourcing (HuggingFace/URL/Local), dependency tracking, archive extraction
 - **`store/` (5 files)**: Model registry persistence (VRAM measurements, download state tracking)
 - **`providers/`**: Trellis2 / HunYuan3D-2 / Step1X-3D (implementations, mock + real modes)
-- Other: `scheduler.py` (Loading policy, LRU), `runtime.py` (Provider factory), `dep_paths.py` (Dependency path resolution)
+- Other: `scheduler.py` (loading policy, LRU), `factory.py` (provider runtime factory), `types.py` (ModelRuntime / ModelRegistryLoadError), `errors.py` (friendly_model_error_message + provider error facade), `dep_paths.py` (dependency path resolution)
 
 ### `auth/` — Authentication & API Keys
 **`api_key_store/` (6 files: May 5)**: ApiKeyStore split from 379L monolith. Composition pattern: `__init__.py` (facade), `queries.py` (read paths), `mutations.py` (write paths with lock), `normalize.py` (serialization), `migrations.py` (schema), `constants.py` (USER_KEY_SCOPE/METRICS_SCOPE). Static Bearer token persistence, rate limiting per key.
@@ -92,6 +92,47 @@ Dependency container in `api/server.py::create_app()`, injected into all routes 
 
 **app_components.py** (217L): build_app_components() factory instantiates all 17 container objects.
 **app_lifecycle.py** (109L): initialize_app_container() + close_app_container() — startup/shutdown logic.
+
+## Structure Polish V1-V6 (May 6-7, 2026)
+
+### Facade Boundaries (P0a-P0e consolidation)
+
+- 8 domain facades now keep explicit `__all__`: `core`, `task`, `vram`, `model`, `stage`, `artifact`, `auth`, `settings`
+- Cross-domain callers use facade-first imports by default (provider implementation paths remain explicit)
+- Deep imports are constrained to whitelisted cases:
+  - `cubie.model.providers.*` (lazy provider loading policy)
+  - facade re-export locations (`cubie/<domain>/__init__.py`)
+  - test fixture/module alias imports
+  - same-domain sibling imports needed by package init ordering
+  - intentional internal/private deep paths (`artifact` internals, registry private symbols, GPU subsystem via `cubie.model.gpu` / `cubie.model.worker`)
+- Subpackage `__init__.py` exports were tightened: mixins remain internal; only stable public types/functions are exported
+
+### Naming and File Layout Corrections
+
+- Admin routers flattened into domain packages: `api/routers/admin/<name>/__init__.py` replaces legacy `admin_<name>.py`
+- `model/gpu_scheduler.py` moved to `model/gpu/scheduler.py`
+- `stage/gpu/stage.py` and `stage/preprocess/stage.py` flattened to `stage/gpu_stage.py` and `stage/preprocess_stage.py`
+- Runtime naming fixed: `model/runtime.py` renamed to `model/factory.py`; runtime dataclass moved to `model/types.py`
+- Error/helper placement fixed: `friendly_model_error_message` migrated to `model/errors.py`
+- Logger naming fixed: `vram/helpers.py` now logs under `cubie.vram.helpers`
+- Artifact store factory ownership clarified: `build_artifact_store` is colocated in `api/app_components.py`; `api/helpers/artifacts.py` focuses on preview rendering helpers
+
+### Dead Code and Compatibility Cleanup
+
+- `model/registry/compat.py` dead compatibility branches were removed after caller audit
+- Registry foundational types/helpers were moved out of compat naming into durable type modules (`model/types.py`, registry-local modules)
+
+### V1-V6 to P-Item Mapping
+
+| Stage | P items covered | Key outputs |
+|---|---|---|
+| V1 | P1, P2, P3 (+P0a/P0d partial) | admin route package move, GPU scheduler rename, stage flattening, initial stage facade imports |
+| V2 | P4, P8(partial), P7 (+P0a/P0d partial) | `model/types.py` extraction, circular import cleanup, vram logger naming fix |
+| V3 | P5 (+P0a partial) | registry/compat audit + dead path cleanup, model facade strengthening |
+| V4 | P6 (+P0a partial) | `friendly_model_error_message` moved to `model/errors.py`, task helper scope narrowed |
+| V5 | P9, P8(completed) (+P0a partial) | `runtime.py` → `factory.py`, runtime type ownership finalized |
+| V6.1/V6.2 | P0a/P0b/P0d/P0e major sweep | facade `__all__` expansion, cross-domain import rewrite, subpackage export tightening |
+| V6.3 | P11 + V6 closure docs | artifact factory migration to app components, snapshot alignment, final verification/reporting |
 
 ## Testing Structure (v0.2)
 

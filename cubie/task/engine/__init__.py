@@ -7,17 +7,20 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from cubie.artifact.store import ArtifactStore
-from cubie.core.security import TokenRateLimiter
-from cubie.model.registry import ModelRegistry
-from cubie.task.events import TaskEventQueues, build_event_queues
-from cubie.task.pipeline import PipelineCoordinator
-from cubie.task.sequence import RequestSequence
-from cubie.task.store import TaskStore
+from cubie.artifact import ArtifactStore
+from cubie.core import TokenRateLimiter
+from cubie.model import ModelRegistry
+from cubie.task import (
+    PipelineCoordinator,
+    RequestSequence,
+    TaskEventQueues,
+    TaskStore,
+    build_event_queues,
+)
 from cubie.task.webhook import WebhookSender, build_default_webhook_sender
 
 if TYPE_CHECKING:
-    from cubie.model.scheduler import ModelScheduler
+    from cubie.model import ModelScheduler
 
 
 @dataclass(slots=True)
@@ -36,11 +39,11 @@ def normalize_startup_models(startup_models: tuple[str, ...]) -> tuple[str, ...]
     )
 
 
-from cubie.task.engine.cleanup import CleanupMixin  # noqa: E402
-from cubie.task.engine.lifecycle import LifecycleMixin  # noqa: E402
-from cubie.task.engine.prewarm import PrewarmMixin  # noqa: E402
-from cubie.task.engine.tasks import TasksMixin  # noqa: E402
-from cubie.task.engine.worker_loop import WorkerLoopMixin  # noqa: E402
+from .cleanup import CleanupMixin  # noqa: E402
+from .lifecycle import LifecycleMixin  # noqa: E402
+from .prewarm import PrewarmMixin  # noqa: E402
+from .tasks import TasksMixin  # noqa: E402
+from .worker_loop import WorkerLoopMixin  # noqa: E402
 
 __all__ = (
     "AsyncGen3DEngine",

@@ -4,13 +4,11 @@ import asyncio
 from pathlib import Path
 from typing import Any, Callable
 
-from cubie.core.config import ServingConfig
-from cubie.core.gpu import resolve_device_ids
+from cubie.core import ServingConfig, resolve_device_ids
 from cubie.model.base import ModelProviderConfigurationError
 from cubie.model.dep_paths import resolve_dep_paths
 from cubie.model.dep_store import DepInstanceStore, ModelDepRequirementsStore
-from cubie.model.gpu import build_gpu_workers
-from cubie.model.gpu_scheduler import GPUSlotScheduler
+from cubie.model.gpu import GPUSlotScheduler, build_gpu_workers
 from cubie.model.providers.hunyuan3d.provider import (
     Hunyuan3DProvider,
     MockHunyuan3DProvider,
@@ -23,8 +21,8 @@ from cubie.model.providers.trellis2.provider import (
     MockTrellis2Provider,
     Trellis2Provider,
 )
-from cubie.model.registry import ModelRuntime
 from cubie.model.store import ModelStore
+from cubie.model.types import ModelRuntime
 
 
 def build_provider(

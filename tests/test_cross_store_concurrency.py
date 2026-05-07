@@ -4,11 +4,9 @@ import asyncio
 import sqlite3
 from pathlib import Path
 
-from cubie.auth.api_key_store import ApiKeyStore
-from cubie.model.dep_store import DepInstanceStore
-from cubie.model.store import ModelStore
-from cubie.task.sequence import RequestSequence, utcnow
-from cubie.task.store import TaskStore
+from cubie.auth import ApiKeyStore
+from cubie.model import DepInstanceStore, ModelStore
+from cubie.task import RequestSequence, TaskStore, utcnow
 
 ROUND_COUNT = 240
 

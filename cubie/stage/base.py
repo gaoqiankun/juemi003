@@ -3,7 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any, Awaitable, Callable
 
-from cubie.task.sequence import RequestSequence
+from cubie.task import RequestSequence
 
 StageUpdateHandler = Callable[
     [RequestSequence, str, dict[str, Any] | None],

@@ -4,7 +4,7 @@ import secrets
 
 from fastapi.security import HTTPAuthorizationCredentials
 
-from cubie.auth.api_key_store import ApiKeyStore
+from cubie.auth import ApiKeyStore
 
 
 def extract_bearer_token(

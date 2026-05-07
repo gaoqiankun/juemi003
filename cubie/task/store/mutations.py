@@ -7,7 +7,7 @@ from typing import Any, Callable
 
 import aiosqlite
 
-from cubie.task.sequence import RequestSequence, TaskStatus, utcnow
+from cubie.task import RequestSequence, TaskStatus, utcnow
 from cubie.task.store.codec import serialize_datetime
 
 

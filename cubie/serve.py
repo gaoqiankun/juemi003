@@ -15,8 +15,7 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from cubie.api.server import create_app, run_real_mode_preflight
-from cubie.core.config import ServingConfig
-from cubie.core.observability.logging import configure_logging
+from cubie.core import ServingConfig, configure_logging
 
 
 def build_arg_parser() -> argparse.ArgumentParser:

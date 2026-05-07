@@ -4,8 +4,8 @@ from typing import TYPE_CHECKING, Any
 
 from fastapi import HTTPException
 
-from cubie.core.gpu import ordered_disabled_devices, parse_gpu_disabled_devices_update
-from cubie.settings.store import (
+from cubie.core import ordered_disabled_devices, parse_gpu_disabled_devices_update
+from cubie.settings import (
     EXTERNAL_VRAM_WAIT_TIMEOUT_SECONDS_KEY,
     GPU_DISABLED_DEVICES_KEY,
     INTERNAL_VRAM_WAIT_TIMEOUT_SECONDS_KEY,

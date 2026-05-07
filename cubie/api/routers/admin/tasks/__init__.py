@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, Query
 from cubie.api.helpers.auth import build_require_admin_token
 from cubie.api.routers.tasks import get_cursor_pagination_params
 from cubie.api.schemas import CursorPaginationParams, TaskListResponse, TaskSummary
-from cubie.auth.helpers import build_user_key_label_map, resolve_task_owner
+from cubie.auth import build_user_key_label_map, resolve_task_owner
 
 if TYPE_CHECKING:
     from cubie.api.server import AppContainer

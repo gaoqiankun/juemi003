@@ -1,26 +1,25 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
 
 import structlog
 
-from cubie.model.base import BaseModelProvider
-from cubie.model.gpu_scheduler import GPUSlotScheduler, GPUWorkerHandle
+from cubie.model.types import (
+    ModelRegistryLoadError,
+    ModelRuntime,
+    _ModelEntry,
+    normalize_name,
+    reset_entry,
+)
 
-
-@dataclass(slots=True)
-class ModelRuntime:
-    model_name: str
-    provider: BaseModelProvider
-    workers: list[GPUWorkerHandle]
-    scheduler: GPUSlotScheduler
-    assigned_device_id: str | None = None
-    weight_vram_mb: int | None = None
-
-
-class ModelRegistryLoadError(RuntimeError):
-    pass
+from .compat import ModelWorkerFactory, coerce_factory_result
+from .lifecycle import LifecycleMixin
+from .listeners import (
+    ListenersMixin,
+    ModelLoadedListener,
+    ModelUnloadedListener,
+)
+from .queries import QueriesMixin
 
 
 def maybe_empty_cuda_cache() -> None:
@@ -34,22 +33,6 @@ def maybe_empty_cuda_cache() -> None:
     except Exception:
         return
 
-
-# Public types above are imported by submodules during package initialization.
-from cubie.model.registry.compat import (  # noqa: E402
-    ModelWorkerFactory,
-    _ModelEntry,
-    coerce_factory_result,
-    normalize_name,
-    reset_entry,
-)
-from cubie.model.registry.lifecycle import LifecycleMixin  # noqa: E402
-from cubie.model.registry.listeners import (  # noqa: E402
-    ListenersMixin,
-    ModelLoadedListener,
-    ModelUnloadedListener,
-)
-from cubie.model.registry.queries import QueriesMixin  # noqa: E402
 
 __all__ = (
     "ModelRegistry",

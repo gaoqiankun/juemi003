@@ -5,8 +5,8 @@ from typing import Any
 
 from structlog.contextvars import bound_contextvars
 
-from cubie.core.observability.metrics import increment_task_total, observe_task_duration
-from cubie.task.sequence import RequestSequence
+from cubie.core import increment_task_total, observe_task_duration
+from cubie.task import RequestSequence
 
 
 class PublishMixin:

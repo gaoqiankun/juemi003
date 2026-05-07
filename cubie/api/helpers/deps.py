@@ -6,10 +6,8 @@ from urllib.parse import urlsplit
 
 from fastapi import HTTPException
 
-from cubie.core.hf import is_hf_repo_id
-from cubie.model.dep_paths import default_dep_assignment
-from cubie.model.dep_store import DepInstanceStore
-from cubie.model.weight import get_provider_deps
+from cubie.core import is_hf_repo_id
+from cubie.model import DepInstanceStore, default_dep_assignment, get_provider_deps
 
 
 def validation_error(detail: str) -> HTTPException:

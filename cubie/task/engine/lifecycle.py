@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 
-from cubie.core.observability.metrics import set_queue_depth
+from cubie.core import set_queue_depth
 from cubie.task.engine import normalize_startup_models
 
 

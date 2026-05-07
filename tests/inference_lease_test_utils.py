@@ -4,14 +4,12 @@ from __future__ import annotations
 
 from typing import Any, Callable, cast
 
-from cubie.model.base import BaseModelProvider, GenerationResult
-from cubie.model.gpu import GPUWorkerHandle
-from cubie.model.gpu_scheduler import GPUSlotScheduler
-from cubie.model.registry import ModelRuntime
+from cubie.model import BaseModelProvider, GenerationResult, ModelRuntime
+from cubie.model.gpu import GPUSlotScheduler, GPUWorkerHandle
 from cubie.model.worker import ModelWorker
-from cubie.stage.base import BaseStage, StageExecutionError, StageUpdateHandler
-from cubie.task.sequence import RequestSequence, TaskStatus
-from cubie.vram.allocator import VRAMAllocator
+from cubie.stage import BaseStage, StageExecutionError, StageUpdateHandler
+from cubie.task import RequestSequence, TaskStatus
+from cubie.vram import VRAMAllocator
 
 
 class FakeModelStore:

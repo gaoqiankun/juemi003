@@ -5,9 +5,8 @@ from __future__ import annotations
 import asyncio
 from typing import Any, cast
 
-from cubie.model.base import GenerationResult
-from cubie.task.pipeline import PipelineCoordinator
-from cubie.task.sequence import TaskStatus
+from cubie.model import GenerationResult
+from cubie.task import PipelineCoordinator, TaskStatus
 from tests.inference_lease_test_utils import (
     FakeRegistry,
     FakeTaskStore,

@@ -9,7 +9,7 @@ from typing import Any, Awaitable, Callable
 
 import structlog
 
-from cubie.model.base import (
+from cubie.model import (
     GenerationResult,
     ModelProviderConfigurationError,
     ModelProviderExecutionError,

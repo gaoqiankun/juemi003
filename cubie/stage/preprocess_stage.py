@@ -12,11 +12,14 @@ import httpx
 import structlog
 from structlog.contextvars import bound_contextvars
 
-from cubie.artifact.store import ArtifactStore, ArtifactStoreOperationError
-from cubie.core.observability.metrics import observe_stage_duration
-from cubie.core.security import TaskSubmissionValidationError, validate_image_url
-from cubie.stage.base import BaseStage, StageExecutionError, StageUpdateHandler
-from cubie.task.sequence import RequestSequence, TaskStatus
+from cubie.artifact import ArtifactStore, ArtifactStoreOperationError
+from cubie.core import (
+    TaskSubmissionValidationError,
+    observe_stage_duration,
+    validate_image_url,
+)
+from cubie.stage import BaseStage, StageExecutionError, StageUpdateHandler
+from cubie.task import RequestSequence, TaskStatus
 
 
 class PreprocessStage(BaseStage):

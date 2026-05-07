@@ -6,7 +6,7 @@ import os
 from dataclasses import dataclass, field
 from typing import Any
 
-from cubie.model.base import (
+from cubie.model import (
     BaseModelProvider,
     ModelProviderConfigurationError,
     ModelProviderExecutionError,

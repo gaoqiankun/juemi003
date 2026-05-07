@@ -4,7 +4,7 @@ import sqlite3
 
 import pytest
 
-from cubie.model.store import ModelStore
+from cubie.model import ModelStore
 
 
 @pytest.fixture()

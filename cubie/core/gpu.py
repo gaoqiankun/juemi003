@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from cubie.core.config import ServingConfig
+from cubie.core import ServingConfig
 
 
 def resolve_device_ids(config: ServingConfig) -> tuple[str, ...]:

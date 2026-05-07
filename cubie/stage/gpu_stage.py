@@ -8,12 +8,11 @@ from dataclasses import dataclass
 import structlog
 from structlog.contextvars import bound_contextvars
 
-from cubie.core.observability.metrics import observe_stage_duration
-from cubie.model.base import ModelProviderExecutionError, StageProgress
-from cubie.model.registry import ModelRegistry
-from cubie.stage.base import BaseStage, StageExecutionError, StageUpdateHandler
-from cubie.task.sequence import RequestSequence, TaskStatus
-from cubie.vram.allocator import InternalVRAMContentionTimeoutError
+from cubie.core import observe_stage_duration
+from cubie.model import ModelProviderExecutionError, ModelRegistry, StageProgress
+from cubie.stage import BaseStage, StageExecutionError, StageUpdateHandler
+from cubie.task import RequestSequence, TaskStatus
+from cubie.vram import InternalVRAMContentionTimeoutError
 
 
 @dataclass(slots=True)

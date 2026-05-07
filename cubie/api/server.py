@@ -18,30 +18,28 @@ from cubie.api.dev_proxy import (
 )
 from cubie.api.preflight import run_real_mode_preflight  # noqa: F401
 from cubie.api.routers import include_api_routers
-from cubie.artifact.store import ArtifactStore
-from cubie.core.config import ServingConfig
-from cubie.model.runtime import build_model_runtime
-from cubie.model.store import ModelStore
-from cubie.stage.export.preview_renderer_service import (
-    PreviewRendererServiceProtocol,
-)
-from cubie.vram.helpers import (
+from cubie.artifact import ArtifactStore
+from cubie.core import ServingConfig
+from cubie.model import ModelStore, build_model_runtime
+from cubie.stage import PreviewRendererServiceProtocol
+from cubie.vram import (
     clamp_inference_estimate_mb,  # noqa: F401 — re-exported for tests
     normalize_vram_mb,
 )
 
 if TYPE_CHECKING:
-    from cubie.auth.api_key_store import ApiKeyStore
-    from cubie.core.security import TokenRateLimiter
-    from cubie.model.dep_store import DepInstanceStore, ModelDepRequirementsStore
-    from cubie.model.registry import ModelRegistry
-    from cubie.model.scheduler import ModelScheduler
-    from cubie.model.weight import WeightManager
+    from cubie.auth import ApiKeyStore
+    from cubie.core import TokenRateLimiter
+    from cubie.model import (
+        DepInstanceStore,
+        ModelDepRequirementsStore,
+        ModelRegistry,
+        ModelScheduler,
+        WeightManager,
+    )
     from cubie.settings.store import SettingsStore
-    from cubie.task.engine import AsyncGen3DEngine
-    from cubie.task.pipeline import PipelineCoordinator
-    from cubie.task.store import TaskStore
-    from cubie.vram.allocator import VRAMAllocator
+    from cubie.task import AsyncGen3DEngine, PipelineCoordinator, TaskStore
+    from cubie.vram import VRAMAllocator
 
 _logger = structlog.get_logger(__name__)
 _VRAM_ESTIMATE_FIELDS = frozenset({"weight_vram_mb", "inference_vram_mb"})

@@ -3,18 +3,12 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote, urlsplit
+from urllib.parse import urlsplit
 
 import structlog
 
-from cubie.artifact.store import (
-    ArtifactStore,
-    ArtifactStoreConfigurationError,
-    build_boto3_object_storage_client,
-)
-from cubie.core.config import ServingConfig
-from cubie.stage.export.preview_renderer_service import PreviewRendererServiceProtocol
-from cubie.stage.export.stage import ExportStage
+from cubie.artifact import ArtifactStore
+from cubie.stage import ExportStage, PreviewRendererServiceProtocol
 
 _preview_rendering: set[str] = set()
 _preview_render_tasks: set[asyncio.Task[None]] = set()
@@ -26,82 +20,6 @@ def cleanup_temporary_artifact(path: Path) -> None:
     except FileNotFoundError:
         pass
 
-
-def build_artifact_download_headers(
-    *,
-    file_name: str,
-    content_length: int | None = None,
-    etag: str | None = None,
-) -> dict[str, str]:
-    safe_name = Path(file_name).name or "artifact"
-    headers = {
-        "Content-Disposition": f"attachment; filename*=utf-8''{quote(safe_name)}",
-    }
-    if content_length is not None and content_length >= 0:
-        headers["Content-Length"] = str(content_length)
-    if etag:
-        headers["ETag"] = str(etag)
-    return headers
-
-
-def extract_artifact_filename(path: str) -> str | None:
-    parts = [part for part in path.split("/") if part]
-    if len(parts) != 5:
-        return None
-    if parts[0] != "v1" or parts[1] != "tasks" or parts[3] != "artifacts":
-        return None
-    return parts[4]
-
-def resolve_dev_local_model_path(config: ServingConfig, filename: str | None) -> Path | None:
-    if config.dev_proxy_target is None or filename is None:
-        return None
-    if Path(filename).name.lower() != "model.glb":
-        return None
-    if config.dev_local_model_path is None:
-        return None
-    candidate = config.dev_local_model_path.expanduser()
-    if not candidate.is_absolute():
-        candidate = (Path(__file__).resolve().parents[1] / candidate).resolve()
-    if not candidate.is_file():
-        return None
-    return candidate
-
-def build_artifact_store(config: ServingConfig) -> ArtifactStore:
-    store_mode = config.artifact_store_mode.strip().lower()
-    if store_mode == "local":
-        return ArtifactStore(config.artifacts_dir, mode="local")
-    if store_mode != "minio":
-        raise ArtifactStoreConfigurationError(
-            f"unsupported ARTIFACT_STORE_MODE: {config.artifact_store_mode}"
-        )
-
-    required_fields = {
-        "OBJECT_STORE_ENDPOINT": config.object_store_endpoint,
-        "OBJECT_STORE_BUCKET": config.object_store_bucket,
-        "OBJECT_STORE_ACCESS_KEY": config.object_store_access_key,
-        "OBJECT_STORE_SECRET_KEY": config.object_store_secret_key,
-    }
-    missing = [name for name, value in required_fields.items() if not value]
-    if missing:
-        raise ArtifactStoreConfigurationError(
-            "minio artifact store requires: " + ", ".join(missing)
-        )
-
-    object_store_client = build_boto3_object_storage_client(
-        endpoint_url=str(config.object_store_endpoint),
-        external_endpoint_url=config.object_store_external_endpoint,
-        access_key=str(config.object_store_access_key),
-        secret_key=str(config.object_store_secret_key),
-        region=config.object_store_region,
-    )
-    return ArtifactStore(
-        config.artifacts_dir,
-        mode="minio",
-        object_store_client=object_store_client,
-        object_store_bucket=str(config.object_store_bucket),
-        object_store_prefix=config.object_store_prefix,
-        object_store_presign_ttl_seconds=config.object_store_presign_ttl_seconds,
-    )
 
 def artifact_file_name_from_url(value: Any) -> str | None:
     if not value:

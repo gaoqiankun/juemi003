@@ -3,11 +3,10 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from cubie.api.helpers.artifacts import build_artifact_store
-from cubie.core.config import ServingConfig
-from cubie.model.base import ModelProviderConfigurationError
+from cubie.api.app_components import build_artifact_store
+from cubie.core import ServingConfig
+from cubie.model import ModelProviderConfigurationError, ModelStore
 from cubie.model.providers.trellis2.provider import Trellis2Provider
-from cubie.model.store import ModelStore
 
 
 async def run_real_mode_preflight(config: ServingConfig) -> dict[str, Any]:

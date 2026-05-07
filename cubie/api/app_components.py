@@ -3,35 +3,78 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable
 from typing import Any
 
-from cubie.api.helpers.artifacts import build_artifact_store
-from cubie.auth.api_key_store import ApiKeyStore
-from cubie.core.config import ServingConfig
-from cubie.core.gpu import resolve_device_ids
-from cubie.core.observability.metrics import (
+from cubie.artifact import (
+    ArtifactStore,
+    ArtifactStoreConfigurationError,
+    build_boto3_object_storage_client,
+)
+from cubie.auth import ApiKeyStore
+from cubie.core import (
+    ServingConfig,
+    TokenRateLimiter,
     increment_vram_acquire_inference,
     increment_vram_evict,
     observe_vram_acquire_inference_wait,
+    resolve_device_ids,
 )
-from cubie.core.security import TokenRateLimiter
-from cubie.model.base import ModelProviderConfigurationError
-from cubie.model.dep_store import DepInstanceStore, ModelDepRequirementsStore
-from cubie.model.registry import ModelRegistry
-from cubie.model.scheduler import ModelScheduler
-from cubie.model.store import ModelStore
-from cubie.model.weight import WeightManager
-from cubie.settings.store import SettingsStore
-from cubie.stage.export.preview_renderer_service import (
+from cubie.model import (
+    DepInstanceStore,
+    ModelDepRequirementsStore,
+    ModelProviderConfigurationError,
+    ModelRegistry,
+    ModelScheduler,
+    ModelStore,
+    WeightManager,
+)
+from cubie.settings import SettingsStore
+from cubie.stage import (
+    ExportStage,
+    GPUStage,
+    PreprocessStage,
     PreviewRendererService,
     PreviewRendererServiceProtocol,
 )
-from cubie.stage.export.stage import ExportStage
-from cubie.stage.gpu.stage import GPUStage
-from cubie.stage.preprocess.stage import PreprocessStage
-from cubie.task.engine import AsyncGen3DEngine
-from cubie.task.pipeline import PipelineCoordinator
-from cubie.task.store import TaskStore
-from cubie.vram.allocator import VRAMAllocator, VRAMMetricsHook
-from cubie.vram.helpers import detect_device_total_vram_mb
+from cubie.task import AsyncGen3DEngine, PipelineCoordinator, TaskStore
+from cubie.vram import VRAMAllocator, VRAMMetricsHook
+from cubie.vram import helpers as vram_helpers
+
+
+def build_artifact_store(config: ServingConfig) -> ArtifactStore:
+    store_mode = config.artifact_store_mode.strip().lower()
+    if store_mode == "local":
+        return ArtifactStore(config.artifacts_dir, mode="local")
+    if store_mode != "minio":
+        raise ArtifactStoreConfigurationError(
+            f"unsupported ARTIFACT_STORE_MODE: {config.artifact_store_mode}"
+        )
+
+    required_fields = {
+        "OBJECT_STORE_ENDPOINT": config.object_store_endpoint,
+        "OBJECT_STORE_BUCKET": config.object_store_bucket,
+        "OBJECT_STORE_ACCESS_KEY": config.object_store_access_key,
+        "OBJECT_STORE_SECRET_KEY": config.object_store_secret_key,
+    }
+    missing = [name for name, value in required_fields.items() if not value]
+    if missing:
+        raise ArtifactStoreConfigurationError(
+            "minio artifact store requires: " + ", ".join(missing)
+        )
+
+    object_store_client = build_boto3_object_storage_client(
+        endpoint_url=str(config.object_store_endpoint),
+        external_endpoint_url=config.object_store_external_endpoint,
+        access_key=str(config.object_store_access_key),
+        secret_key=str(config.object_store_secret_key),
+        region=config.object_store_region,
+    )
+    return ArtifactStore(
+        config.artifacts_dir,
+        mode="minio",
+        object_store_client=object_store_client,
+        object_store_bucket=str(config.object_store_bucket),
+        object_store_prefix=config.object_store_prefix,
+        object_store_presign_ttl_seconds=config.object_store_presign_ttl_seconds,
+    )
 
 
 def build_app_components(
@@ -43,7 +86,7 @@ def build_app_components(
 ) -> dict[str, Any]:
     all_device_ids = resolve_device_ids(config)
     vram_allocator = VRAMAllocator(
-        device_totals_mb=detect_device_total_vram_mb(all_device_ids),
+        device_totals_mb=vram_helpers.detect_device_total_vram_mb(all_device_ids),
     )
     vram_allocator.set_metrics_hook(
         VRAMMetricsHook(

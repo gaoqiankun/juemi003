@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from typing import Any, Awaitable, Callable
 
-from cubie.model.base import GenerationResult, StageProgress
+from cubie.model import GenerationResult, StageProgress
 from cubie.model.worker import looks_like_worker_crash
-from cubie.vram.allocator import InferenceAllocation
+from cubie.vram import InferenceAllocation
 
 
 class InferenceMixin:

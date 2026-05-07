@@ -3,10 +3,10 @@ from __future__ import annotations
 import asyncio
 from typing import cast
 
-from cubie.model.gpu_scheduler import GPUSlotScheduler, GPUWorkerHandle
+from cubie.model.gpu import GPUSlotScheduler, GPUWorkerHandle
 from cubie.model.worker import maybe_empty_cuda_cache
 from cubie.model.worker.factory import invoke_gpu_worker_factory
-from cubie.vram.allocator import WeightAllocation, WeightAllocationID
+from cubie.vram import WeightAllocation, WeightAllocationID
 
 
 class LifecycleMixin:

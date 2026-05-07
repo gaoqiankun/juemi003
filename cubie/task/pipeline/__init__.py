@@ -5,11 +5,10 @@ from typing import Any, Awaitable, Callable
 
 import structlog
 
-from cubie.model.registry import ModelRegistry
-from cubie.stage.base import BaseStage
-from cubie.task.sequence import RequestSequence
-from cubie.task.store import TaskStore
-from cubie.vram.allocator import VRAMAllocator
+from cubie.model import ModelRegistry
+from cubie.stage import BaseStage
+from cubie.task import RequestSequence, TaskStore
+from cubie.vram import VRAMAllocator
 
 PipelineListener = Callable[
     [RequestSequence, str, dict[str, Any]],
@@ -40,11 +39,11 @@ def looks_like_oom(error: BaseException) -> bool:
     return "out of memory" in message or "cuda oom" in message or "cuda out of memory" in message
 
 
-from cubie.task.pipeline.execution import ExecutionMixin  # noqa: E402
-from cubie.task.pipeline.gpu_stage import GPUStageMixin  # noqa: E402
-from cubie.task.pipeline.lifecycle import LifecycleMixin  # noqa: E402
-from cubie.task.pipeline.publish import PublishMixin  # noqa: E402
-from cubie.task.pipeline.recovery import RecoveryMixin  # noqa: E402
+from .execution import ExecutionMixin  # noqa: E402
+from .gpu_stage import GPUStageMixin  # noqa: E402
+from .lifecycle import LifecycleMixin  # noqa: E402
+from .publish import PublishMixin  # noqa: E402
+from .recovery import RecoveryMixin  # noqa: E402
 
 __all__ = (
     "CancelRequestResult",

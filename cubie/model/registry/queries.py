@@ -2,9 +2,8 @@ from __future__ import annotations
 
 from typing import Iterable
 
-from cubie.model.gpu_scheduler import GPUSlotScheduler
-from cubie.model.registry import ModelRuntime
-from cubie.model.registry.compat import normalize_name
+from cubie.model.gpu import GPUSlotScheduler
+from cubie.model.types import ModelRuntime, normalize_name
 from cubie.model.worker import ModelWorker
 
 

@@ -3,13 +3,14 @@ from __future__ import annotations
 from typing import Any
 
 from cubie.api.routers.admin.models.downloads import cancel_model_download_task
-from cubie.core.gpu import (
+from cubie.core import (
+    initialize_vram_metrics,
+    normalize_hf_endpoint,
     normalize_persisted_disabled_devices,
     ordered_disabled_devices,
+    set_hf_endpoint,
 )
-from cubie.core.hf import normalize_hf_endpoint, set_hf_endpoint
-from cubie.core.observability.metrics import initialize_vram_metrics
-from cubie.settings.store import (
+from cubie.settings import (
     EXTERNAL_VRAM_WAIT_TIMEOUT_SECONDS_KEY,
     GPU_DISABLED_DEVICES_KEY,
     INTERNAL_VRAM_WAIT_TIMEOUT_SECONDS_KEY,

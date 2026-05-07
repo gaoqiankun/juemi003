@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from cubie.core.gpu import get_gpu_device_info
-from cubie.settings.store import (
+from cubie.core import get_gpu_device_info
+from cubie.settings import (
     EXTERNAL_VRAM_WAIT_TIMEOUT_SECONDS_KEY,
     INTERNAL_VRAM_WAIT_TIMEOUT_SECONDS_KEY,
     MAX_LOADED_MODELS_KEY,

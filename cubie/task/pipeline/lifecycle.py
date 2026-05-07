@@ -4,8 +4,8 @@ import inspect
 
 from structlog.contextvars import bound_contextvars
 
+from cubie.task import TaskStatus
 from cubie.task.pipeline import CancelRequestResult, PipelineListener
-from cubie.task.sequence import TaskStatus
 
 
 class LifecycleMixin:

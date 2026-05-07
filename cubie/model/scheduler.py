@@ -6,10 +6,7 @@ from typing import Protocol
 
 import structlog
 
-from cubie.settings.store import (
-    MAX_LOADED_MODELS_KEY,
-    MAX_TASKS_PER_SLOT_KEY,
-)
+from cubie.settings import MAX_LOADED_MODELS_KEY, MAX_TASKS_PER_SLOT_KEY
 
 
 class SchedulerCapReachedError(Exception):

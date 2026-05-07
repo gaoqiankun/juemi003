@@ -5,7 +5,7 @@ from datetime import datetime
 
 import aiosqlite
 
-from cubie.task.sequence import RequestSequence, TaskStatus, TaskType, utcnow
+from cubie.task import RequestSequence, TaskStatus, TaskType, utcnow
 
 
 def serialize_datetime(value: datetime | None) -> str | None:

@@ -5,7 +5,7 @@ from urllib.parse import urlparse
 
 from structlog.contextvars import bound_contextvars
 
-from cubie.artifact.store import ArtifactStoreOperationError
+from cubie.artifact import ArtifactStoreOperationError
 
 
 class CleanupMixin:

@@ -180,13 +180,13 @@ class ModelWorkerInterface(Protocol):
 _logger = structlog.get_logger(__name__)
 
 # Public types above are imported by submodules during package initialization.
-from cubie.vram.allocator.booking import BookingMixin  # noqa: E402
-from cubie.vram.allocator.config import ConfigMixin  # noqa: E402
-from cubie.vram.allocator.eviction import EvictionMixin  # noqa: E402
-from cubie.vram.allocator.inference import InferenceMixin  # noqa: E402
-from cubie.vram.allocator.metrics import MetricsMixin  # noqa: E402
-from cubie.vram.allocator.probe import ProbeMixin  # noqa: E402
-from cubie.vram.allocator.weight import WeightMixin  # noqa: E402
+from .booking import BookingMixin  # noqa: E402
+from .config import ConfigMixin  # noqa: E402
+from .eviction import EvictionMixin  # noqa: E402
+from .inference import InferenceMixin  # noqa: E402
+from .metrics import MetricsMixin  # noqa: E402
+from .probe import ProbeMixin  # noqa: E402
+from .weight import WeightMixin  # noqa: E402
 
 __all__ = (
     "AcquireOutcomeCallback",

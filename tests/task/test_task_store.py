@@ -5,9 +5,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from cubie.model.store import ModelStore
-from cubie.task.sequence import TaskStatus
-from cubie.task.store import TaskStore, serialize_datetime
+from cubie.model import ModelStore
+from cubie.task import TaskStatus, TaskStore, serialize_datetime
 
 
 def _now() -> datetime:

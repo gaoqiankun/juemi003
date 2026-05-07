@@ -18,23 +18,25 @@ import pytest
 from fastapi.testclient import TestClient
 from prometheus_client.parser import text_string_to_metric_families
 
+from cubie.api import app_components as app_components_module
 from cubie.api import server as server_module
 from cubie.api.helpers import artifacts as artifacts_helpers
 from cubie.api.routers import spa as spa_router
 from cubie.api.server import create_app, run_real_mode_preflight
-from cubie.artifact.store import (
+from cubie.artifact import (
     ArtifactStoreConfigurationError,
     ArtifactStoreOperationError,
-    ObjectStorageStreamResult,
 )
+from cubie.artifact.store import ObjectStorageStreamResult
+from cubie.core import ServingConfig
 from cubie.core import hf as hf_helpers
-from cubie.core.config import ServingConfig
-from cubie.model import runtime as runtime_helpers
-from cubie.model.base import (
+from cubie.model import (
     GenerationResult,
     ModelProviderConfigurationError,
     ModelProviderExecutionError,
+    ModelStore,
 )
+from cubie.model import factory as runtime_helpers
 from cubie.model.providers.hunyuan3d.provider import (
     Hunyuan3DProvider,
     MockHunyuan3DProvider,
@@ -48,14 +50,9 @@ from cubie.model.providers.trellis2.provider import (
     MockTrellis2Provider,
     Trellis2Provider,
 )
-from cubie.model.store import ModelStore
-from cubie.stage.export.preview_renderer_service import (
-    PreviewRendererService,
-    PreviewRendererServiceProtocol,
-)
+from cubie.stage import PreviewRendererService, PreviewRendererServiceProtocol
+from cubie.task import RequestSequence, TaskStatus, TaskStore, TaskType, utcnow
 from cubie.task import engine as async_engine_module
-from cubie.task.sequence import RequestSequence, TaskStatus, TaskType, utcnow
-from cubie.task.store import TaskStore
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[3]
 WebhookSender = Callable[[str, dict], Awaitable[None]]
@@ -1049,7 +1046,7 @@ def test_admin_model_load_endpoint_returns_runtime_state(tmp_path: Path) -> None
 def test_admin_model_load_endpoint_returns_409_when_no_evict_candidate(
     tmp_path: Path,
 ) -> None:
-    from cubie.model.scheduler import SchedulerCapReachedError
+    from cubie.model import SchedulerCapReachedError
 
     with make_client(tmp_path, admin_token="admin-token") as client:
         container = client.app.state.container
@@ -3584,7 +3581,7 @@ def test_create_task_downloads_artifact_via_same_origin_proxy_for_minio_backend(
 
     fake_object_store_client = FakeObjectStoreClient()
     monkeypatch.setattr(
-        artifacts_helpers,
+        app_components_module,
         "build_boto3_object_storage_client",
         lambda **_: fake_object_store_client,
     )
@@ -3728,7 +3725,7 @@ def test_minio_artifact_proxy_streams_without_buffering_temp_file(  # noqa: C901
 
     fake_object_store_client = StreamingOnlyObjectStoreClient()
     monkeypatch.setattr(
-        artifacts_helpers,
+        app_components_module,
         "build_boto3_object_storage_client",
         lambda **_: fake_object_store_client,
     )

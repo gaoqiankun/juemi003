@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from cubie.model.base import ModelProviderConfigurationError
 from cubie.model.dep_store import DepInstanceStore, ModelDepRequirementsStore
+from cubie.model.errors import ModelProviderConfigurationError
 
 
 def dep_config_error(

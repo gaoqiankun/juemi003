@@ -3,9 +3,9 @@ from __future__ import annotations
 import traceback
 
 from cubie.model.worker import ModelWorker
-from cubie.stage.base import BaseStage
-from cubie.task.sequence import RequestSequence, TaskStatus
-from cubie.vram.allocator import InferenceLease
+from cubie.stage import BaseStage
+from cubie.task import RequestSequence, TaskStatus
+from cubie.vram import InferenceLease
 
 
 class GPUStageMixin:

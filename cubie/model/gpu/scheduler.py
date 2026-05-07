@@ -4,10 +4,12 @@ import asyncio
 from collections import deque
 from contextlib import suppress
 from dataclasses import dataclass
-from typing import Any, Generic, Iterable, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, Iterable, TypeVar
 
-from cubie.core.observability.metrics import initialize_gpu_slots, set_gpu_slot_active
-from cubie.model.gpu import GPUWorkerHandle
+from cubie.core import initialize_gpu_slots, set_gpu_slot_active
+
+if TYPE_CHECKING:
+    from cubie.model.gpu import GPUWorkerHandle
 
 T = TypeVar("T")
 

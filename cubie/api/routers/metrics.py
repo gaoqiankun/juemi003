@@ -6,8 +6,8 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import PlainTextResponse
 
 from cubie.api.helpers.auth import build_require_scoped_api_key
-from cubie.auth.api_key_store import METRICS_SCOPE
-from cubie.core.observability.metrics import render_metrics
+from cubie.auth import METRICS_SCOPE
+from cubie.core import render_metrics
 
 if TYPE_CHECKING:
     from cubie.api.server import AppContainer

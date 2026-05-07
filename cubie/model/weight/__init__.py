@@ -12,6 +12,20 @@ from .deps import DependencyDownloaderMixin
 from .downloader import DownloaderMixin
 from .storage_scan import StorageScannerMixin
 
+__all__ = (
+    "ProviderDependency",
+    "WeightManager",
+    "cache_key",
+    "get_provider_class",
+    "get_provider_deps",
+    "normalize_provider_dependency",
+    "normalize_weight_source",
+    "normalize_weight_source_loose",
+    "prepare_dep_target_dir",
+    "prepare_target_dir",
+    "resolve_provider_dependencies",
+)
+
 
 class _ModelStoreProtocol(Protocol):
     async def update_download_progress(

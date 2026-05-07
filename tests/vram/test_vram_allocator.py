@@ -6,7 +6,7 @@ import asyncio
 
 import pytest
 
-from cubie.vram.allocator import (
+from cubie.vram import (
     InferenceAllocation,
     VRAMAllocator,
     VRAMInsufficientError,

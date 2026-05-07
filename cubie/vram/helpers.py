@@ -4,12 +4,12 @@ from typing import Any
 
 import structlog
 
-from cubie.core.gpu import get_gpu_device_info
+from cubie.core import get_gpu_device_info
 
 _DEFAULT_DEVICE_TOTAL_VRAM_MB = 24 * 1024
 _DEFAULT_WEIGHT_RATIO = 0.75
 
-_logger = structlog.get_logger("cubie.api.server")
+_logger = structlog.get_logger("cubie.vram.helpers")
 
 
 def normalize_vram_mb(value: object) -> int | None:

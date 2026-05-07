@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from cubie.settings.store import SettingsStore
+from cubie.settings import SettingsStore
 
 
 @pytest.fixture()

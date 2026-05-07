@@ -12,12 +12,11 @@ from cubie.api.schemas import (
     AdminHfStatusResponse,
 )
 from cubie.core import hf as _hf_helpers
+from cubie.core import normalize_hf_endpoint, set_hf_endpoint
 from cubie.core.hf import (
     current_hf_endpoint,
     ensure_hf_client_available,
-    normalize_hf_endpoint,
     resolve_hf_status,
-    set_hf_endpoint,
 )
 
 if TYPE_CHECKING:
